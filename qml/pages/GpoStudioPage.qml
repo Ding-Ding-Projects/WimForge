@@ -206,12 +206,12 @@ Item {
                                     Label { text: modelData.control; font.pixelSize: 10; color: Material.accent }
                                     Loader {
                                         Layout.fillWidth: true
-                                        property var elementModel: elementCard.modelData
-                                        sourceComponent: elementModel.control === "Switch" ? switchEditor
-                                                       : elementModel.control === "ComboBox" ? comboEditor
-                                                       : elementModel.control === "SpinBox" && elementModel.numericTextEditor ? numericTextEditor
-                                                       : elementModel.control === "SpinBox" ? spinEditor
-                                                       : elementModel.control === "TextArea" || elementModel.control === "ListEditor" ? areaEditor
+                                        property var editorModel: elementCard.modelData
+                                        sourceComponent: editorModel.control === "Switch" ? switchEditor
+                                                       : editorModel.control === "ComboBox" ? comboEditor
+                                                       : editorModel.control === "SpinBox" && editorModel.numericTextEditor ? numericTextEditor
+                                                       : editorModel.control === "SpinBox" ? spinEditor
+                                                       : editorModel.control === "TextArea" || editorModel.control === "ListEditor" ? areaEditor
                                                        : textEditor
                                     }
                                 }
@@ -239,7 +239,7 @@ Item {
     Component {
         id: switchEditor
         Switch {
-            required property var elementModel
+            readonly property var elementModel: parent ? parent.editorModel : ({})
             text: checked ? root.tr("On", "開") : root.tr("Off", "關")
             Accessible.name: elementModel.label
             checked: elementModel.defaultChecked
@@ -249,7 +249,7 @@ Item {
     Component {
         id: comboEditor
         ComboBox {
-            required property var elementModel
+            readonly property var elementModel: parent ? parent.editorModel : ({})
             model: elementModel.options
             textRole: "label"
             Accessible.name: elementModel.label
@@ -267,7 +267,7 @@ Item {
     Component {
         id: spinEditor
         SpinBox {
-            required property var elementModel
+            readonly property var elementModel: parent ? parent.editorModel : ({})
             from: Math.max(-2147483648, Number(elementModel.minimum))
             to: Math.min(2147483647, Number(elementModel.maximum))
             value: Number(elementModel.defaultValue || 0)
@@ -280,7 +280,7 @@ Item {
     Component {
         id: numericTextEditor
         TextField {
-            required property var elementModel
+            readonly property var elementModel: parent ? parent.editorModel : ({})
             text: elementModel.defaultValue
             maximumLength: 20
             inputMethodHints: Qt.ImhFormattedNumbersOnly
@@ -294,7 +294,7 @@ Item {
     Component {
         id: textEditor
         TextField {
-            required property var elementModel
+            readonly property var elementModel: parent ? parent.editorModel : ({})
             text: elementModel.defaultValue
             maximumLength: elementModel.maximumLength >= 0 ? elementModel.maximumLength : 32767
             placeholderText: root.tr("Value", "值")
@@ -305,7 +305,7 @@ Item {
     Component {
         id: areaEditor
         TextArea {
-            required property var elementModel
+            readonly property var elementModel: parent ? parent.editorModel : ({})
             text: elementModel.defaultValue
             placeholderText: elementModel.control === "ListEditor" ? root.tr("One entry per line", "每行一項") : root.tr("Text", "文字")
             wrapMode: TextEdit.Wrap
