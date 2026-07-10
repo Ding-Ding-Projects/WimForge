@@ -1159,11 +1159,17 @@ void AppController::undoLatestProjectChange()
     const QList<ActionEvent> actions = actionHistory.events(500, &actionError);
     if (actionError.isEmpty()) {
         for (const ActionEvent &event : actions) {
+            if (!event.isAction() && !event.isCompensation())
+                continue;
             QString effectiveError;
-            if (event.isAction() && actionHistory.isEffective(event.id, &effectiveError)) {
+            const bool effective = actionHistory.isEffective(event.id, &effectiveError);
+            if (!effectiveError.isEmpty())
+                continue;
+            if (effective)
                 undoHistoryEvent(event.id);
-                return;
-            }
+            else
+                redoHistoryEvent(event.id);
+            return;
         }
     }
 
@@ -1234,11 +1240,17 @@ void AppController::undoContext(const QString &contextKey, const QString &elemen
         return;
     }
     for (const ActionEvent &event : events) {
+        if (!event.isAction() && !event.isCompensation())
+            continue;
         QString effectiveError;
-        if (event.isAction() && history.isEffective(event.id, &effectiveError)) {
+        const bool effective = history.isEffective(event.id, &effectiveError);
+        if (!effectiveError.isEmpty())
+            continue;
+        if (effective)
             undoHistoryEvent(event.id);
-            return;
-        }
+        else
+            redoHistoryEvent(event.id);
+        return;
     }
     if (!contextKey.trimmed().isEmpty()) {
         const QList<ActionEvent> all = history.events(500, &error);
@@ -1247,11 +1259,17 @@ void AppController::undoContext(const QString &contextKey, const QString &elemen
             return;
         }
         for (const ActionEvent &event : all) {
+            if (!event.isAction() && !event.isCompensation())
+                continue;
             QString effectiveError;
-            if (event.isAction() && history.isEffective(event.id, &effectiveError)) {
+            const bool effective = history.isEffective(event.id, &effectiveError);
+            if (!effectiveError.isEmpty())
+                continue;
+            if (effective)
                 undoHistoryEvent(event.id);
-                return;
-            }
+            else
+                redoHistoryEvent(event.id);
+            return;
         }
     }
     emit snackbarRequested(localized(QStringLiteral("Nothing undoable in this context yet."),
