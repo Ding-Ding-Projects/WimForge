@@ -14,11 +14,30 @@ WIKI_LINK = re.compile(
     r"(?P<fragment>#[^)\s]+)?"
     r"(?P<suffix>\))"
 )
+WIKI_INDEX_MARKER = "<!-- WIMFORGE_WIKI_INDEX -->"
+
+
+def wiki_page_index() -> str:
+    """Build the Pages wiki directory from the canonical mirror automatically."""
+    pages: list[tuple[str, str]] = []
+    for path in sorted((ROOT / "docs" / "wiki").glob("*.md")):
+        if path.stem.startswith("_"):
+            continue
+        content = path.read_text(encoding="utf-8")
+        heading = re.search(r"^#\s+(.+?)\s*$", content, re.MULTILINE)
+        title = heading.group(1) if heading else path.stem.replace("-", " ")
+        pages.append((title, path.name))
+
+    pages.sort(key=lambda page: (page[1] != "Home.md", page[0].casefold()))
+    return "\n".join(f"- [{title}](wiki/{name})" for title, name in pages)
 
 
 def on_page_markdown(markdown: str, page, **kwargs) -> str:
     """Append .md to Wiki-style page slugs only for the Material site build."""
-    if not page.file.src_uri.replace("\\", "/").startswith("wiki/"):
+    source_uri = page.file.src_uri.replace("\\", "/")
+    if source_uri == "wiki.md":
+        return markdown.replace(WIKI_INDEX_MARKER, wiki_page_index())
+    if not source_uri.startswith("wiki/"):
         return markdown
 
     def replace(match: re.Match[str]) -> str:

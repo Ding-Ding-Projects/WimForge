@@ -84,6 +84,9 @@ markdown_extensions:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - javascripts/wiki-search.js
+
 extra:
   social:
     - icon: fontawesome/brands/github
@@ -97,6 +100,7 @@ nav:
   - Home: index.md
   - Get started:
       - Documentation hub: wiki/Home.md
+      - Search the wiki: wiki-search.md
       - Overview: wiki/Getting-Started.md
       - Application tour: wiki/Application-Tour.md
       - Projects and sources: wiki/Projects-and-Sources.md
@@ -134,4 +138,4 @@ nav:
       - Building and releases: wiki/Building-and-Releases.md
       - Release design: release-design.md
       - Contributing: wiki/Contributing.md
-  - GitHub Wiki: https://github.com/codingmachineedge/WimForge/wiki
+  - Wiki: wiki.md

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codingmachineedge.github.io/WimForge/assets/wiki-regex-builder.schema.json",
+  "title": "WimForge wiki regex builder project",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "name", "description", "pattern", "flags", "scope", "testText"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "const": "wimforge-wiki-regex"
+    },
+    "version": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 240
+    },
+    "pattern": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "flags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["i", "m", "s", "u"]
+      }
+    },
+    "scope": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["pageTitle", "heading", "content", "path"]
+      }
+    },
+    "testText": {
+      "type": "string",
+      "maxLength": 50000
+    }
+  }
+}

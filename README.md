@@ -4,7 +4,7 @@ WimForge is a standalone, open-source Windows image customization studio built w
 
 It is an independent alternative to tools such as NTLite. WimForge is not affiliated with or endorsed by NTLite, and this early release does not claim one-for-one parity with a mature commercial product. Its distinguishing contract is that configuration changes remain inspectable, Git-backed, portable, and reversible.
 
-[Open the Material documentation](https://codingmachineedge.github.io/WimForge/) · [Read the live Wiki](https://github.com/codingmachineedge/WimForge/wiki) · [Browse Windows releases](https://github.com/codingmachineedge/WimForge/releases) · [Report an issue](https://github.com/codingmachineedge/WimForge/issues)
+[Open the Material documentation](https://codingmachineedge.github.io/WimForge/) · [Read the full searchable Wiki](https://codingmachineedge.github.io/WimForge/wiki/) · [Browse Windows releases](https://github.com/codingmachineedge/WimForge/releases) · [Report an issue](https://github.com/codingmachineedge/WimForge/issues)
 
 ## A tour of the app
 
@@ -200,6 +200,7 @@ Read the expanded [NTLite Feature Comparison](docs/wiki/NTLite-Feature-Compariso
 ## Documentation map
 
 - [Material documentation site](https://codingmachineedge.github.io/WimForge/)
+- [Search the full Wiki](https://codingmachineedge.github.io/WimForge/wiki-search/)
 - [Application Tour](docs/wiki/Application-Tour.md)
 - [Getting Started](docs/wiki/Getting-Started.md)
 - [Projects and Sources](docs/wiki/Projects-and-Sources.md)

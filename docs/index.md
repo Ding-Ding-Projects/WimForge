@@ -127,7 +127,8 @@ including the Git history needed for recovery and inspection.
 </div>
 
 [Open the complete screenshot gallery](gallery.md){ .md-button }
-[Browse the GitHub Wiki](https://github.com/codingmachineedge/WimForge/wiki){ .md-button }
+[Browse the full wiki](wiki.md){ .md-button }
+[Search the wiki](wiki-search.md){ .md-button }
 
 ## Choose your next stop
 
