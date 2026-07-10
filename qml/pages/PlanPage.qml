@@ -16,6 +16,8 @@ Item {
         if (status === "done") return root.tr("Completed", "已完成")
         if (status === "failed") return root.tr("Failed", "失敗")
         if (status === "skipped") return root.tr("Skipped", "已略過")
+        if (status === "blocked") return root.tr("Blocked", "已封鎖")
+        if (status === "cancelled") return root.tr("Cancelled", "已取消")
         return root.tr("Queued", "排隊中")
     }
 
@@ -24,7 +26,13 @@ Item {
         if (status === "done") return "✓"
         if (status === "failed") return "!"
         if (status === "skipped") return "–"
+        if (status === "blocked") return "⊘"
+        if (status === "cancelled") return "×"
         return String(index + 1)
+    }
+
+    function detailLabel(en, zh, value) {
+        return root.tr(en, zh) + ": " + value
     }
 
     ColumnLayout {
@@ -107,7 +115,8 @@ Item {
                         width: 38; height: 38; radius: 12
                         color: modelData.status === "running" ? Material.accent
                              : modelData.status === "done" ? root.successFill
-                             : modelData.status === "failed" ? (Material.theme === Material.Dark ? "#8C1D18" : "#BA1A1A")
+                             : (modelData.status === "failed" || modelData.status === "blocked") ? (Material.theme === Material.Dark ? "#8C1D18" : "#BA1A1A")
+                             : modelData.status === "cancelled" ? (Material.theme === Material.Dark ? "#7A5A20" : "#8B5000")
                              : (Material.theme === Material.Dark ? "#36343B" : "#E7E0EC")
                         Accessible.name: root.statusText(modelData.status)
                         Label {
@@ -130,7 +139,7 @@ Item {
                             columns: planList.width >= 700 ? 4 : 1
                             columnSpacing: 8
                             rowSpacing: 2
-                            Label { text: "● " + root.statusText(modelData.status); color: modelData.status === "failed" ? root.errorText : Material.accent; font.weight: Font.DemiBold; font.pixelSize: 10 }
+                            Label { text: "● " + root.statusText(modelData.status); color: (modelData.status === "failed" || modelData.status === "blocked") ? root.errorText : (modelData.status === "cancelled" ? root.warningText : Material.accent); font.weight: Font.DemiBold; font.pixelSize: 10 }
                             Label { visible: modelData.admin; text: "🛡 " + root.tr("Admin", "管理員"); color: root.warningText; font.pixelSize: 10 }
                             Label { visible: modelData.destructive; text: "⚠ " + root.tr("Destructive", "有破壞性"); color: root.errorText; font.pixelSize: 10 }
                             Label { visible: modelData.reboot; text: "↻ " + root.tr("Reboot", "要重開"); font.pixelSize: 10 }
@@ -140,6 +149,24 @@ Item {
                             text: modelData.description
                             wrapMode: Text.Wrap
                             color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Label { text: root.detailLabel("Scope", "範圍", modelData.writeScope); font.pixelSize: 10 }
+                            Label { text: root.detailLabel("Dependencies", "依賴", modelData.dependsOn.length); font.pixelSize: 10 }
+                            Label { text: modelData.checkpointRequired ? root.tr("Checkpoint required", "需要檢查點") : root.tr("No checkpoint", "毋須檢查點"); font.pixelSize: 10 }
+                            Label { text: modelData.parallelEligible ? root.tr("Parallel eligible", "可平行") : root.tr("Serialized", "順序執行"); font.pixelSize: 10 }
+                            Label { text: modelData.reversible ? root.tr("Reversible", "可復原") : root.tr("Not reversible", "不可復原"); font.pixelSize: 10; color: modelData.reversible ? Material.accent : root.warningText }
+                            Label { text: root.detailLabel("Skip effect", "略過影響", modelData.skipConsequence); font.pixelSize: 10; color: modelData.skipConsequence === "omits-optional-change" ? Material.accent : root.warningText }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: modelData.compatibilityNotes.length > 0
+                            text: root.tr("Compatibility: ", "相容性：") + modelData.compatibilityNotes.join(" • ")
+                            wrapMode: Text.Wrap
+                            font.pixelSize: 10
+                            color: root.warningText
                         }
                         Label {
                             Layout.fillWidth: true
@@ -162,7 +189,11 @@ Item {
                             MenuItem { text: "↑  " + root.tr("Move earlier", "移前") ; onTriggered: app.moveOperation(index, -1) }
                             MenuItem { text: "↓  " + root.tr("Move later", "移後"); onTriggered: app.moveOperation(index, 1) }
                             MenuSeparator {}
-                            MenuItem { text: modelData.status === "skipped" ? "↺  " + root.tr("Restore operation", "還原工序") : "×  " + root.tr("Skip optional operation", "略過可選工序"); onTriggered: app.skipOperation(index) }
+                            MenuItem {
+                                text: modelData.status === "skipped" ? "↺  " + root.tr("Restore operation", "還原工序") : "×  " + root.tr("Skip optional operation", "略過可選工序")
+                                enabled: !app.busy && (modelData.status === "skipped" || modelData.skipConsequence === "omits-optional-change")
+                                onTriggered: app.skipOperation(index)
+                            }
                         }
                     }
                 }

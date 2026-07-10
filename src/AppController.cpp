@@ -381,16 +381,15 @@ QVariantList AppController::operationPlan() const
 {
     QVariantList result;
     for (const ServicingOperation &operation : m_plan) {
-        result.append(QVariantMap{
-            {QStringLiteral("id"), operation.id},
-            {QStringLiteral("title"), localized(operation.titleEn, operation.titleZh)},
-            {QStringLiteral("description"), localized(operation.descriptionEn, operation.descriptionZh)},
-            {QStringLiteral("command"), operation.previewCommand()},
-            {QStringLiteral("admin"), operation.requiresAdministrator},
-            {QStringLiteral("destructive"), operation.destructive},
-            {QStringLiteral("reboot"), operation.rebootRequired},
-            {QStringLiteral("status"), ServicingPlan::operationStateName(operation.state)},
-        });
+        QVariantMap item = operation.toJson().toVariantMap();
+        item.insert(QStringLiteral("title"), localized(operation.titleEn, operation.titleZh));
+        item.insert(QStringLiteral("description"),
+                    localized(operation.descriptionEn, operation.descriptionZh));
+        item.insert(QStringLiteral("command"), operation.previewCommand());
+        item.insert(QStringLiteral("admin"), operation.requiresAdministrator);
+        item.insert(QStringLiteral("reboot"), operation.rebootRequired);
+        item.insert(QStringLiteral("status"), ServicingPlan::operationStateName(operation.state));
+        result.append(item);
     }
     return result;
 }
@@ -1097,14 +1096,9 @@ void AppController::moveOperation(int index, int offset)
 void AppController::skipOperation(int index)
 {
     if (index < 0 || index >= m_plan.size() || busy()) return;
-    const OperationKind kind = m_plan.at(index).kind;
-    const QSet<OperationKind> optionalKinds{
-        OperationKind::Driver, OperationKind::Package, OperationKind::Feature,
-        OperationKind::Capability, OperationKind::Appx, OperationKind::Component,
-        OperationKind::Registry, OperationKind::Unattended, OperationKind::PostSetup,
-        OperationKind::Cleanup,
-    };
-    if (!optionalKinds.contains(kind)) {
+    const ServicingOperation &operation = m_plan.at(index);
+    if (operation.state != OperationState::Skipped
+        && operation.skipConsequence != SkipConsequence::OmitsOptionalChange) {
         showError(localized(QStringLiteral("That operation is a safety or image-structure dependency and cannot be skipped."),
                             QStringLiteral("嗰項係安全／映像結構依賴，唔可以略過。")));
         return;

@@ -1071,26 +1071,18 @@ CliResult runConfigCommand(const CommandContext &context, QStringList arguments)
 
 QJsonObject operationToJson(const ServicingOperation &operation)
 {
-    return QJsonObject{
-        {QStringLiteral("arguments"), stringsToJson(operation.arguments)},
-        {QStringLiteral("checkpointBefore"), operation.checkpointBefore},
-        {QStringLiteral("command"), operation.previewCommand()},
-        {QStringLiteral("dependsOn"), stringsToJson(operation.dependsOn)},
-        {QStringLiteral("description"), operation.descriptionEn},
-        {QStringLiteral("descriptionZhHk"), operation.descriptionZh},
-        {QStringLiteral("destructive"), operation.destructive},
-        {QStringLiteral("executable"), operation.executable},
-        {QStringLiteral("id"), operation.id},
-        {QStringLiteral("kind"), ServicingPlan::operationKindName(operation.kind)},
-        {QStringLiteral("mayRunInParallel"), operation.mayRunInParallel},
-        {QStringLiteral("metadata"), operation.metadata},
-        {QStringLiteral("rebootRequired"), operation.rebootRequired},
-        {QStringLiteral("requiresAdministrator"), operation.requiresAdministrator},
-        {QStringLiteral("title"), operation.titleEn},
-        {QStringLiteral("titleZhHk"), operation.titleZh},
-        {QStringLiteral("workingDirectory"), operation.workingDirectory},
-        {QStringLiteral("writesMountedImage"), operation.writesMountedImage},
-    };
+    QJsonObject result = operation.toJson();
+    result.insert(QStringLiteral("checkpointBefore"), operation.checkpointBefore);
+    result.insert(QStringLiteral("command"), operation.previewCommand());
+    result.insert(QStringLiteral("description"), operation.descriptionEn);
+    result.insert(QStringLiteral("descriptionZhHk"), operation.descriptionZh);
+    result.insert(QStringLiteral("mayRunInParallel"), operation.mayRunInParallel);
+    result.insert(QStringLiteral("rebootRequired"), operation.rebootRequired);
+    result.insert(QStringLiteral("requiresAdministrator"), operation.requiresAdministrator);
+    result.insert(QStringLiteral("title"), operation.titleEn);
+    result.insert(QStringLiteral("titleZhHk"), operation.titleZh);
+    result.insert(QStringLiteral("writesMountedImage"), operation.writesMountedImage);
+    return result;
 }
 
 QJsonArray operationsToJson(const QList<ServicingOperation> &operations)

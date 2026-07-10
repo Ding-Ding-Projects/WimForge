@@ -41,6 +41,13 @@ wimforge_add_core_test(opencode_setup_tests
     CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/OpenCodeSetup.cpp
 )
 
+wimforge_add_core_test(qml_contract_tests
+    SOURCES qml_contract_tests.cpp
+)
+target_compile_definitions(qml_contract_tests PRIVATE
+    WIMFORGE_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+)
+
 wimforge_add_core_test(unattend_builder_tests
     SOURCES unattend_builder_tests.cpp
     CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/UnattendBuilder.cpp
