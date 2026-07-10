@@ -94,6 +94,14 @@ wimforge_add_core_test(winforge_bridge_tests
     CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/WinForgeBridge.cpp
 )
 
+wimforge_add_core_test(vm_lab_tests
+    SOURCES vm_lab_tests.cpp
+    CORE_SOURCES
+        ${PROJECT_SOURCE_DIR}/src/core/VmLab.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/VmLabProviders.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/VmLabVmx.cpp
+)
+
 wimforge_add_core_test(cli_runner_tests
     SOURCES cli_runner_tests.cpp
     CORE_SOURCES

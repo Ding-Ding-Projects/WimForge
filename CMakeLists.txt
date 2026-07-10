@@ -42,6 +42,12 @@ set(WIMFORGE_CORE_SOURCES
     src/core/ServicingPlan.h
     src/core/UnattendBuilder.cpp
     src/core/UnattendBuilder.h
+    src/core/VmLab.cpp
+    src/core/VmLab.h
+    src/core/VmLabProviders.cpp
+    src/core/VmLabProviders.h
+    src/core/VmLabVmx.cpp
+    src/core/VmLabVmx.h
     src/core/WinForgeBridge.cpp
     src/core/WinForgeBridge.h
 )
