@@ -1,0 +1,852 @@
+{
+    "description": "Windows AI-development workstation with compilers, runtimes, containers, editors, and AI coding tools.",
+    "name": "Full AI Development",
+    "networkMode": "online",
+    "networkWaitSeconds": 900,
+    "packages": [
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Version control and Git Bash for Windows development tools.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "The Git Development Community",
+            "expectedSha256": "",
+            "homepage": "https://gitforwindows.org/",
+            "id": "git",
+            "license": "GPL-2.0",
+            "name": "Git for Windows",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Git.Git",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Git.Git",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+                "git"
+            ],
+            "description": "Large-file support for model, asset, and dataset repositories.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "GitHub, Inc.",
+            "expectedSha256": "",
+            "homepage": "https://git-lfs.com/",
+            "id": "git-lfs",
+            "license": "MIT",
+            "name": "Git LFS",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "GitHub.GitLFS",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "GitHub.GitLFS",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Long-term-support Node.js runtime, including npm.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Node.js Foundation",
+            "expectedSha256": "",
+            "homepage": "https://nodejs.org/",
+            "id": "nodejs-lts",
+            "license": "MIT",
+            "name": "Node.js LTS and npm",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "OpenJS.NodeJS.LTS",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "OpenJS.NodeJS.LTS",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Python 3.13 runtime, launcher, and pip.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Python Software Foundation",
+            "expectedSha256": "",
+            "homepage": "https://www.python.org/",
+            "id": "python-3.13",
+            "license": "PSF-2.0",
+            "name": "Python 3.13",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Python.Python.3.13",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Python.Python.3.13",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Current .NET SDK and command-line build toolchain.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Microsoft Corporation",
+            "expectedSha256": "",
+            "homepage": "https://dotnet.microsoft.com/",
+            "id": "dotnet-sdk-10",
+            "license": "MIT",
+            "name": ".NET SDK 10",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Microsoft.DotNet.SDK.10",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Microsoft.DotNet.SDK.10",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Long-term-support OpenJDK distribution.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Eclipse Adoptium",
+            "expectedSha256": "",
+            "homepage": "https://adoptium.net/",
+            "id": "temurin-jdk-21",
+            "license": "GPL-2.0 with Classpath Exception",
+            "name": "Eclipse Temurin JDK 21",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "EclipseAdoptium.Temurin.21.JDK",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "EclipseAdoptium.Temurin.21.JDK",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Go compiler, module tooling, formatter, and standard library.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "The Go Authors",
+            "expectedSha256": "",
+            "homepage": "https://go.dev/",
+            "id": "go",
+            "license": "BSD-3-Clause",
+            "name": "Go toolchain",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "GoLang.Go",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "GoLang.Go",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Rust toolchain manager used by native AI and systems projects.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "The Rust Project Developers",
+            "expectedSha256": "",
+            "homepage": "https://rustup.rs/",
+            "id": "rustup",
+            "license": "Apache-2.0 OR MIT",
+            "name": "Rustup and Rust toolchain",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Rustlang.Rustup",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Rustlang.Rustup",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Clang/LLVM compiler suite and native developer utilities.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "LLVM Project",
+            "expectedSha256": "",
+            "homepage": "https://llvm.org/",
+            "id": "llvm",
+            "license": "Apache-2.0 with LLVM exceptions",
+            "name": "LLVM and Clang",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "LLVM.LLVM",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "LLVM.LLVM",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Cross-platform native build generator.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Kitware",
+            "expectedSha256": "",
+            "homepage": "https://cmake.org/",
+            "id": "cmake",
+            "license": "BSD-3-Clause",
+            "name": "CMake",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Kitware.CMake",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Kitware.CMake",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Fast build executor used by CMake and native toolchains.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Ninja contributors",
+            "expectedSha256": "",
+            "homepage": "https://ninja-build.org/",
+            "id": "ninja",
+            "license": "Apache-2.0",
+            "name": "Ninja build",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Ninja-build.Ninja",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Ninja-build.Ninja",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+                "cmake"
+            ],
+            "description": "MSVC, Windows SDK, CMake integration, and recommended C++ build dependencies.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Microsoft Corporation",
+            "expectedSha256": "",
+            "homepage": "https://visualstudio.microsoft.com/",
+            "id": "vs-build-tools-2022",
+            "license": "Proprietary",
+            "name": "Visual Studio 2022 Build Tools",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Microsoft.VisualStudio.2022.BuildTools",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+                "--wait",
+                "--passive",
+                "--norestart",
+                "--add",
+                "Microsoft.VisualStudio.Workload.VCTools",
+                "--includeRecommended"
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Microsoft.VisualStudio.2022.BuildTools",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Desktop code editor for the prepared toolchains.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Microsoft Corporation",
+            "expectedSha256": "",
+            "homepage": "https://code.visualstudio.com/",
+            "id": "vscode",
+            "license": "Microsoft Software License",
+            "name": "Visual Studio Code",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Microsoft.VisualStudioCode",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Microsoft.VisualStudioCode",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Modern cross-platform automation shell.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Microsoft Corporation",
+            "expectedSha256": "",
+            "homepage": "https://github.com/PowerShell/PowerShell",
+            "id": "powershell",
+            "license": "MIT",
+            "name": "PowerShell 7",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Microsoft.PowerShell",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Microsoft.PowerShell",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Common archive formats and command-line extraction support.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Igor Pavlov",
+            "expectedSha256": "",
+            "homepage": "https://www.7-zip.org/",
+            "id": "7zip",
+            "license": "LGPL-2.1-or-later",
+            "name": "7-Zip",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "7zip.7zip",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "7zip.7zip",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Desktop container engine; Windows virtualization requirements still apply.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Docker Inc.",
+            "expectedSha256": "",
+            "homepage": "https://www.docker.com/products/docker-desktop/",
+            "id": "docker-desktop",
+            "license": "Docker Subscription Service Agreement",
+            "name": "Docker Desktop",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Docker.DockerDesktop",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Docker.DockerDesktop",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "any",
+            "dependencies": [
+                "nodejs-lts"
+            ],
+            "description": "Open-source AI coding agent for the terminal.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Anomaly",
+            "expectedSha256": "",
+            "homepage": "https://opencode.ai/",
+            "id": "opencode-cli",
+            "installCommand": {
+                "arguments": [
+                    "install",
+                    "-g",
+                    "opencode-ai@latest"
+                ],
+                "executable": "npm.cmd"
+            },
+            "license": "MIT",
+            "name": "OpenCode CLI",
+            "notes": "Install-if-missing verification runs before npm on every resumable pass.",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "opencode-ai",
+            "provider": "npm",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "--version"
+                ],
+                "executable": "opencode"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Optional vendor desktop release supplied by the ISO author.",
+            "downloadUrl": "",
+            "enabled": false,
+            "expectedPublisher": "",
+            "expectedSha256": "",
+            "homepage": "https://opencode.ai/download",
+            "id": "opencode-desktop",
+            "license": "MIT",
+            "name": "OpenCode Desktop (optional offline payload)",
+            "notes": "Disabled until the user selects a current signed vendor asset and records its SHA256 and signer.",
+            "offlinePayload": "payloads/opencode-desktop/OpenCode-Desktop.exe",
+            "optional": true,
+            "packageIdentifier": "",
+            "provider": "offline-payload",
+            "requiresNetwork": false,
+            "scope": "user",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "https://github.com/anomalyco/opencode/releases/latest",
+            "version": "latest"
+        },
+        {
+            "architecture": "any",
+            "dependencies": [
+                "nodejs-lts"
+            ],
+            "description": "OpenAI coding agent command-line client.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "OpenAI",
+            "expectedSha256": "",
+            "homepage": "https://github.com/openai/codex",
+            "id": "codex-cli",
+            "installCommand": {
+                "arguments": [
+                    "install",
+                    "-g",
+                    "@openai/codex"
+                ],
+                "executable": "npm.cmd"
+            },
+            "license": "Apache-2.0",
+            "name": "OpenAI Codex CLI",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "@openai/codex",
+            "provider": "npm",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "--version"
+                ],
+                "executable": "codex"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Optional official Codex desktop app supplied by the ISO author.",
+            "downloadUrl": "",
+            "enabled": false,
+            "expectedPublisher": "",
+            "expectedSha256": "",
+            "homepage": "https://developers.openai.com/codex/app",
+            "id": "codex-desktop",
+            "license": "Proprietary",
+            "name": "OpenAI Codex app (optional official payload)",
+            "notes": "Disabled until the user supplies a current official Windows asset, SHA256, signer, and reviewed silent-install switches; no download URL is guessed.",
+            "offlinePayload": "payloads/codex-desktop/Codex-Setup.exe",
+            "optional": true,
+            "packageIdentifier": "",
+            "provider": "offline-payload",
+            "requiresNetwork": false,
+            "scope": "user",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "https://github.com/openai/codex/releases/latest",
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+                "git"
+            ],
+            "description": "Anthropic's native Windows agentic coding CLI.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Anthropic PBC",
+            "expectedSha256": "",
+            "homepage": "https://www.anthropic.com/claude-code",
+            "id": "claude-code",
+            "license": "Proprietary",
+            "name": "Claude Code",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Anthropic.ClaudeCode",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "machine",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "--version"
+                ],
+                "executable": "claude"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Anthropic's Windows desktop client.",
+            "downloadUrl": "",
+            "enabled": true,
+            "expectedPublisher": "Anthropic, PBC",
+            "expectedSha256": "",
+            "homepage": "https://claude.ai/download",
+            "id": "claude-desktop",
+            "license": "Proprietary",
+            "name": "Claude Desktop",
+            "notes": "",
+            "offlinePayload": "",
+            "optional": false,
+            "packageIdentifier": "Anthropic.Claude",
+            "provider": "winget",
+            "requiresNetwork": true,
+            "scope": "user",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "",
+            "verifyCommand": {
+                "arguments": [
+                    "list",
+                    "--id",
+                    "Anthropic.Claude",
+                    "-e",
+                    "--source",
+                    "winget",
+                    "--accept-source-agreements",
+                    "--disable-interactivity"
+                ],
+                "executable": "winget.exe"
+            },
+            "version": "latest"
+        },
+        {
+            "architecture": "x64",
+            "dependencies": [
+            ],
+            "description": "Optional official ChatGPT Windows app; no unverified WinGet ID is used.",
+            "downloadUrl": "",
+            "enabled": false,
+            "expectedPublisher": "",
+            "expectedSha256": "",
+            "homepage": "https://openai.com/chatgpt/desktop/",
+            "id": "chatgpt-desktop",
+            "license": "Proprietary",
+            "name": "ChatGPT Desktop (optional Store/vendor payload)",
+            "notes": "Disabled until an official Microsoft Store or OpenAI payload, SHA256, signer, and silent install command are supplied.",
+            "offlinePayload": "payloads/chatgpt-desktop/ChatGPT.msixbundle",
+            "optional": true,
+            "packageIdentifier": "",
+            "provider": "offline-payload",
+            "requiresNetwork": false,
+            "scope": "user",
+            "silentArguments": [
+            ],
+            "vendorReleasePage": "https://apps.microsoft.com/detail/9nt1r1c2hh7j",
+            "version": "latest"
+        }
+    ],
+    "retryCount": 4,
+    "schema": "wimforge.package-studio",
+    "version": 1
+}

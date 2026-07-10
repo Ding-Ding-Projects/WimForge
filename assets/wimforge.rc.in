@@ -1,0 +1,36 @@
+#include <windows.h>
+
+IDI_ICON1 ICON DISCARDABLE "@CMAKE_CURRENT_SOURCE_DIR@/assets/app-icon.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @WIMFORGE_VERSION_COMMA@,0
+ PRODUCTVERSION @WIMFORGE_VERSION_COMMA@,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "WimForge contributors\0"
+            VALUE "FileDescription", "WimForge Windows Image Studio\0"
+            VALUE "FileVersion", "@WIMFORGE_BUILD_VERSION@\0"
+            VALUE "InternalName", "WimForge\0"
+            VALUE "LegalCopyright", "MIT License\0"
+            VALUE "OriginalFilename", "WimForge.exe\0"
+            VALUE "ProductName", "WimForge\0"
+            VALUE "ProductVersion", "@WIMFORGE_BUILD_VERSION@\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

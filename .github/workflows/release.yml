@@ -1,0 +1,244 @@
+name: Build and release WimForge
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Each push gets a distinct run_id and run_number, so different main commits
+# are never coalesced. The group only prevents two attempts of the same run
+# from racing over its one release tag.
+concurrency:
+  group: wimforge-release-${{ github.run_id }}
+  cancel-in-progress: false
+
+# All unspecified token permissions are disabled. The release job needs only
+# repository contents write access to create its tag and GitHub Release.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Windows x64 installer and portable release
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      RELEASE_VERSION: 0.1.${{ github.run_number }}
+      RELEASE_TAG: v0.1.${{ github.run_number }}
+
+    steps:
+      - name: Check out the triggering commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up the MSVC build environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+        with:
+          version: '6.8.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: false
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --no-progress --yes
+
+      - name: Build, test, and package
+        shell: pwsh
+        run: |
+          ./scripts/build-release.ps1 `
+            -Version $env:RELEASE_VERSION `
+            -BuildDirectory "build/release" `
+            -OutputDirectory "dist"
+
+      # Release assets go directly from the runner workspace into a temporary
+      # draft release. Nothing is uploaded to the Actions artifact service.
+      # Publishing only after both uploads validate prevents a partial public
+      # release. The recovery path also makes a failed run safe to re-run.
+      - name: Publish final GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $repository = '${{ github.repository }}'
+          $commit = '${{ github.sha }}'
+          $tag = $env:RELEASE_TAG
+          $version = $env:RELEASE_VERSION
+          $setup = (Resolve-Path "dist/WimForge-Setup-x64-$version.exe").Path
+          $portable = (Resolve-Path "dist/WimForge-portable-x64-$version.zip").Path
+          $expectedAssets = @(
+            "WimForge-Setup-x64-$version.exe",
+            "WimForge-portable-x64-$version.zip"
+          )
+          $expectedDigests = @{
+            $expectedAssets[0] = 'sha256:' + (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+            $expectedAssets[1] = 'sha256:' + (Get-FileHash -LiteralPath $portable -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+
+          function Get-ReleaseForTag {
+            $json = (& gh api "repos/$repository/releases/tags/$tag" 2>$null) -join "`n"
+            if ($LASTEXITCODE -ne 0) { return $null }
+            return $json | ConvertFrom-Json
+          }
+
+          function Get-TagCommit {
+            $json = (& gh api "repos/$repository/git/ref/tags/$tag" 2>$null) -join "`n"
+            if ($LASTEXITCODE -ne 0) { return $null }
+            $object = ($json | ConvertFrom-Json).object
+            if ($object.type -eq 'commit') { return [string] $object.sha }
+            if ($object.type -eq 'tag') {
+              $tagJson = (& gh api "repos/$repository/git/tags/$($object.sha)" 2>$null) -join "`n"
+              if ($LASTEXITCODE -ne 0) { throw "Unable to resolve annotated tag $tag" }
+              $tagObject = ($tagJson | ConvertFrom-Json).object
+              if ($tagObject.type -eq 'commit') { return [string] $tagObject.sha }
+            }
+            throw "Release tag $tag does not resolve directly to a commit"
+          }
+
+          function Assert-ReleaseContract {
+            param(
+              [Parameter(Mandatory)] $Release,
+              [Parameter(Mandatory)] [bool] $RequirePublished,
+              [Parameter(Mandatory)] [bool] $VerifyLocalDigests
+            )
+
+            if ($RequirePublished -and $Release.draft) {
+              throw "Release $tag is still a draft"
+            }
+            if ($Release.prerelease) {
+              throw "Release $tag is marked as a prerelease"
+            }
+
+            $assets = @($Release.assets)
+            if ($assets.Count -ne $expectedAssets.Count) {
+              throw "Release $tag must contain exactly two direct assets; found $($assets.Count)"
+            }
+            $actualNames = @($assets | ForEach-Object name)
+            foreach ($assetName in $expectedAssets) {
+              if ($assetName -notin $actualNames) {
+                throw "Release asset missing: $assetName"
+              }
+            }
+            if (@($assets | Where-Object state -ne 'uploaded').Count -ne 0) {
+              throw 'One or more release assets did not finish uploading'
+            }
+            if (@($assets | Where-Object { [long] $_.size -le 0 }).Count -ne 0) {
+              throw 'One or more release assets are empty'
+            }
+            if ($VerifyLocalDigests) {
+              foreach ($assetName in $expectedAssets) {
+                $asset = @($assets | Where-Object name -eq $assetName)[0]
+                $digestProperty = $asset.PSObject.Properties['digest']
+                if (-not $digestProperty -or [string]::IsNullOrWhiteSpace([string] $digestProperty.Value)) {
+                  throw "GitHub did not return a digest for release asset: $assetName"
+                }
+                if ([string] $digestProperty.Value -ne $expectedDigests[$assetName]) {
+                  throw "Uploaded digest does not match the local file: $assetName"
+                }
+              }
+            }
+          }
+
+          $existingTagCommit = Get-TagCommit
+          if ($existingTagCommit -and $existingTagCommit -ne $commit) {
+            throw "Tag collision: $tag already points to $existingTagCommit instead of $commit"
+          }
+
+          # A completed retry is idempotent. An interrupted draft with two
+          # valid uploads can be published without uploading the files again.
+          $existingRelease = Get-ReleaseForTag
+          if ($existingRelease) {
+            $existingIsValid = $true
+            try {
+              Assert-ReleaseContract -Release $existingRelease -RequirePublished $false -VerifyLocalDigests $true
+            } catch {
+              $existingIsValid = $false
+              Write-Warning "Replacing an incomplete release: $($_.Exception.Message)"
+            }
+
+            if ($existingIsValid) {
+              if ($existingRelease.draft) {
+                if ([string] $existingRelease.target_commitish -ne $commit) {
+                  throw "Recovered draft $tag targets $($existingRelease.target_commitish) instead of $commit"
+                }
+                & gh release edit $tag --repo $repository --draft=false
+                if ($LASTEXITCODE -ne 0) { throw "Unable to publish recovered draft $tag" }
+              }
+              $published = Get-ReleaseForTag
+              Assert-ReleaseContract -Release $published -RequirePublished $true -VerifyLocalDigests $true
+              if ((Get-TagCommit) -ne $commit) {
+                throw "Release tag $tag does not point to the triggering commit"
+              }
+              Write-Host "Release $tag already satisfies the final contract."
+              exit 0
+            }
+
+            & gh release delete $tag --repo $repository --yes --cleanup-tag
+            if ($LASTEXITCODE -ne 0) { throw "Unable to remove incomplete release $tag" }
+          }
+
+          $notes = @"
+          Automated Windows x64 build of commit $commit.
+
+          Direct release assets:
+          - WimForge-Setup-x64-$version.exe - per-user Inno Setup installer
+          - WimForge-portable-x64-$version.zip - self-contained portable Qt application
+
+          WimForge orchestrates offline Windows image servicing with Windows DISM command-line tools.
+          "@
+
+          try {
+            & gh release create $tag `
+              "$setup#Windows x64 installer" `
+              "$portable#Windows x64 portable package" `
+              --repo $repository `
+              --target $commit `
+              --title "WimForge $tag" `
+              --notes $notes `
+              --draft
+            if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+
+            $draft = Get-ReleaseForTag
+            if (-not $draft -or -not $draft.draft) {
+              throw "Expected $tag to remain a draft during validation"
+            }
+            Assert-ReleaseContract -Release $draft -RequirePublished $false -VerifyLocalDigests $true
+            # GitHub may defer creation of a new Git ref until a draft is
+            # published, so validate target_commitish while it is still a
+            # draft and validate the concrete tag immediately after publish.
+            if ([string] $draft.target_commitish -ne $commit -and
+                (Get-TagCommit) -ne $commit) {
+              throw "Draft $tag does not target the triggering commit"
+            }
+
+            & gh release edit $tag --repo $repository --draft=false
+            if ($LASTEXITCODE -ne 0) { throw "Unable to publish $tag" }
+
+            $release = Get-ReleaseForTag
+            Assert-ReleaseContract -Release $release -RequirePublished $true -VerifyLocalDigests $true
+            if ((Get-TagCommit) -ne $commit) {
+              throw "Published tag $tag does not point to the triggering commit"
+            }
+          } catch {
+            $failure = $_
+            Write-Warning "Release publication failed; cleaning up $tag before failing the job."
+            & gh release delete $tag --repo $repository --yes --cleanup-tag 2>$null
+            if ($LASTEXITCODE -ne 0 -and (Get-TagCommit) -eq $commit) {
+              & gh api --method DELETE "repos/$repository/git/refs/tags/$tag" 2>$null | Out-Null
+            }
+            throw $failure
+          }

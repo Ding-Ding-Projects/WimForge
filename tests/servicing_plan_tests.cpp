@@ -1,0 +1,596 @@
+#include "core/ServicingPlan.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QProcess>
+#include <QSet>
+#include <QTemporaryDir>
+#include <QTextStream>
+
+#include <functional>
+
+using namespace wimforge;
+
+namespace {
+
+class TestRun
+{
+public:
+    void check(bool condition, const QString &message)
+    {
+        if (condition)
+            return;
+        ++m_failures;
+        QTextStream(stderr) << "FAIL: " << message << '\n';
+    }
+
+    [[nodiscard]] int result() const
+    {
+        if (m_failures == 0)
+            QTextStream(stdout) << "servicing_plan_tests: all checks passed\n";
+        return m_failures == 0 ? 0 : 1;
+    }
+
+private:
+    int m_failures = 0;
+};
+
+QString makeFile(const QString &path, const QByteArray &contents = QByteArray("fixture"))
+{
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size())
+        return {};
+    file.close();
+    return QFileInfo(file).absoluteFilePath();
+}
+
+ProjectConfig baseProject(const QString &root)
+{
+    ProjectConfig project;
+    project.projectDirectory = QDir(root).filePath(QStringLiteral("project"));
+    project.projectName = QStringLiteral("Servicing safety fixture");
+    project.mountPath = QDir(project.projectDirectory).filePath(QStringLiteral("mount"));
+    project.outputPath = QDir(project.projectDirectory).filePath(QStringLiteral("output/custom.wim"));
+    project.outputFormat = QStringLiteral("wim");
+    project.selectedImageIndex = 2;
+    project.cloneSource = true;
+    project.options.verifyPayloads = true;
+    project.options.cleanupComponentStore = false;
+    return project;
+}
+
+const ServicingOperation *findOperation(
+    const ServicingPlanResult &plan,
+    const std::function<bool(const ServicingOperation &)> &predicate)
+{
+    for (const ServicingOperation &operation : plan.operations) {
+        if (predicate(operation))
+            return &operation;
+    }
+    return nullptr;
+}
+
+QList<const ServicingOperation *> operationsOfKind(const ServicingPlanResult &plan, OperationKind kind)
+{
+    QList<const ServicingOperation *> result;
+    for (const ServicingOperation &operation : plan.operations) {
+        if (operation.kind == kind)
+            result.append(&operation);
+    }
+    return result;
+}
+
+bool hasArgument(const ServicingOperation &operation, const QString &prefix, const QString &value)
+{
+    const QString expected = prefix + value;
+    return std::any_of(operation.arguments.cbegin(), operation.arguments.cend(),
+                       [&expected](const QString &argument) {
+                           return argument.compare(expected, Qt::CaseInsensitive) == 0;
+                       });
+}
+
+bool isAncestor(const ServicingPlanResult &plan, const QString &ancestor, const QString &descendant)
+{
+    QSet<QString> visited;
+    QStringList pending{descendant};
+    while (!pending.isEmpty()) {
+        const QString current = pending.takeLast();
+        if (current == ancestor)
+            return true;
+        if (visited.contains(current))
+            continue;
+        visited.insert(current);
+        const ServicingOperation *operation = findOperation(
+            plan, [&current](const ServicingOperation &candidate) { return candidate.id == current; });
+        if (operation)
+            pending.append(operation->dependsOn);
+    }
+    return false;
+}
+
+bool runOperation(const ServicingOperation &operation, QString *detail = nullptr)
+{
+    QProcess process;
+    process.setProgram(operation.executable);
+    process.setArguments(operation.arguments);
+    process.setProcessChannelMode(QProcess::MergedChannels);
+    process.start();
+    if (!process.waitForStarted(10'000) || !process.waitForFinished(60'000)) {
+        if (detail)
+            *detail = process.errorString();
+        process.kill();
+        process.waitForFinished();
+        return false;
+    }
+    if (detail) {
+        const QByteArray output = process.readAllStandardOutput() + process.readAllStandardError();
+        *detail = QStringLiteral("exit=%1; %2")
+                      .arg(process.exitCode())
+                      .arg(QString::fromLocal8Bit(output));
+    }
+    return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
+}
+
+void testIsoFolder(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    const QString media = QDir(root).filePath(QStringLiteral("input/media"));
+    makeFile(QDir(media).filePath(QStringLiteral("boot/etfsboot.com")));
+    makeFile(QDir(media).filePath(QStringLiteral("efi/microsoft/boot/efisys.bin")));
+    project.imagePath = makeFile(QDir(media).filePath(QStringLiteral("sources/install.wim")));
+    project.sourcePath = media;
+    project.outputFormat = QStringLiteral("iso");
+    project.outputPath = QDir(project.projectDirectory).filePath(QStringLiteral("output/custom.iso"));
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    test.check(plan.ok(), QStringLiteral("ISO-folder plan is valid: %1").arg(plan.errors.join(QStringLiteral(" | "))));
+    const QString expectedWorking = QDir(plan.mediaWorkspace).filePath(QStringLiteral("sources/install.wim"));
+    test.check(QDir::cleanPath(plan.workingImagePath) == QDir::cleanPath(expectedWorking),
+               QStringLiteral("ISO-folder working image stays inside cloned media"));
+
+    const ServicingOperation *mediaClone = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::PrepareWorkspace
+            && operation.writesMediaWorkspace
+            && operation.metadata.value(QStringLiteral("sourceImmutable")).toBool();
+    });
+    test.check(mediaClone && mediaClone->executable == QStringLiteral("powershell.exe")
+                   && mediaClone->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("robocopy.exe"))
+                   && mediaClone->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("/XJ")),
+               QStringLiteral("media folder is recursively cloned without following junctions"));
+
+    const ServicingOperation *inspect = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Inspect;
+    });
+    const ServicingOperation *mount = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Mount;
+    });
+    test.check(inspect && hasArgument(*inspect, QStringLiteral("/WimFile:"), expectedWorking),
+               QStringLiteral("inspect uses working media image"));
+    test.check(mount && hasArgument(*mount, QStringLiteral("/ImageFile:"), expectedWorking),
+               QStringLiteral("mount uses working media image"));
+
+    const ServicingOperation *iso = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::CreateIso
+            && operation.executable.compare(QStringLiteral("oscdimg.exe"), Qt::CaseInsensitive) == 0;
+    });
+    test.check(iso != nullptr, QStringLiteral("ISO-folder plan includes direct oscdimg operation"));
+    if (iso) {
+        for (const ServicingOperation &operation : plan.operations) {
+            if (!operation.writesMountedImage && !operation.writesMediaWorkspace)
+                continue;
+            test.check(iso->dependsOn.contains(operation.id),
+                       QStringLiteral("ISO has direct dependency on write %1").arg(operation.id));
+        }
+        test.check(iso->arguments.constLast().endsWith(QStringLiteral(".iso"), Qt::CaseInsensitive)
+                       && iso->arguments.constLast() != project.outputPath,
+                   QStringLiteral("oscdimg writes a partial ISO instead of exposing a partial final file"));
+    }
+}
+
+void testIsoFile(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/windows.iso")));
+    project.imagePath = makeFile(QDir(root).filePath(QStringLiteral("input/extracted/install.wim")));
+    project.outputFormat = QStringLiteral("iso");
+    project.outputPath = QDir(project.projectDirectory).filePath(QStringLiteral("output/windows-custom.iso"));
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    test.check(plan.ok(), QStringLiteral("ISO-file plan is valid: %1").arg(plan.errors.join(QStringLiteral(" | "))));
+    const ServicingOperation *extract = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::PrepareWorkspace
+            && operation.writesMediaWorkspace
+            && operation.arguments.join(QLatin1Char(' ')).contains(QStringLiteral("Mount-DiskImage"));
+    });
+    test.check(extract && extract->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("finally"))
+                   && extract->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("Dismount-DiskImage")),
+               QStringLiteral("ISO extraction dismounts its source even when copying fails"));
+    const ServicingOperation *imageCopy = findOperation(plan, [&project](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::PrepareWorkspace
+            && operation.metadata.value(QStringLiteral("source")).toString() == project.imagePath;
+    });
+    test.check(imageCopy && imageCopy->dependsOn.contains(extract ? extract->id : QString()),
+               QStringLiteral("external image is copied into media after ISO extraction"));
+}
+
+void testContainerSources(TestRun &test, const QString &root)
+{
+    for (const QString &suffix : {QStringLiteral("wim"), QStringLiteral("esd")}) {
+        ProjectConfig project = baseProject(QDir(root).filePath(suffix));
+        project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/install.%1").arg(suffix)));
+        project.imagePath = project.sourcePath;
+        project.outputFormat = suffix;
+        project.outputPath = QDir(project.projectDirectory)
+                                 .filePath(QStringLiteral("output/custom.%1").arg(suffix));
+        const ServicingPlanResult plan = ServicingPlan::build(project);
+        test.check(plan.ok(), QStringLiteral("%1 plan is valid: %2")
+                                  .arg(suffix.toUpper(), plan.errors.join(QStringLiteral(" | "))));
+        test.check(plan.workingImagePath != project.imagePath
+                       && plan.workingImagePath.endsWith(QLatin1Char('.') + suffix, Qt::CaseInsensitive),
+                   QStringLiteral("%1 source is cloned to a same-format working image").arg(suffix.toUpper()));
+        const ServicingOperation *mount = findOperation(plan, [](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::Mount;
+        });
+        const ServicingOperation *exportImage = findOperation(plan, [](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::Export
+                && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0;
+        });
+        test.check(mount && hasArgument(*mount, QStringLiteral("/ImageFile:"), plan.workingImagePath),
+                   QStringLiteral("%1 mount uses working image").arg(suffix.toUpper()));
+        test.check(exportImage
+                       && hasArgument(*exportImage, QStringLiteral("/SourceImageFile:"), plan.workingImagePath),
+                   QStringLiteral("%1 export reads working image").arg(suffix.toUpper()));
+    }
+}
+
+void testSplitSource(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/install.swm")));
+    project.imagePath = project.sourcePath;
+    makeFile(QDir(root).filePath(QStringLiteral("input/install2.swm")));
+    project.outputFormat = QStringLiteral("swm");
+    project.outputPath = QDir(project.projectDirectory).filePath(QStringLiteral("output/install.swm"));
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    test.check(plan.ok(), QStringLiteral("SWM plan is valid: %1").arg(plan.errors.join(QStringLiteral(" | "))));
+    test.check(plan.workingImagePath.endsWith(QStringLiteral(".wim"), Qt::CaseInsensitive)
+                   && plan.workingImagePath != project.imagePath,
+               QStringLiteral("SWM set is converted into a serviceable working WIM"));
+    const ServicingOperation *convert = findOperation(plan, [&project](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::PrepareWorkspace
+            && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0
+            && hasArgument(operation, QStringLiteral("/SourceImageFile:"), project.imagePath);
+    });
+    test.check(convert && std::any_of(convert->arguments.cbegin(), convert->arguments.cend(),
+                                      [](const QString &argument) {
+                                          return argument.startsWith(QStringLiteral("/SWMFile:"))
+                                              && argument.contains(QStringLiteral("*.swm"));
+                                      }),
+               QStringLiteral("SWM preparation reads the complete split set"));
+    const ServicingOperation *split = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Split
+            && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0;
+    });
+    test.check(split && hasArgument(*split, QStringLiteral("/ImageFile:"), plan.workingImagePath),
+               QStringLiteral("SWM output is split from working WIM, not source SWM"));
+}
+
+void testStagingAndHashGate(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/install.wim")));
+    project.imagePath = project.sourcePath;
+    const QString package = makeFile(QDir(root).filePath(QStringLiteral("payload/update.cab")));
+    const QString answer = makeFile(QDir(root).filePath(QStringLiteral("payload/autounattend.xml")),
+                                    QByteArray("<unattend/>"));
+    const QString runtime = QDir(root).filePath(QStringLiteral("payload/runtime"));
+    makeFile(QDir(runtime).filePath(QStringLiteral("bin/runtime.exe")));
+    const QString readme = makeFile(QDir(root).filePath(QStringLiteral("payload/readme.txt")));
+    project.packages = {package};
+    project.unattendedXmlPath = answer;
+    project.unattendedFiles = {readme};
+    project.options.extra.insert(QStringLiteral("stagedFiles"), QJsonArray{
+        QJsonObject{{QStringLiteral("source"), runtime},
+                    {QStringLiteral("destination"), QStringLiteral("ProgramData/WimForge/runtime")},
+                    {QStringLiteral("scope"), QStringLiteral("image")},
+                    {QStringLiteral("role"), QStringLiteral("winforge-runtime")}},
+        QJsonObject{{QStringLiteral("source"), answer},
+                    {QStringLiteral("destination"), QStringLiteral("autounattend.xml")},
+                    {QStringLiteral("scope"), QStringLiteral("media")},
+                    {QStringLiteral("role"), QStringLiteral("unattended-answer")}},
+    });
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    test.check(plan.ok(), QStringLiteral("staging plan is valid: %1").arg(plan.errors.join(QStringLiteral(" | "))));
+    const QList<const ServicingOperation *> stages = operationsOfKind(plan, OperationKind::StageFile);
+    test.check(stages.size() == 3, QStringLiteral("explicit image/media files and unattended file are staged"));
+    const ServicingOperation *runtimeStage = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::StageFile
+            && operation.metadata.value(QStringLiteral("role")).toString()
+                   == QStringLiteral("winforge-runtime");
+    });
+    test.check(runtimeStage
+                   && runtimeStage->metadata.value(QStringLiteral("recursive")).toBool()
+                   && runtimeStage->metadata.value(QStringLiteral("destination")).toString()
+                          .endsWith(QStringLiteral("ProgramData/WimForge/runtime"))
+                   && runtimeStage->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("Get-ChildItem")),
+               QStringLiteral("recursive runtime directory is copied into exact safe image destination"));
+    if (runtimeStage) {
+        QString detail;
+        test.check(runOperation(*runtimeStage, &detail),
+                   QStringLiteral("recursive stage PowerShell executes: %1").arg(detail));
+        test.check(QFileInfo::exists(QDir(project.mountPath).filePath(
+                       QStringLiteral("ProgramData/WimForge/runtime/bin/runtime.exe"))),
+                   QStringLiteral("recursive stage preserves runtime directory contents"));
+    }
+    const ServicingOperation *mediaStage = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::StageFile && operation.writesMediaWorkspace;
+    });
+    test.check(mediaStage
+                   && mediaStage->metadata.value(QStringLiteral("destination")).toString()
+                          == QDir(plan.mediaWorkspace).filePath(QStringLiteral("autounattend.xml")),
+               QStringLiteral("media stage targets cloned media root"));
+
+    const QList<const ServicingOperation *> hashes = operationsOfKind(plan, OperationKind::VerifyPayload);
+    test.check(hashes.size() >= 5, QStringLiteral("source, package, unattended, and staged inputs are hashed"));
+    const ServicingOperation *runtimeHash = findOperation(plan, [&runtime](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::VerifyPayload
+            && operation.metadata.value(QStringLiteral("verifiedPath")).toString() == runtime;
+    });
+    if (runtimeHash) {
+        QString detail;
+        const bool succeeded = runOperation(*runtimeHash, &detail);
+        test.check(succeeded && detail.contains(QStringLiteral("SHA256")),
+                   QStringLiteral("recursive directory hash program executes: %1\n%2")
+                       .arg(detail, runtimeHash->arguments.constLast()));
+    } else {
+        test.check(false, QStringLiteral("runtime directory receives a hash operation"));
+    }
+    for (const ServicingOperation &operation : plan.operations) {
+        if (!operation.writesMountedImage && !operation.writesMediaWorkspace)
+            continue;
+        for (const ServicingOperation *hash : hashes) {
+            test.check(isAncestor(plan, hash->id, operation.id),
+                       QStringLiteral("hash %1 gates write %2").arg(hash->id, operation.id));
+        }
+    }
+    const ServicingOperation *packageOperation = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Package;
+    });
+    const ServicingOperation *unattendOperation = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Unattended;
+    });
+    test.check(packageOperation != nullptr && unattendOperation != nullptr,
+               QStringLiteral("package integration and DISM unattended application are preserved"));
+}
+
+void testSourceImmutability(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/pristine.wim")));
+    project.imagePath = project.sourcePath;
+    project.featuresToEnable = {QStringLiteral("NetFx3")};
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    test.check(plan.ok(), QStringLiteral("immutability plan is valid"));
+    test.check(plan.workingImagePath != project.sourcePath,
+               QStringLiteral("default working image differs from source"));
+    for (const ServicingOperation &operation : plan.operations) {
+        if (operation.kind == OperationKind::VerifyPayload
+            || operation.kind == OperationKind::PrepareWorkspace)
+            continue;
+        test.check(!hasArgument(operation, QStringLiteral("/ImageFile:"), project.sourcePath)
+                       && !hasArgument(operation, QStringLiteral("/WimFile:"), project.sourcePath)
+                       && !hasArgument(operation, QStringLiteral("/SourceImageFile:"), project.sourcePath),
+                   QStringLiteral("operation %1 never services or exports from pristine source").arg(operation.id));
+    }
+
+    ProjectConfig unsafe = project;
+    unsafe.cloneSource = false;
+    const ServicingPlanResult refused = ServicingPlan::build(unsafe);
+    test.check(!refused.ok()
+                   && refused.errors.join(QLatin1Char(' ')).contains(
+                       QStringLiteral("allowInPlaceSourceModification")),
+               QStringLiteral("disabling clone requires explicit dangerous opt-in"));
+}
+
+void testUnsafeStagedPaths(TestRun &test, const QString &root)
+{
+    const QString source = makeFile(QDir(root).filePath(QStringLiteral("input/install.wim")));
+    const QString payload = makeFile(QDir(root).filePath(QStringLiteral("payload/file.txt")));
+    const QList<QJsonObject> unsafeObjects{
+        QJsonObject{{QStringLiteral("source"), payload},
+                    {QStringLiteral("destination"), QStringLiteral("../escape.txt")},
+                    {QStringLiteral("scope"), QStringLiteral("image")},
+                    {QStringLiteral("role"), QStringLiteral("test")}},
+        QJsonObject{{QStringLiteral("source"), payload},
+                    {QStringLiteral("destination"), QStringLiteral("C:/Windows/escape.txt")},
+                    {QStringLiteral("scope"), QStringLiteral("image")},
+                    {QStringLiteral("role"), QStringLiteral("test")}},
+        QJsonObject{{QStringLiteral("source"), payload},
+                    {QStringLiteral("destination"), QStringLiteral("CON/file.txt")},
+                    {QStringLiteral("scope"), QStringLiteral("media")},
+                    {QStringLiteral("role"), QStringLiteral("test")}},
+        QJsonObject{{QStringLiteral("source"), payload},
+                    {QStringLiteral("destination"), QStringLiteral("safe/file.txt")},
+                    {QStringLiteral("scope"), QStringLiteral("host")},
+                    {QStringLiteral("role"), QStringLiteral("test")}},
+        QJsonObject{{QStringLiteral("source"), QDir(root).filePath(QStringLiteral("missing.bin"))},
+                    {QStringLiteral("destination"), QStringLiteral("safe/file.txt")},
+                    {QStringLiteral("scope"), QStringLiteral("image")},
+                    {QStringLiteral("role"), QStringLiteral("test")}},
+    };
+
+    for (qsizetype index = 0; index < unsafeObjects.size(); ++index) {
+        ProjectConfig project = baseProject(QDir(root).filePath(QStringLiteral("unsafe-%1").arg(index)));
+        project.sourcePath = source;
+        project.imagePath = source;
+        project.options.extra.insert(QStringLiteral("stagedFiles"), QJsonArray{unsafeObjects.at(index)});
+        const ServicingPlanResult plan = ServicingPlan::build(project);
+        test.check(!plan.ok(), QStringLiteral("unsafe staged object %1 is rejected").arg(index));
+    }
+
+    ProjectConfig missing = baseProject(QDir(root).filePath(QStringLiteral("missing-source")));
+    missing.sourcePath = QDir(root).filePath(QStringLiteral("does-not-exist.wim"));
+    missing.imagePath = missing.sourcePath;
+    const ServicingPlanResult missingPlan = ServicingPlan::build(missing);
+    test.check(!missingPlan.ok()
+                   && missingPlan.errors.join(QLatin1Char(' ')).contains(QStringLiteral("does not exist")),
+               QStringLiteral("missing source and image are rejected before a plan is emitted"));
+}
+
+void testQuotingAndExport(TestRun &test, const QString &root)
+{
+    test.check(ServicingPlan::quotePowerShellLiteral(QStringLiteral("O'Brien"))
+                   == QStringLiteral("'O''Brien'"),
+               QStringLiteral("PowerShell single-quoted literals escape apostrophes"));
+    test.check(ServicingPlan::quoteWindowsArgument(QStringLiteral("C:\\plain\\file.wim"))
+                   == QStringLiteral("C:\\plain\\file.wim"),
+               QStringLiteral("direct argument preview does not add shell quoting unnecessarily"));
+    test.check(ServicingPlan::quoteWindowsArgument(QStringLiteral("C:\\space dir\\file.wim"))
+                   == QStringLiteral("\"C:\\space dir\\file.wim\""),
+               QStringLiteral("argument preview quotes whitespace"));
+
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/O'Brien/install.wim")));
+    project.imagePath = project.sourcePath;
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    const QString scriptPath = QDir(root).filePath(QStringLiteral("output/plan.ps1"));
+    QString error;
+    test.check(plan.ok() && ServicingPlan::exportPowerShell(project, plan.operations, scriptPath, &error),
+               QStringLiteral("PowerShell plan exports: %1").arg(error));
+    QFile script(scriptPath);
+    const bool opened = script.open(QIODevice::ReadOnly);
+    const QByteArray contents = opened ? script.readAll() : QByteArray();
+    // The already-safe embedded PowerShell program is itself emitted as a
+    // single-quoted argument, so its apostrophes are escaped a second time.
+    test.check(opened && contents.contains("O''''Brien")
+                   && contents.contains("Invoke-WimForgeStep"),
+               QStringLiteral("export uses literal argument arrays rather than a concatenated command line"));
+}
+
+void testOfflineRegistrySemantics(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/install.wim")));
+    project.imagePath = project.sourcePath;
+
+    RegistryTweak user;
+    user.hive = QStringLiteral("HKCU");
+    user.key = QStringLiteral("Software\\Policies\\WimForge\\User");
+    user.valueName = QStringLiteral("Path");
+    user.type = QStringLiteral("REG_EXPAND_SZ");
+    user.value = QStringLiteral("%SystemRoot%\\WimForge");
+    user.ownerId = QStringLiteral("user");
+
+    RegistryTweak multi;
+    multi.hive = QStringLiteral("HKLM");
+    multi.key = QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\WimForge\\Machine");
+    multi.valueName = QStringLiteral("Items");
+    multi.type = QStringLiteral("REG_MULTI_SZ");
+    multi.value = QStringLiteral("one\r\ntwo");
+    multi.ownerId = QStringLiteral("multi");
+
+    RegistryTweak maximumDword;
+    maximumDword.hive = QStringLiteral("HKLM");
+    maximumDword.key = QStringLiteral("SOFTWARE\\Policies\\WimForge\\Machine");
+    maximumDword.valueName = QStringLiteral("Maximum");
+    maximumDword.type = QStringLiteral("REG_DWORD");
+    maximumDword.value = QStringLiteral("4294967295");
+    maximumDword.ownerId = QStringLiteral("dword");
+
+    RegistryTweak clear;
+    clear.hive = QStringLiteral("HKLM");
+    clear.key = QStringLiteral("SOFTWARE\\Policies\\WimForge\\List");
+    clear.deleteAllValues = true;
+    clear.ownerId = QStringLiteral("clear");
+    project.registryTweaks = {user, multi, maximumDword, clear};
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    test.check(plan.ok(), QStringLiteral("offline registry plan is valid: %1")
+                              .arg(plan.errors.join(QStringLiteral(" | "))));
+    auto editForOwner = [&plan](const QString &owner) {
+        return findOperation(plan, [&owner](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::Registry
+                && operation.metadata.value(QStringLiteral("owner")).toString() == owner;
+        });
+    };
+    const ServicingOperation *userEdit = editForOwner(QStringLiteral("user"));
+    test.check(userEdit && userEdit->arguments.value(1).endsWith(
+                       QStringLiteral("\\Software\\Policies\\WimForge\\User"))
+                   && userEdit->metadata.value(QStringLiteral("registryHiveFile")).toString()
+                          .endsWith(QStringLiteral("Users/Default/NTUSER.DAT")),
+               QStringLiteral("HKCU retains Software prefix beneath offline NTUSER.DAT"));
+
+    const ServicingOperation *multiEdit = editForOwner(QStringLiteral("multi"));
+    test.check(multiEdit && multiEdit->arguments.value(1).endsWith(
+                       QStringLiteral("\\Policies\\WimForge\\Machine"))
+                   && multiEdit->arguments.contains(QStringLiteral("REG_MULTI_SZ"))
+                   && multiEdit->arguments.contains(QStringLiteral("one\\0two")),
+               QStringLiteral("HKLM SOFTWARE root is stripped and REG_MULTI_SZ uses reg.exe separators"));
+
+    const ServicingOperation *dwordEdit = editForOwner(QStringLiteral("dword"));
+    test.check(dwordEdit && dwordEdit->arguments.contains(QStringLiteral("4294967295")),
+               QStringLiteral("unsigned DWORD command data remains exact"));
+
+    const ServicingOperation *clearEdit = editForOwner(QStringLiteral("clear"));
+    test.check(clearEdit && clearEdit->arguments.value(0) == QStringLiteral("delete")
+                   && clearEdit->arguments.contains(QStringLiteral("/va"))
+                   && !clearEdit->arguments.contains(QStringLiteral("/ve"))
+                   && clearEdit->destructive,
+               QStringLiteral("non-additive clear deletes values only and retains the registry key"));
+}
+
+void testOnlineTarget(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = root;
+    project.imagePath.clear();
+    project.mountPath.clear();
+    project.outputPath = QDir(root).filePath(QStringLiteral("output/live-plan.wim"));
+    project.featuresToEnable = {QStringLiteral("NetFx3")};
+    project.options.extra.insert(QStringLiteral("targetOnline"), true);
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    test.check(plan.ok(), QStringLiteral("online plan permits output metadata inside source/project root: %1")
+                              .arg(plan.errors.join(QStringLiteral(" | "))));
+    const ServicingOperation *feature = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Feature;
+    });
+    test.check(feature && feature->arguments.contains(QStringLiteral("/Online")),
+               QStringLiteral("online target uses DISM /Online"));
+    test.check(operationsOfKind(plan, OperationKind::Mount).isEmpty()
+                   && operationsOfKind(plan, OperationKind::Export).isEmpty(),
+               QStringLiteral("online plan does not mount or export an absent working image"));
+}
+
+} // namespace
+
+int main(int argc, char **argv)
+{
+    QCoreApplication application(argc, argv);
+    QCoreApplication::setApplicationName(QStringLiteral("WimForgeServicingPlanTests"));
+
+    TestRun test;
+    QTemporaryDir temporary;
+    test.check(temporary.isValid(), QStringLiteral("temporary test directory is available"));
+    if (!temporary.isValid())
+        return test.result();
+
+    testIsoFolder(test, QDir(temporary.path()).filePath(QStringLiteral("iso-folder")));
+    testIsoFile(test, QDir(temporary.path()).filePath(QStringLiteral("iso-file")));
+    testContainerSources(test, QDir(temporary.path()).filePath(QStringLiteral("containers")));
+    testSplitSource(test, QDir(temporary.path()).filePath(QStringLiteral("split")));
+    testStagingAndHashGate(test, QDir(temporary.path()).filePath(QStringLiteral("staging")));
+    testSourceImmutability(test, QDir(temporary.path()).filePath(QStringLiteral("immutability")));
+    testUnsafeStagedPaths(test, QDir(temporary.path()).filePath(QStringLiteral("unsafe")));
+    testQuotingAndExport(test, QDir(temporary.path()).filePath(QStringLiteral("quoting")));
+    testOfflineRegistrySemantics(test, QDir(temporary.path()).filePath(QStringLiteral("registry")));
+    testOnlineTarget(test, QDir(temporary.path()).filePath(QStringLiteral("online")));
+    return test.result();
+}
