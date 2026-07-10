@@ -8,6 +8,7 @@
 #include <QSaveFile>
 #include <QSet>
 
+#include <algorithm>
 #include <utility>
 
 namespace wimforge {
@@ -202,7 +203,102 @@ void rejectOverlap(QStringList *errors,
     }
 }
 
+QString payloadScopeName(PayloadScope scope)
+{
+    return scope == PayloadScope::Media ? QStringLiteral("media") : QStringLiteral("image");
+}
+
+std::optional<PayloadScope> parsePayloadScope(const QString &value)
+{
+    if (value.compare(QStringLiteral("image"), Qt::CaseInsensitive) == 0)
+        return PayloadScope::Image;
+    if (value.compare(QStringLiteral("media"), Qt::CaseInsensitive) == 0)
+        return PayloadScope::Media;
+    return std::nullopt;
+}
+
+QString taskDispositionName(ScheduledTaskDisposition disposition)
+{
+    switch (disposition) {
+    case ScheduledTaskDisposition::Disable: return QStringLiteral("disable");
+    case ScheduledTaskDisposition::Enable: return QStringLiteral("enable");
+    case ScheduledTaskDisposition::Remove: return QStringLiteral("remove");
+    }
+    return {};
+}
+
+std::optional<ScheduledTaskDisposition> parseTaskDisposition(const QString &value)
+{
+    if (value.compare(QStringLiteral("disable"), Qt::CaseInsensitive) == 0)
+        return ScheduledTaskDisposition::Disable;
+    if (value.compare(QStringLiteral("enable"), Qt::CaseInsensitive) == 0)
+        return ScheduledTaskDisposition::Enable;
+    if (value.compare(QStringLiteral("remove"), Qt::CaseInsensitive) == 0)
+        return ScheduledTaskDisposition::Remove;
+    return std::nullopt;
+}
+
+QString answerFileModeName(AnswerFileMode mode)
+{
+    switch (mode) {
+    case AnswerFileMode::Apply: return QStringLiteral("apply");
+    case AnswerFileMode::Place: return QStringLiteral("place");
+    case AnswerFileMode::Remove: return QStringLiteral("remove");
+    }
+    return {};
+}
+
+std::optional<AnswerFileMode> parseAnswerFileMode(const QString &value)
+{
+    if (value.compare(QStringLiteral("apply"), Qt::CaseInsensitive) == 0)
+        return AnswerFileMode::Apply;
+    if (value.compare(QStringLiteral("place"), Qt::CaseInsensitive) == 0)
+        return AnswerFileMode::Place;
+    if (value.compare(QStringLiteral("remove"), Qt::CaseInsensitive) == 0)
+        return AnswerFileMode::Remove;
+    return std::nullopt;
+}
+
+bool unsafeRelativePath(const QString &value)
+{
+    const QString portable = QDir::fromNativeSeparators(value.trimmed());
+    if (portable.isEmpty() || QDir::isAbsolutePath(portable))
+        return true;
+    const QStringList segments = portable.split(QLatin1Char('/'), Qt::KeepEmptyParts);
+    return std::any_of(segments.cbegin(), segments.cend(), [](const QString &segment) {
+        return segment.isEmpty() || segment == QStringLiteral(".")
+            || segment == QStringLiteral("..");
+    });
+}
+
 } // namespace
+
+bool CustomizeSettings::value(const QString &id) const
+{
+    if (id == QStringLiteral("disableTelemetry")) return disableTelemetry;
+    if (id == QStringLiteral("localAccountOobe")) return localAccountOobe;
+    if (id == QStringLiteral("showFileExtensions")) return showFileExtensions;
+    if (id == QStringLiteral("classicContextMenu")) return classicContextMenu;
+    if (id == QStringLiteral("disableConsumerFeatures")) return disableConsumerFeatures;
+    if (id == QStringLiteral("enableLongPaths")) return enableLongPaths;
+    if (id == QStringLiteral("performanceVisuals")) return performanceVisuals;
+    if (id == QStringLiteral("disableRecall")) return disableRecall;
+    return false;
+}
+
+bool CustomizeSettings::setValue(const QString &id, bool enabled)
+{
+    if (id == QStringLiteral("disableTelemetry")) disableTelemetry = enabled;
+    else if (id == QStringLiteral("localAccountOobe")) localAccountOobe = enabled;
+    else if (id == QStringLiteral("showFileExtensions")) showFileExtensions = enabled;
+    else if (id == QStringLiteral("classicContextMenu")) classicContextMenu = enabled;
+    else if (id == QStringLiteral("disableConsumerFeatures")) disableConsumerFeatures = enabled;
+    else if (id == QStringLiteral("enableLongPaths")) enableLongPaths = enabled;
+    else if (id == QStringLiteral("performanceVisuals")) performanceVisuals = enabled;
+    else if (id == QStringLiteral("disableRecall")) disableRecall = enabled;
+    else return false;
+    return true;
+}
 
 QString ProjectConfig::projectFilePath() const
 {
@@ -239,6 +335,52 @@ ProjectValidation ProjectConfig::validate() const
                      PathKind::File, false);
     validatePathList(&result.errors, QStringLiteral("Unattended file"), unattendedFiles,
                      PathKind::File, false);
+
+    for (qsizetype index = 0; index < stagedPayloads.size(); ++index) {
+        const StagedPayload &payload = stagedPayloads.at(index);
+        validateDraftPath(&result.errors, QStringLiteral("Staged payload[%1]").arg(index),
+                          payload.sourcePath);
+        if (unsafeRelativePath(payload.destinationPath)) {
+            result.errors.append(QStringLiteral("Staged payload[%1] destination must be a safe relative path: %2")
+                                     .arg(index).arg(payload.destinationPath));
+        }
+        if (payload.role.trimmed().isEmpty())
+            result.errors.append(QStringLiteral("Staged payload[%1] needs a role.").arg(index));
+    }
+
+    for (qsizetype index = 0; index < scheduledTaskChanges.size(); ++index) {
+        if (unsafeRelativePath(scheduledTaskChanges.at(index).taskPath)) {
+            result.errors.append(QStringLiteral("Scheduled task[%1] must be relative to Windows/System32/Tasks: %2")
+                                     .arg(index).arg(scheduledTaskChanges.at(index).taskPath));
+        }
+    }
+
+    for (qsizetype index = 0; index < answerFileActions.size(); ++index) {
+        const AnswerFileAction &action = answerFileActions.at(index);
+        if (action.mode != AnswerFileMode::Remove) {
+            validateDraftPath(&result.errors, QStringLiteral("Answer file[%1]").arg(index),
+                              action.sourcePath, PathKind::File);
+            if (!action.sourcePath.trimmed().isEmpty()
+                && QFileInfo(action.sourcePath).suffix().compare(QStringLiteral("xml"), Qt::CaseInsensitive) != 0) {
+                result.errors.append(QStringLiteral("Answer file[%1] must use the .xml extension: %2")
+                                         .arg(index).arg(action.sourcePath));
+            }
+        }
+        if (action.mode != AnswerFileMode::Apply && unsafeRelativePath(action.destinationPath)) {
+            result.errors.append(QStringLiteral("Answer file[%1] destination must be a safe relative path: %2")
+                                     .arg(index).arg(action.destinationPath));
+        }
+    }
+
+    for (qsizetype index = 0; index < postSetupCommands.size(); ++index) {
+        const QString command = postSetupCommands.at(index).command;
+        if (command.trimmed().isEmpty())
+            result.errors.append(QStringLiteral("Post-setup command[%1] is empty.").arg(index));
+        if (command.contains(QLatin1Char('\r')) || command.contains(QLatin1Char('\n'))
+            || command.contains(QChar::Null)) {
+            result.errors.append(QStringLiteral("Post-setup command[%1] must be one literal command line.").arg(index));
+        }
+    }
 
     if (!unattendedXmlPath.trimmed().isEmpty()) {
         validateDraftPath(&result.errors, QStringLiteral("Unattended XML"), unattendedXmlPath,
@@ -290,8 +432,13 @@ ProjectValidation ProjectConfig::validate() const
         result.errors.append(QStringLiteral("Compression must be none, fast, max, or recovery."));
     if (options.maximumParallelOperations < 0 || options.maximumParallelOperations > 64)
         result.errors.append(QStringLiteral("Maximum parallel operations must be between 0 and 64."));
+    if (options.splitSizeMb < 100 || options.splitSizeMb > 4095)
+        result.errors.append(QStringLiteral("Split size must be between 100 and 4095 MiB."));
     validateDraftPath(&result.errors, QStringLiteral("Scratch"), options.scratchDirectory,
                       PathKind::Directory);
+
+    if (targetBuildNumber < 0)
+        result.errors.append(QStringLiteral("Target build number cannot be negative."));
 
     static const QSet<QString> outputFormats{
         QStringLiteral("wim"), QStringLiteral("esd"), QStringLiteral("swm"), QStringLiteral("iso")};
@@ -321,12 +468,37 @@ ProjectValidation ProjectConfig::validateForExecution() const
                      PathKind::File, true);
     validatePathList(&result.errors, QStringLiteral("Unattended file"), unattendedFiles,
                      PathKind::File, true);
+    for (qsizetype index = 0; index < stagedPayloads.size(); ++index) {
+        validatePath(&result.errors, QStringLiteral("Staged payload[%1]").arg(index),
+                     stagedPayloads.at(index).sourcePath, true);
+    }
+    for (qsizetype index = 0; index < answerFileActions.size(); ++index) {
+        const AnswerFileAction &action = answerFileActions.at(index);
+        if (action.mode != AnswerFileMode::Remove) {
+            validatePath(&result.errors, QStringLiteral("Answer file[%1]").arg(index),
+                         action.sourcePath, true, PathKind::File);
+        }
+    }
     if (!unattendedXmlPath.trimmed().isEmpty())
         validatePath(&result.errors, QStringLiteral("Unattended XML"), unattendedXmlPath, true,
                      PathKind::File);
 
     result.errors.removeDuplicates();
     return result;
+}
+
+bool ProjectConfig::customizeSettingEnabled(const QString &id) const
+{
+    const QJsonValue legacy = settings.value(id);
+    return legacy.isBool() ? legacy.toBool() : customize.value(id);
+}
+
+bool ProjectConfig::setCustomizeSetting(const QString &id, bool enabled)
+{
+    if (!customize.setValue(id, enabled))
+        return false;
+    settings.insert(id, enabled);
+    return true;
 }
 
 QJsonObject ProjectConfig::toJson() const
@@ -345,6 +517,53 @@ QJsonObject ProjectConfig::toJson() const
         });
     }
 
+    QJsonArray scheduledTasks;
+    for (const ScheduledTaskChange &change : scheduledTaskChanges) {
+        scheduledTasks.append(QJsonObject{
+            {QStringLiteral("path"), change.taskPath},
+            {QStringLiteral("disposition"), taskDispositionName(change.disposition)},
+            {QStringLiteral("compatibilityOverride"), change.compatibilityOverride},
+        });
+    }
+
+    QJsonArray answerFiles;
+    for (const AnswerFileAction &action : answerFileActions) {
+        answerFiles.append(QJsonObject{
+            {QStringLiteral("mode"), answerFileModeName(action.mode)},
+            {QStringLiteral("source"), action.sourcePath},
+            {QStringLiteral("destination"), action.destinationPath},
+            {QStringLiteral("scope"), payloadScopeName(action.scope)},
+        });
+    }
+
+    QJsonArray commands;
+    for (const PostSetupCommand &command : postSetupCommands) {
+        commands.append(QJsonObject{
+            {QStringLiteral("command"), command.command},
+            {QStringLiteral("label"), command.label},
+        });
+    }
+
+    QJsonArray payloads;
+    for (const StagedPayload &payload : stagedPayloads) {
+        payloads.append(QJsonObject{
+            {QStringLiteral("source"), payload.sourcePath},
+            {QStringLiteral("destination"), payload.destinationPath},
+            {QStringLiteral("scope"), payloadScopeName(payload.scope)},
+            {QStringLiteral("role"), payload.role},
+            {QStringLiteral("sha256"), payload.expectedSha256},
+        });
+    }
+
+    QJsonObject settingJson = settings;
+    for (const QString &id : {
+             QStringLiteral("disableTelemetry"), QStringLiteral("localAccountOobe"),
+             QStringLiteral("showFileExtensions"), QStringLiteral("classicContextMenu"),
+             QStringLiteral("disableConsumerFeatures"), QStringLiteral("enableLongPaths"),
+             QStringLiteral("performanceVisuals"), QStringLiteral("disableRecall")}) {
+        settingJson.insert(id, customizeSettingEnabled(id));
+    }
+
     QJsonObject optionJson = options.extra;
     optionJson.insert(QStringLiteral("verifyPayloads"), options.verifyPayloads);
     optionJson.insert(QStringLiteral("mountReadOnly"), options.mountReadOnly);
@@ -357,6 +576,10 @@ QJsonObject ProjectConfig::toJson() const
     optionJson.insert(QStringLiteral("dryRun"), options.dryRun);
     optionJson.insert(QStringLiteral("compression"), options.compression);
     optionJson.insert(QStringLiteral("scratch"), options.scratchDirectory);
+    optionJson.insert(QStringLiteral("splitSizeMb"),
+                      options.extra.value(QStringLiteral("splitSizeMb")).isDouble()
+                          ? options.extra.value(QStringLiteral("splitSizeMb")).toInt(options.splitSizeMb)
+                          : options.splitSizeMb);
     optionJson.insert(QStringLiteral("maximumParallelOperations"), options.maximumParallelOperations);
 
     return QJsonObject{
@@ -376,6 +599,7 @@ QJsonObject ProjectConfig::toJson() const
              {QStringLiteral("outputFormat"), outputFormat},
              {QStringLiteral("isoLabel"), isoLabel},
              {QStringLiteral("cloneSource"), cloneSource},
+             {QStringLiteral("targetBuild"), targetBuildNumber},
          }},
         {QStringLiteral("drivers"), stringArray(drivers)},
         {QStringLiteral("updates"), stringArray(updates)},
@@ -395,10 +619,14 @@ QJsonObject ProjectConfig::toJson() const
         {QStringLiteral("components"), QJsonObject{
              {QStringLiteral("remove"), stringArray(componentsToRemove)},
          }},
+        {QStringLiteral("scheduledTasks"), scheduledTasks},
         {QStringLiteral("unattendedFiles"), stringArray(unattendedFiles)},
+        {QStringLiteral("answerFiles"), answerFiles},
         {QStringLiteral("postSetupItems"), stringArray(postSetupItems)},
+        {QStringLiteral("postSetupCommands"), commands},
+        {QStringLiteral("stagedPayloads"), payloads},
         {QStringLiteral("registry"), registry},
-        {QStringLiteral("settings"), settings},
+        {QStringLiteral("settings"), settingJson},
         {QStringLiteral("automation"), QJsonObject{
              {QStringLiteral("autoImport"), autoImport},
              {QStringLiteral("autoExport"), autoExport},
@@ -450,6 +678,10 @@ std::optional<ProjectConfig> ProjectConfig::fromJson(const QJsonObject &json,
     if (!cloneSource.isUndefined() && !cloneSource.isBool())
         errors.append(QStringLiteral("'image.cloneSource' must be true or false."));
     config.cloneSource = cloneSource.toBool(true);
+    const QJsonValue targetBuild = image.value(QStringLiteral("targetBuild"));
+    if (!targetBuild.isUndefined() && !targetBuild.isDouble())
+        errors.append(QStringLiteral("'image.targetBuild' must be a number."));
+    config.targetBuildNumber = targetBuild.toInt(0);
 
     config.drivers = readStringArray(json, QStringLiteral("drivers"), &errors);
     config.updates = readStringArray(json, QStringLiteral("updates"), &errors);
@@ -466,8 +698,116 @@ std::optional<ProjectConfig> ProjectConfig::fromJson(const QJsonObject &json,
     config.appxPackagesToProvision = readStringArray(appx, QStringLiteral("provision"), &errors);
     const QJsonObject components = requiredObject(json, QStringLiteral("components"), &errors);
     config.componentsToRemove = readStringArray(components, QStringLiteral("remove"), &errors);
+
+    const QJsonValue scheduledTaskValue = json.value(QStringLiteral("scheduledTasks"));
+    if (!scheduledTaskValue.isUndefined() && !scheduledTaskValue.isArray()) {
+        errors.append(QStringLiteral("'scheduledTasks' must be an array."));
+    } else {
+        const QJsonArray scheduledTasks = scheduledTaskValue.toArray();
+        for (qsizetype index = 0; index < scheduledTasks.size(); ++index) {
+            if (!scheduledTasks.at(index).isObject()) {
+                errors.append(QStringLiteral("'scheduledTasks[%1]' must be an object.").arg(index));
+                continue;
+            }
+            const QJsonObject item = scheduledTasks.at(index).toObject();
+            ScheduledTaskChange change;
+            change.taskPath = readString(item, QStringLiteral("path"), &errors, true);
+            const QString disposition = readString(item, QStringLiteral("disposition"), &errors,
+                                                    false, QStringLiteral("disable"));
+            const std::optional<ScheduledTaskDisposition> parsed = parseTaskDisposition(disposition);
+            if (!parsed)
+                errors.append(QStringLiteral("'scheduledTasks[%1].disposition' is invalid.").arg(index));
+            else
+                change.disposition = *parsed;
+            const QJsonValue overrideValue = item.value(QStringLiteral("compatibilityOverride"));
+            if (!overrideValue.isUndefined() && !overrideValue.isBool()) {
+                errors.append(QStringLiteral("'scheduledTasks[%1].compatibilityOverride' must be true or false.")
+                                  .arg(index));
+            }
+            change.compatibilityOverride = overrideValue.toBool(false);
+            config.scheduledTaskChanges.append(std::move(change));
+        }
+    }
+
     config.unattendedFiles = readStringArray(json, QStringLiteral("unattendedFiles"), &errors);
+    const QJsonValue answerFileValue = json.value(QStringLiteral("answerFiles"));
+    if (!answerFileValue.isUndefined() && !answerFileValue.isArray()) {
+        errors.append(QStringLiteral("'answerFiles' must be an array."));
+    } else {
+        const QJsonArray answerFiles = answerFileValue.toArray();
+        for (qsizetype index = 0; index < answerFiles.size(); ++index) {
+            if (!answerFiles.at(index).isObject()) {
+                errors.append(QStringLiteral("'answerFiles[%1]' must be an object.").arg(index));
+                continue;
+            }
+            const QJsonObject item = answerFiles.at(index).toObject();
+            AnswerFileAction action;
+            const QString mode = readString(item, QStringLiteral("mode"), &errors,
+                                            false, QStringLiteral("apply"));
+            const std::optional<AnswerFileMode> parsedMode = parseAnswerFileMode(mode);
+            if (!parsedMode)
+                errors.append(QStringLiteral("'answerFiles[%1].mode' is invalid.").arg(index));
+            else
+                action.mode = *parsedMode;
+            action.sourcePath = readString(item, QStringLiteral("source"), &errors);
+            action.destinationPath = readString(item, QStringLiteral("destination"), &errors,
+                                                false, QStringLiteral("Windows/Panther/unattend.xml"));
+            const QString scope = readString(item, QStringLiteral("scope"), &errors,
+                                             false, QStringLiteral("image"));
+            const std::optional<PayloadScope> parsedScope = parsePayloadScope(scope);
+            if (!parsedScope)
+                errors.append(QStringLiteral("'answerFiles[%1].scope' is invalid.").arg(index));
+            else
+                action.scope = *parsedScope;
+            config.answerFileActions.append(std::move(action));
+        }
+    }
     config.postSetupItems = readStringArray(json, QStringLiteral("postSetupItems"), &errors);
+
+    const QJsonValue postSetupValue = json.value(QStringLiteral("postSetupCommands"));
+    if (!postSetupValue.isUndefined() && !postSetupValue.isArray()) {
+        errors.append(QStringLiteral("'postSetupCommands' must be an array."));
+    } else {
+        const QJsonArray commands = postSetupValue.toArray();
+        for (qsizetype index = 0; index < commands.size(); ++index) {
+            if (!commands.at(index).isObject()) {
+                errors.append(QStringLiteral("'postSetupCommands[%1]' must be an object.").arg(index));
+                continue;
+            }
+            const QJsonObject item = commands.at(index).toObject();
+            config.postSetupCommands.append(PostSetupCommand{
+                readString(item, QStringLiteral("command"), &errors, true),
+                readString(item, QStringLiteral("label"), &errors)});
+        }
+    }
+
+    const QJsonValue stagedPayloadValue = json.value(QStringLiteral("stagedPayloads"));
+    if (!stagedPayloadValue.isUndefined() && !stagedPayloadValue.isArray()) {
+        errors.append(QStringLiteral("'stagedPayloads' must be an array."));
+    } else {
+        const QJsonArray payloads = stagedPayloadValue.toArray();
+        for (qsizetype index = 0; index < payloads.size(); ++index) {
+            if (!payloads.at(index).isObject()) {
+                errors.append(QStringLiteral("'stagedPayloads[%1]' must be an object.").arg(index));
+                continue;
+            }
+            const QJsonObject item = payloads.at(index).toObject();
+            StagedPayload payload;
+            payload.sourcePath = readString(item, QStringLiteral("source"), &errors, true);
+            payload.destinationPath = readString(item, QStringLiteral("destination"), &errors, true);
+            payload.role = readString(item, QStringLiteral("role"), &errors,
+                                      false, QStringLiteral("payload"));
+            payload.expectedSha256 = readString(item, QStringLiteral("sha256"), &errors);
+            const QString scope = readString(item, QStringLiteral("scope"), &errors,
+                                             false, QStringLiteral("image"));
+            const std::optional<PayloadScope> parsedScope = parsePayloadScope(scope);
+            if (!parsedScope)
+                errors.append(QStringLiteral("'stagedPayloads[%1].scope' is invalid.").arg(index));
+            else
+                payload.scope = *parsedScope;
+            config.stagedPayloads.append(std::move(payload));
+        }
+    }
 
     const QJsonValue registryValue = json.value(QStringLiteral("registry"));
     if (!registryValue.isUndefined() && !registryValue.isArray()) {
@@ -524,6 +864,10 @@ std::optional<ProjectConfig> ProjectConfig::fromJson(const QJsonObject &json,
     config.options.compression = readString(options, QStringLiteral("compression"), &errors, false,
                                             QStringLiteral("max"));
     config.options.scratchDirectory = readString(options, QStringLiteral("scratch"), &errors);
+    const QJsonValue splitSize = options.value(QStringLiteral("splitSizeMb"));
+    if (!splitSize.isUndefined() && !splitSize.isDouble())
+        errors.append(QStringLiteral("'options.splitSizeMb' must be a number."));
+    config.options.splitSizeMb = splitSize.toInt(3800);
     const QJsonValue parallel = options.value(QStringLiteral("maximumParallelOperations"));
     if (!parallel.isUndefined() && !parallel.isDouble())
         errors.append(QStringLiteral("'options.maximumParallelOperations' must be a number."));
@@ -536,6 +880,7 @@ std::optional<ProjectConfig> ProjectConfig::fromJson(const QJsonObject &json,
              QStringLiteral("optimizeImage"), QStringLiteral("rebuildImage"),
              QStringLiteral("createIso"), QStringLiteral("keepMountOnFailure"),
              QStringLiteral("dryRun"), QStringLiteral("compression"), QStringLiteral("scratch"),
+             QStringLiteral("splitSizeMb"),
              QStringLiteral("maximumParallelOperations")}) {
         config.options.extra.remove(known);
     }
@@ -543,8 +888,21 @@ std::optional<ProjectConfig> ProjectConfig::fromJson(const QJsonObject &json,
     const QJsonValue settings = json.value(QStringLiteral("settings"));
     if (!settings.isUndefined() && !settings.isObject())
         errors.append(QStringLiteral("'settings' must be an object."));
-    else
+    else {
         config.settings = settings.toObject();
+        for (const QString &id : {
+                 QStringLiteral("disableTelemetry"), QStringLiteral("localAccountOobe"),
+                 QStringLiteral("showFileExtensions"), QStringLiteral("classicContextMenu"),
+                 QStringLiteral("disableConsumerFeatures"), QStringLiteral("enableLongPaths"),
+                 QStringLiteral("performanceVisuals"), QStringLiteral("disableRecall")}) {
+            const QJsonValue value = config.settings.value(id);
+            if (!value.isUndefined() && !value.isBool()) {
+                errors.append(QStringLiteral("'settings.%1' must be true or false.").arg(id));
+            } else if (value.isBool()) {
+                config.customize.setValue(id, value.toBool());
+            }
+        }
+    }
 
     const QJsonValue automationValue = json.value(QStringLiteral("automation"));
     if (!automationValue.isUndefined() && !automationValue.isObject()) {

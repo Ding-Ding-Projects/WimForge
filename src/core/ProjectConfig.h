@@ -29,6 +29,63 @@ struct RegistryTweak
     QString ownerId;
 };
 
+enum class PayloadScope { Image, Media };
+
+struct StagedPayload
+{
+    QString sourcePath;
+    QString destinationPath;
+    PayloadScope scope = PayloadScope::Image;
+    QString role = QStringLiteral("payload");
+    QString expectedSha256;
+};
+
+enum class ScheduledTaskDisposition { Disable, Enable, Remove };
+
+struct ScheduledTaskChange
+{
+    // A path relative to Windows/System32/Tasks. Absolute paths and parent
+    // traversal are rejected before a plan can be built.
+    QString taskPath;
+    ScheduledTaskDisposition disposition = ScheduledTaskDisposition::Disable;
+    bool compatibilityOverride = false;
+};
+
+enum class AnswerFileMode { Apply, Place, Remove };
+
+struct AnswerFileAction
+{
+    AnswerFileMode mode = AnswerFileMode::Apply;
+    QString sourcePath;
+    // Place/remove destinations are relative to the selected scope. Apply
+    // actions ignore this value and pass sourcePath to DISM.
+    QString destinationPath = QStringLiteral("Windows/Panther/unattend.xml");
+    PayloadScope scope = PayloadScope::Image;
+};
+
+struct PostSetupCommand
+{
+    // Kept as a literal SetupComplete.cmd line. It is never tokenized or
+    // reassembled, so quoting authored by the user remains intact.
+    QString command;
+    QString label;
+};
+
+struct CustomizeSettings
+{
+    bool disableTelemetry = false;
+    bool localAccountOobe = false;
+    bool showFileExtensions = false;
+    bool classicContextMenu = false;
+    bool disableConsumerFeatures = false;
+    bool enableLongPaths = false;
+    bool performanceVisuals = false;
+    bool disableRecall = false;
+
+    [[nodiscard]] bool value(const QString &id) const;
+    bool setValue(const QString &id, bool enabled);
+};
+
 struct OperationOptions
 {
     bool verifyPayloads = true;
@@ -42,6 +99,7 @@ struct OperationOptions
     bool dryRun = false;
     QString compression = QStringLiteral("max");
     QString scratchDirectory;
+    int splitSizeMb = 3800;
     int maximumParallelOperations = 0; // 0 = choose automatically
     QJsonObject extra;
 };
@@ -72,6 +130,9 @@ public:
     QString outputFormat = QStringLiteral("wim");
     QString isoLabel = QStringLiteral("WIMFORGE");
     bool cloneSource = true;
+    // 0 means unknown. Compatibility-sensitive plan entries retain their
+    // minimum-build note when this value is not known.
+    int targetBuildNumber = 0;
 
     QStringList drivers;
     QStringList updates;
@@ -83,10 +144,15 @@ public:
     QStringList appxPackagesToRemove;
     QStringList appxPackagesToProvision;
     QStringList componentsToRemove;
+    QList<ScheduledTaskChange> scheduledTaskChanges;
     QString unattendedXmlPath;
     QStringList unattendedFiles;
+    QList<AnswerFileAction> answerFileActions;
     QStringList postSetupItems;
+    QList<PostSetupCommand> postSetupCommands;
+    QList<StagedPayload> stagedPayloads;
     QList<RegistryTweak> registryTweaks;
+    CustomizeSettings customize;
     QJsonObject settings;
     OperationOptions options;
 
@@ -101,6 +167,10 @@ public:
     // payload to exist, while still allowing mount/output targets to be new.
     [[nodiscard]] ProjectValidation validateForExecution() const;
     [[nodiscard]] QJsonObject toJson() const;
+    [[nodiscard]] bool customizeSettingEnabled(const QString &id) const;
+    // Canonical mutation path keeps the typed model and the schema-v1
+    // settings object synchronized for older callers.
+    bool setCustomizeSetting(const QString &id, bool enabled);
 
     static std::optional<ProjectConfig> fromJson(const QJsonObject &json,
                                                  const QString &projectDirectory,

@@ -56,6 +56,7 @@ ProjectConfig sampleProject(const QString &root)
     project.outputFormat = QStringLiteral("iso");
     project.isoLabel = QStringLiteral("WIMFORGE_TEST");
     project.cloneSource = true;
+    project.targetBuildNumber = 26100;
 
     const QString driverDirectory = QDir(root).filePath(QStringLiteral("inputs/drivers"));
     QDir().mkpath(driverDirectory);
@@ -70,11 +71,35 @@ ProjectConfig sampleProject(const QString &root)
     project.appxPackagesToProvision = {
         makeFile(QDir(root).filePath(QStringLiteral("inputs/appx/Terminal.msix")))};
     project.componentsToRemove = {QStringLiteral("OneDrive")};
+    project.scheduledTaskChanges = {
+        ScheduledTaskChange{QStringLiteral("Microsoft\\Windows\\Maps\\MapsUpdateTask"),
+                            ScheduledTaskDisposition::Disable, false},
+        ScheduledTaskChange{QStringLiteral("Vendor\\ObsoleteTask"),
+                            ScheduledTaskDisposition::Remove, true},
+    };
     project.unattendedXmlPath = makeFile(
         QDir(root).filePath(QStringLiteral("inputs/autounattend.xml")), QByteArray("<unattend/>"));
     project.unattendedFiles = {
         makeFile(QDir(root).filePath(QStringLiteral("inputs/setup/first-logon.ps1")))};
     project.postSetupItems = {QStringLiteral("powershell.exe -File first-logon.ps1")};
+    const QString placedAnswer = makeFile(
+        QDir(root).filePath(QStringLiteral("inputs/panther-unattend.xml")), QByteArray("<unattend/>"));
+    project.answerFileActions = {
+        AnswerFileAction{AnswerFileMode::Apply, placedAnswer, {}, PayloadScope::Image},
+        AnswerFileAction{AnswerFileMode::Place, placedAnswer,
+                         QStringLiteral("Windows/Panther/unattend.xml"), PayloadScope::Image},
+        AnswerFileAction{AnswerFileMode::Remove, {}, QStringLiteral("autounattend.xml"),
+                         PayloadScope::Media},
+    };
+    project.postSetupCommands = {
+        PostSetupCommand{QStringLiteral("cmd.exe /c echo literal ^& quoted"),
+                         QStringLiteral("Write marker")},
+    };
+    project.stagedPayloads = {
+        StagedPayload{makeFile(QDir(root).filePath(QStringLiteral("inputs/payloads/tool.exe"))),
+                      QStringLiteral("Windows/Setup/Scripts/WimForge/tool.exe"),
+                      PayloadScope::Image, QStringLiteral("post-setup-tool"), QString()},
+    };
     project.registryTweaks = {
         RegistryTweak{QStringLiteral("HKLM"),
                       QStringLiteral("SOFTWARE\\WimForge"),
@@ -93,7 +118,10 @@ ProjectConfig sampleProject(const QString &root)
     project.options.compression = QStringLiteral("recovery");
     project.options.createIso = true;
     project.options.maximumParallelOperations = 4;
+    project.options.splitSizeMb = 2048;
     project.options.extra.insert(QStringLiteral("futureOption"), QStringLiteral("preserved"));
+    project.customize.disableTelemetry = true;
+    project.customize.disableRecall = true;
     project.settings.insert(QStringLiteral("language"), QStringLiteral("en-CA"));
     return project;
 }
@@ -149,8 +177,8 @@ int main(int argc, char **argv)
         test.check(loaded->selectedImageIndex == 2, QStringLiteral("image index round-trips"));
         test.check(loaded->outputFormat == QStringLiteral("iso")
                        && loaded->isoLabel == QStringLiteral("WIMFORGE_TEST")
-                       && loaded->cloneSource,
-                   QStringLiteral("output and clone-source fields round-trip"));
+                       && loaded->cloneSource && loaded->targetBuildNumber == 26100,
+                   QStringLiteral("output, clone-source, and target-build fields round-trip"));
         test.check(loaded->drivers == project.drivers, QStringLiteral("drivers round-trip"));
         test.check(loaded->updates == project.updates, QStringLiteral("updates round-trip"));
         test.check(loaded->packages == project.packages, QStringLiteral("packages round-trip"));
@@ -168,6 +196,30 @@ int main(int argc, char **argv)
         test.check(loaded->unattendedFiles == project.unattendedFiles
                        && loaded->postSetupItems == project.postSetupItems,
                    QStringLiteral("unattended and post-setup lists round-trip"));
+        test.check(loaded->scheduledTaskChanges.size() == 2
+                       && loaded->scheduledTaskChanges.at(1).disposition
+                              == ScheduledTaskDisposition::Remove
+                       && loaded->scheduledTaskChanges.at(1).compatibilityOverride,
+                   QStringLiteral("typed scheduled-task changes round-trip"));
+        test.check(loaded->answerFileActions.size() == 3
+                       && loaded->answerFileActions.at(1).mode == AnswerFileMode::Place
+                       && loaded->answerFileActions.at(2).scope == PayloadScope::Media,
+                   QStringLiteral("typed answer-file actions round-trip"));
+        test.check(loaded->postSetupCommands.size() == 1
+                       && loaded->postSetupCommands.constFirst().command
+                              == project.postSetupCommands.constFirst().command,
+                   QStringLiteral("literal typed post-setup commands round-trip"));
+        test.check(loaded->stagedPayloads.size() == 1
+                       && loaded->stagedPayloads.constFirst().role == QStringLiteral("post-setup-tool"),
+                   QStringLiteral("typed staged payloads round-trip"));
+        test.check(loaded->customize.disableTelemetry && loaded->customize.disableRecall
+                       && loaded->options.splitSizeMb == 2048,
+                   QStringLiteral("typed Customize settings and split size round-trip"));
+        test.check(loaded->setCustomizeSetting(QStringLiteral("disableRecall"), false)
+                       && !loaded->customizeSettingEnabled(QStringLiteral("disableRecall"))
+                       && !loaded->toJson().value(QStringLiteral("settings")).toObject()
+                              .value(QStringLiteral("disableRecall")).toBool(true),
+                   QStringLiteral("canonical setting mutation synchronizes typed and schema-v1 views"));
         test.check(loaded->settings.value(QStringLiteral("language")).toString()
                        == QStringLiteral("en-CA"),
                    QStringLiteral("settings map round-trips"));

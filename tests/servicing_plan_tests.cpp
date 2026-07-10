@@ -256,6 +256,7 @@ void testSplitSource(TestRun &test, const QString &root)
     makeFile(QDir(root).filePath(QStringLiteral("input/install2.swm")));
     project.outputFormat = QStringLiteral("swm");
     project.outputPath = QDir(project.projectDirectory).filePath(QStringLiteral("output/install.swm"));
+    project.options.splitSizeMb = 2048;
 
     const ServicingPlanResult plan = ServicingPlan::build(project);
     test.check(plan.ok(), QStringLiteral("SWM plan is valid: %1").arg(plan.errors.join(QStringLiteral(" | "))));
@@ -279,6 +280,8 @@ void testSplitSource(TestRun &test, const QString &root)
     });
     test.check(split && hasArgument(*split, QStringLiteral("/ImageFile:"), plan.workingImagePath),
                QStringLiteral("SWM output is split from working WIM, not source SWM"));
+    test.check(split && split->arguments.contains(QStringLiteral("/FileSize:2048")),
+               QStringLiteral("typed split-size setting controls DISM output"));
 }
 
 void testStagingAndHashGate(TestRun &test, const QString &root)
@@ -624,6 +627,156 @@ void testOfflineRegistrySemantics(TestRun &test, const QString &root)
                QStringLiteral("non-additive clear deletes values only and retains the registry key"));
 }
 
+void testTypedCustomizePlan(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/install.wim")));
+    project.imagePath = project.sourcePath;
+    project.targetBuildNumber = 26000;
+    project.updates = {makeFile(QDir(root).filePath(QStringLiteral("payload/kb-test.msu")))};
+    project.packages = {makeFile(QDir(root).filePath(QStringLiteral("payload/language.cab")))};
+    project.appxPackagesToRemove = {QStringLiteral("Microsoft.TestApp_1.0_neutral__test")};
+    project.appxPackagesToProvision = {
+        makeFile(QDir(root).filePath(QStringLiteral("payload/TestApp.msix")))};
+    project.componentsToRemove = {QStringLiteral("Package_for_Test~31bf~amd64~~1.0.0.0")};
+    project.scheduledTaskChanges = {
+        ScheduledTaskChange{QStringLiteral("Microsoft/Windows/Maps/MapsUpdateTask"),
+                            ScheduledTaskDisposition::Disable, false},
+    };
+    const QString answer = makeFile(QDir(root).filePath(QStringLiteral("payload/unattend.xml")),
+                                    QByteArray("<unattend/>"));
+    project.answerFileActions = {
+        AnswerFileAction{AnswerFileMode::Apply, answer, {}, PayloadScope::Image},
+        AnswerFileAction{AnswerFileMode::Place, answer,
+                         QStringLiteral("Windows/Panther/WimForge.xml"), PayloadScope::Image},
+        AnswerFileAction{AnswerFileMode::Remove, {}, QStringLiteral("autounattend.xml"),
+                         PayloadScope::Media},
+    };
+    const QString payload = makeFile(QDir(root).filePath(QStringLiteral("payload/tool.exe")));
+    project.stagedPayloads = {
+        StagedPayload{payload, QStringLiteral("Windows/Setup/Scripts/WimForge/tool.exe"),
+                      PayloadScope::Image, QStringLiteral("post-setup-tool"), QString()},
+    };
+    const QString literalCommand = QStringLiteral("cmd.exe /c echo A ^& B > C:\\WimForge.txt");
+    project.postSetupCommands = {
+        PostSetupCommand{literalCommand, QStringLiteral("Write WimForge marker")},
+    };
+    project.featuresToEnable = {QStringLiteral("NetFx3")};
+    project.capabilitiesToRemove = {QStringLiteral("MathRecognizer~~~~0.0.1.0")};
+    for (const QString &id : {
+             QStringLiteral("disableTelemetry"), QStringLiteral("localAccountOobe"),
+             QStringLiteral("showFileExtensions"), QStringLiteral("classicContextMenu"),
+             QStringLiteral("disableConsumerFeatures"), QStringLiteral("enableLongPaths"),
+             QStringLiteral("performanceVisuals"), QStringLiteral("disableRecall")}) {
+        project.setCustomizeSetting(id, true);
+    }
+    project.options.dryRun = true;
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    test.check(plan.ok(), QStringLiteral("typed Customize plan is valid: %1")
+                              .arg(plan.errors.join(QStringLiteral(" | "))));
+
+    const ServicingOperation *update = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Update;
+    });
+    const ServicingOperation *package = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Package;
+    });
+    test.check(update && package
+                   && update->metadata.value(QStringLiteral("packageClass")) == QStringLiteral("update")
+                   && package->metadata.value(QStringLiteral("packageClass")) == QStringLiteral("package"),
+               QStringLiteral("updates and standalone packages remain distinct typed operations"));
+
+    const ServicingOperation *appxRemove = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Appx
+            && operation.metadata.value(QStringLiteral("appxAction")) == QStringLiteral("remove");
+    });
+    const ServicingOperation *appxProvision = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Appx
+            && operation.metadata.value(QStringLiteral("appxAction")) == QStringLiteral("provision");
+    });
+    test.check(appxRemove && appxProvision,
+               QStringLiteral("Appx removal and provisioning have distinct typed actions"));
+
+    const ServicingOperation *task = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::ScheduledTask;
+    });
+    test.check(task && task->metadata.value(QStringLiteral("taskAction")) == QStringLiteral("disable")
+                   && task->reversible && !task->compatibilityNotes.isEmpty(),
+               QStringLiteral("scheduled-task changes are reversible and compatibility annotated"));
+
+    const ServicingOperation *answerApply = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Unattended
+            && operation.metadata.value(QStringLiteral("answerFileAction")) == QStringLiteral("apply");
+    });
+    const ServicingOperation *answerPlace = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::StageFile
+            && operation.metadata.value(QStringLiteral("role")) == QStringLiteral("answer-file");
+    });
+    const ServicingOperation *answerRemove = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Unattended
+            && operation.metadata.value(QStringLiteral("answerFileAction")) == QStringLiteral("remove");
+    });
+    test.check(answerApply && answerPlace && answerRemove,
+               QStringLiteral("answer-file apply, placement, and removal are distinct operations"));
+
+    const ServicingOperation *staged = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::StageFile
+            && operation.metadata.value(QStringLiteral("role")) == QStringLiteral("post-setup-tool");
+    });
+    const ServicingOperation *postSetup = findOperation(plan, [&literalCommand](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::PostSetup
+            && operation.metadata.value(QStringLiteral("literalCommand")) == literalCommand;
+    });
+    test.check(staged && postSetup
+                   && postSetup->metadata.value(QStringLiteral("idempotent")).toBool()
+                   && postSetup->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("REM WimForge:")),
+               QStringLiteral("staged payloads and idempotent literal post-setup commands remain separate"));
+
+    int settingOperations = 0;
+    bool recallCompatibilityWarning = false;
+    for (const ServicingOperation &operation : plan.operations) {
+        if (operation.metadata.value(QStringLiteral("customizeSetting")).toString().isEmpty())
+            continue;
+        ++settingOperations;
+        test.check(operation.kind == OperationKind::Registry && operation.reversible
+                       && operation.metadata.value(QStringLiteral("reversal")).isObject()
+                       && !operation.compatibilityNotes.isEmpty(),
+                   QStringLiteral("Customize setting %1 is a reversible annotated registry operation")
+                       .arg(operation.metadata.value(QStringLiteral("customizeSetting")).toString()));
+        if (operation.metadata.value(QStringLiteral("customizeSetting")) == QStringLiteral("disableRecall"))
+            recallCompatibilityWarning = operation.compatibilityNotes.join(QLatin1Char(' '))
+                                             .contains(QStringLiteral("outside the verified range"));
+    }
+    test.check(settingOperations == 8 && recallCompatibilityWarning,
+               QStringLiteral("all eight settings generate build-aware typed operations"));
+
+    test.check(update && update->writeScope == OperationWriteScope::MountedImage
+                   && update->skipConsequence == SkipConsequence::OmitsOptionalChange
+                   && update->metadata.value(QStringLiteral("previewOnly")).toBool(),
+               QStringLiteral("operation model exposes scope, skip consequence, and dry-run state"));
+    if (update) {
+        const QJsonObject json = update->toJson();
+        test.check(json.value(QStringLiteral("dependsOn")).isArray()
+                       && json.value(QStringLiteral("checkpointRequired")).isBool()
+                       && json.value(QStringLiteral("parallelEligible")).isBool()
+                       && json.value(QStringLiteral("writeScope")) == QStringLiteral("mounted-image")
+                       && json.value(QStringLiteral("skipConsequence"))
+                              == QStringLiteral("omits-optional-change"),
+                   QStringLiteral("operation JSON serializes review and scheduling semantics"));
+    }
+
+    ProjectConfig unsafe = project;
+    unsafe.scheduledTaskChanges = {
+        ScheduledTaskChange{QStringLiteral("Microsoft/Windows/Test"),
+                            ScheduledTaskDisposition::Remove, false},
+    };
+    const ServicingPlanResult rejected = ServicingPlan::build(unsafe);
+    test.check(!rejected.ok()
+                   && rejected.errors.join(QLatin1Char(' ')).contains(QStringLiteral("explicit compatibility override")),
+               QStringLiteral("destructive scheduled-task removal requires an explicit override"));
+}
+
 void testOnlineTarget(TestRun &test, const QString &root)
 {
     ProjectConfig project = baseProject(root);
@@ -669,6 +822,7 @@ int main(int argc, char **argv)
     testUnsafeStagedPaths(test, QDir(temporary.path()).filePath(QStringLiteral("unsafe")));
     testQuotingAndExport(test, QDir(temporary.path()).filePath(QStringLiteral("quoting")));
     testOfflineRegistrySemantics(test, QDir(temporary.path()).filePath(QStringLiteral("registry")));
+    testTypedCustomizePlan(test, QDir(temporary.path()).filePath(QStringLiteral("typed-customize")));
     testOnlineTarget(test, QDir(temporary.path()).filePath(QStringLiteral("online")));
     return test.result();
 }

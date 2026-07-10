@@ -1,5 +1,6 @@
 #include "ServicingPlan.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
 #include <QHash>
@@ -529,6 +530,258 @@ QString registryCommandValue(const RegistryTweak &tweak)
     return value.split(QLatin1Char('\n'), Qt::SkipEmptyParts).join(QStringLiteral("\\0"));
 }
 
+struct SettingDefinition
+{
+    QString id;
+    RegistryTweak tweak;
+    int minimumBuild = 0;
+    int maximumBuild = 0;
+    QString compatibility;
+};
+
+SettingDefinition registrySetting(const QString &id,
+                                  const QString &hive,
+                                  const QString &key,
+                                  const QString &name,
+                                  const QString &value,
+                                  int minimumBuild,
+                                  int maximumBuild,
+                                  const QString &compatibility)
+{
+    RegistryTweak tweak;
+    tweak.hive = hive;
+    tweak.key = key;
+    tweak.valueName = name;
+    tweak.type = QStringLiteral("REG_DWORD");
+    tweak.value = value;
+    tweak.ownerId = QStringLiteral("customize:%1").arg(id);
+    return SettingDefinition{id, tweak, minimumBuild, maximumBuild, compatibility};
+}
+
+QList<SettingDefinition> settingDefinitions()
+{
+    QList<SettingDefinition> definitions{
+        registrySetting(
+            QStringLiteral("disableTelemetry"), QStringLiteral("HKLM"),
+            QStringLiteral("SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection"),
+            QStringLiteral("AllowTelemetry"), QStringLiteral("0"), 10240, 0,
+            QStringLiteral("Policy support and the minimum accepted diagnostic level vary by Windows edition.")),
+        registrySetting(
+            QStringLiteral("localAccountOobe"), QStringLiteral("HKLM"),
+            QStringLiteral("SYSTEM\\Setup\\LabConfig"), QStringLiteral("BypassNRO"),
+            QStringLiteral("1"), 22000, 0,
+            QStringLiteral("OOBE behavior is serviced by Windows and can change between Windows 11 builds.")),
+        registrySetting(
+            QStringLiteral("showFileExtensions"), QStringLiteral("HKCU"),
+            QStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced"),
+            QStringLiteral("HideFileExt"), QStringLiteral("0"), 7600, 0,
+            QStringLiteral("Applied to the default-user profile; existing user profiles are not rewritten.")),
+        registrySetting(
+            QStringLiteral("classicContextMenu"), QStringLiteral("HKCU"),
+            QStringLiteral("Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32"),
+            QString(), QStringLiteral(""), 22000, 26100,
+            QStringLiteral("The legacy context-menu compatibility registration is not guaranteed on newer Windows 11 builds.")),
+        registrySetting(
+            QStringLiteral("disableConsumerFeatures"), QStringLiteral("HKLM"),
+            QStringLiteral("SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent"),
+            QStringLiteral("DisableWindowsConsumerFeatures"), QStringLiteral("1"), 10240, 0,
+            QStringLiteral("The policy is edition-dependent and may be ignored by editions that do not license it.")),
+        registrySetting(
+            QStringLiteral("enableLongPaths"), QStringLiteral("HKLM"),
+            QStringLiteral("SYSTEM\\CurrentControlSet\\Control\\FileSystem"),
+            QStringLiteral("LongPathsEnabled"), QStringLiteral("1"), 14393, 0,
+            QStringLiteral("Applications must also declare long-path awareness before this system setting has an effect.")),
+        registrySetting(
+            QStringLiteral("performanceVisuals"), QStringLiteral("HKCU"),
+            QStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects"),
+            QStringLiteral("VisualFXSetting"), QStringLiteral("2"), 7600, 0,
+            QStringLiteral("Applied to the default-user profile; per-user choices can override it later.")),
+        registrySetting(
+            QStringLiteral("disableRecall"), QStringLiteral("HKLM"),
+            QStringLiteral("SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI"),
+            QStringLiteral("DisableAIDataAnalysis"), QStringLiteral("1"), 26100, 0,
+            QStringLiteral("Recall policy is applicable only to Windows builds and hardware that include Recall.")),
+    };
+    // The classic context-menu registration uses the default REG_SZ value;
+    // every other built-in setting above is a DWORD policy/preference.
+    definitions[3].tweak.type = QStringLiteral("REG_SZ");
+    return definitions;
+}
+
+bool settingEnabled(const ProjectConfig &project, const QString &id)
+{
+    return project.customizeSettingEnabled(id);
+}
+
+QString settingCompatibilityNote(const SettingDefinition &definition, int targetBuild)
+{
+    QString range;
+    if (definition.minimumBuild > 0 && definition.maximumBuild > 0) {
+        range = QStringLiteral("Designed for Windows builds %1 through %2.")
+                    .arg(definition.minimumBuild).arg(definition.maximumBuild);
+    } else if (definition.minimumBuild > 0) {
+        range = QStringLiteral("Requires Windows build %1 or later.").arg(definition.minimumBuild);
+    }
+    if (targetBuild == 0)
+        return QStringLiteral("%1 Target build is unknown. %2").arg(range, definition.compatibility).trimmed();
+    if ((definition.minimumBuild > 0 && targetBuild < definition.minimumBuild)
+        || (definition.maximumBuild > 0 && targetBuild > definition.maximumBuild)) {
+        return QStringLiteral("Target build %1 is outside the verified range. %2 %3")
+            .arg(targetBuild).arg(range, definition.compatibility).trimmed();
+    }
+    return QStringLiteral("Target build %1 is within the verified range. %2")
+        .arg(targetBuild).arg(definition.compatibility).trimmed();
+}
+
+QString scheduledTaskScript(const QString &tasksRoot,
+                            const QString &relativeTaskPath,
+                            ScheduledTaskDisposition disposition)
+{
+    const QString guard = QStringLiteral(
+        "$root=%1; $relative=%2; $path=Join-Path $root $relative; $cursor=$root; "
+        "if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) "
+        "{ throw ('Scheduled-task root is a reparse point: '+$root) }; "
+        "foreach($segment in @($relative -split '/')) { $cursor=Join-Path $cursor $segment; "
+        "if (Test-Path -LiteralPath $cursor) { $item=Get-Item -LiteralPath $cursor -Force; "
+        "if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) "
+        "{ throw ('Scheduled-task path crosses a reparse point: '+$cursor) } } }; ")
+        .arg(ServicingPlan::quotePowerShellLiteral(tasksRoot),
+             ServicingPlan::quotePowerShellLiteral(relativeTaskPath));
+    if (disposition == ScheduledTaskDisposition::Remove) {
+        return QStringLiteral(
+            "$ErrorActionPreference='Stop'; %1"
+            "if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }")
+            .arg(guard);
+    }
+    const QString enabled = disposition == ScheduledTaskDisposition::Enable
+        ? QStringLiteral("true") : QStringLiteral("false");
+    return QStringLiteral(
+        "$ErrorActionPreference='Stop'; %1"
+        "if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw ('Scheduled task not found: '+$path) }; "
+        "[xml]$xml=Get-Content -LiteralPath $path -Raw; "
+        "$ns=New-Object Xml.XmlNamespaceManager($xml.NameTable); "
+        "$ns.AddNamespace('t',$xml.DocumentElement.NamespaceURI); "
+        "$settings=$xml.SelectSingleNode('/t:Task/t:Settings',$ns); "
+        "if ($null -eq $settings) { throw 'Scheduled task has no Settings element' }; "
+        "$node=$settings.SelectSingleNode('t:Enabled',$ns); "
+        "if ($null -eq $node) { $node=$xml.CreateElement('Enabled',$xml.DocumentElement.NamespaceURI); "
+        "$settings.AppendChild($node) | Out-Null }; $node.InnerText='%2'; "
+        "$partial=$path+'.wimforge-partial'; $backup=$path+'.wimforge-backup'; "
+        "$xml.Save($partial); if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }; "
+        "Move-Item -LiteralPath $path -Destination $backup -Force; try { "
+        "Move-Item -LiteralPath $partial -Destination $path -Force; Remove-Item -LiteralPath $backup -Force "
+        "} catch { if (Test-Path -LiteralPath $backup) { Move-Item -LiteralPath $backup -Destination $path -Force }; throw }")
+        .arg(guard, enabled);
+}
+
+QString removeStagedPathScript(const QString &root, const QString &relativeDestination)
+{
+    return QStringLiteral(
+        "$ErrorActionPreference='Stop'; $root=%1; $relative=%2; $path=Join-Path $root $relative; "
+        "if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) "
+        "{ throw ('Answer-file root is a reparse point: '+$root) }; "
+        "$cursor=$root; foreach($segment in @($relative -split '/')) { $cursor=Join-Path $cursor $segment; "
+        "if (Test-Path -LiteralPath $cursor) { $item=Get-Item -LiteralPath $cursor -Force; "
+        "if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) "
+        "{ throw ('Answer-file path crosses a reparse point: '+$cursor) } } }; "
+        "if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }")
+        .arg(ServicingPlan::quotePowerShellLiteral(root),
+             ServicingPlan::quotePowerShellLiteral(relativeDestination));
+}
+
+QString appendPostSetupScript(const QString &setupDirectory,
+                              const QString &command,
+                              const QString &commandId)
+{
+    return QStringLiteral(
+        "$ErrorActionPreference='Stop'; $directory=%1; $command=%2; $marker=%3; "
+        "New-Item -ItemType Directory -Force -Path $directory | Out-Null; "
+        "$path=Join-Path $directory 'SetupComplete.cmd'; "
+        "$content=if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { \"@echo off`r`n\" }; "
+        "if ($content.IndexOf($marker,[StringComparison]::Ordinal) -lt 0) { "
+        "if (($content.Length -gt 0) -and (-not $content.EndsWith(\"`n\"))) { $content += \"`r`n\" }; "
+        "$content += $marker+\"`r`n\"+$command+\"`r`n\"; "
+        "$partial=$path+'.wimforge-partial'; $backup=$path+'.wimforge-backup'; "
+        "$utf8=New-Object Text.UTF8Encoding($false); [IO.File]::WriteAllText($partial,$content,$utf8); "
+        "if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }; "
+        "if (Test-Path -LiteralPath $path) { Move-Item -LiteralPath $path -Destination $backup -Force }; "
+        "try { Move-Item -LiteralPath $partial -Destination $path -Force; "
+        "if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force } "
+        "} catch { if ((-not (Test-Path -LiteralPath $path)) -and (Test-Path -LiteralPath $backup)) "
+        "{ Move-Item -LiteralPath $backup -Destination $path -Force }; throw } }")
+        .arg(ServicingPlan::quotePowerShellLiteral(setupDirectory),
+             ServicingPlan::quotePowerShellLiteral(command),
+             ServicingPlan::quotePowerShellLiteral(QStringLiteral("REM WimForge:%1").arg(commandId)));
+}
+
+void finalizeOperationSemantics(QList<ServicingOperation> &operations)
+{
+    for (ServicingOperation &item : operations) {
+        const QString metadataScope = item.metadata.value(QStringLiteral("writeScope")).toString();
+        if (metadataScope == QStringLiteral("host"))
+            item.writeScope = OperationWriteScope::Host;
+        else if (metadataScope == QStringLiteral("image")
+                 && item.kind == OperationKind::PrepareWorkspace)
+            item.writeScope = OperationWriteScope::WorkingImage;
+        else if (item.writesMountedImage)
+            item.writeScope = OperationWriteScope::MountedImage;
+        else if (item.writesMediaWorkspace)
+            item.writeScope = OperationWriteScope::MediaWorkspace;
+        else if (metadataScope == QStringLiteral("output"))
+            item.writeScope = OperationWriteScope::Output;
+        else if (metadataScope == QStringLiteral("media"))
+            item.writeScope = OperationWriteScope::MediaWorkspace;
+        else if (metadataScope == QStringLiteral("image"))
+            item.writeScope = OperationWriteScope::MountedImage;
+        else if (item.kind == OperationKind::PrepareWorkspace)
+            item.writeScope = OperationWriteScope::ProjectWorkspace;
+
+        switch (item.kind) {
+        case OperationKind::Driver:
+        case OperationKind::Update:
+        case OperationKind::Package:
+        case OperationKind::Feature:
+        case OperationKind::Capability:
+        case OperationKind::Appx:
+        case OperationKind::Component:
+        case OperationKind::ScheduledTask:
+        case OperationKind::Unattended:
+        case OperationKind::PostSetup:
+        case OperationKind::Cleanup:
+            item.skipConsequence = SkipConsequence::OmitsOptionalChange;
+            break;
+        case OperationKind::Registry:
+            item.skipConsequence = item.id.startsWith(QStringLiteral("regedit"))
+                ? SkipConsequence::OmitsOptionalChange : SkipConsequence::BlocksDependents;
+            break;
+        case OperationKind::Inspect:
+        case OperationKind::VerifyPayload:
+        case OperationKind::Mount:
+        case OperationKind::Validate:
+            item.skipConsequence = SkipConsequence::BlocksDependents;
+            break;
+        case OperationKind::PrepareWorkspace:
+        case OperationKind::StageFile:
+        case OperationKind::Commit:
+        case OperationKind::Export:
+        case OperationKind::Split:
+        case OperationKind::CreateIso:
+        case OperationKind::Recovery:
+            item.skipConsequence = SkipConsequence::LeavesIncompleteOutput;
+            break;
+        }
+        if (!item.metadata.contains(QStringLiteral("writeScope"))) {
+            item.metadata.insert(QStringLiteral("writeScope"),
+                                 ServicingPlan::writeScopeName(item.writeScope));
+        }
+        item.metadata.insert(QStringLiteral("checkpointRequired"), item.checkpointBefore);
+        item.metadata.insert(QStringLiteral("parallelEligible"), item.mayRunInParallel);
+        item.metadata.insert(QStringLiteral("skipConsequence"),
+                             ServicingPlan::skipConsequenceName(item.skipConsequence));
+        item.metadata.insert(QStringLiteral("reversible"), item.reversible);
+    }
+}
+
 bool stableTopologicalOrder(const QList<ServicingOperation> &operations,
                             QList<int> *orderedIndices,
                             QString *error)
@@ -626,6 +879,42 @@ QString ServicingOperation::previewCommand() const
     return parts.join(QLatin1Char(' '));
 }
 
+QJsonObject ServicingOperation::toJson() const
+{
+    QJsonArray dependencies;
+    for (const QString &dependency : dependsOn)
+        dependencies.append(dependency);
+    QJsonArray notes;
+    for (const QString &note : compatibilityNotes)
+        notes.append(note);
+    QJsonArray commandArguments;
+    for (const QString &argument : arguments)
+        commandArguments.append(argument);
+    return QJsonObject{
+        {QStringLiteral("id"), id},
+        {QStringLiteral("kind"), ServicingPlan::operationKindName(kind)},
+        {QStringLiteral("titleEn"), titleEn},
+        {QStringLiteral("titleZh"), titleZh},
+        {QStringLiteral("descriptionEn"), descriptionEn},
+        {QStringLiteral("descriptionZh"), descriptionZh},
+        {QStringLiteral("executable"), executable},
+        {QStringLiteral("arguments"), commandArguments},
+        {QStringLiteral("workingDirectory"), workingDirectory},
+        {QStringLiteral("dependsOn"), dependencies},
+        {QStringLiteral("requiresAdministrator"), requiresAdministrator},
+        {QStringLiteral("destructive"), destructive},
+        {QStringLiteral("rebootRequired"), rebootRequired},
+        {QStringLiteral("parallelEligible"), mayRunInParallel},
+        {QStringLiteral("checkpointRequired"), checkpointBefore},
+        {QStringLiteral("reversible"), reversible},
+        {QStringLiteral("writeScope"), ServicingPlan::writeScopeName(writeScope)},
+        {QStringLiteral("skipConsequence"), ServicingPlan::skipConsequenceName(skipConsequence)},
+        {QStringLiteral("compatibilityNotes"), notes},
+        {QStringLiteral("state"), ServicingPlan::operationStateName(state)},
+        {QStringLiteral("metadata"), metadata},
+    };
+}
+
 int ServicingPlanResult::destructiveCount() const
 {
     return static_cast<int>(std::count_if(operations.cbegin(), operations.cend(),
@@ -681,11 +970,13 @@ QString ServicingPlan::operationKindName(OperationKind kind)
     case OperationKind::StageFile: return QStringLiteral("stage-file");
     case OperationKind::Mount: return QStringLiteral("mount");
     case OperationKind::Driver: return QStringLiteral("driver");
+    case OperationKind::Update: return QStringLiteral("update");
     case OperationKind::Package: return QStringLiteral("package");
     case OperationKind::Feature: return QStringLiteral("feature");
     case OperationKind::Capability: return QStringLiteral("capability");
     case OperationKind::Appx: return QStringLiteral("appx");
     case OperationKind::Component: return QStringLiteral("component");
+    case OperationKind::ScheduledTask: return QStringLiteral("scheduled-task");
     case OperationKind::Registry: return QStringLiteral("registry");
     case OperationKind::Unattended: return QStringLiteral("unattended");
     case OperationKind::PostSetup: return QStringLiteral("post-setup");
@@ -698,6 +989,31 @@ QString ServicingPlan::operationKindName(OperationKind kind)
     case OperationKind::Recovery: return QStringLiteral("recovery");
     }
     return QStringLiteral("unknown");
+}
+
+QString ServicingPlan::writeScopeName(OperationWriteScope scope)
+{
+    switch (scope) {
+    case OperationWriteScope::None: return QStringLiteral("none");
+    case OperationWriteScope::ProjectWorkspace: return QStringLiteral("project-workspace");
+    case OperationWriteScope::WorkingImage: return QStringLiteral("working-image");
+    case OperationWriteScope::MountedImage: return QStringLiteral("mounted-image");
+    case OperationWriteScope::MediaWorkspace: return QStringLiteral("media-workspace");
+    case OperationWriteScope::Output: return QStringLiteral("output");
+    case OperationWriteScope::Host: return QStringLiteral("host");
+    }
+    return QStringLiteral("none");
+}
+
+QString ServicingPlan::skipConsequenceName(SkipConsequence consequence)
+{
+    switch (consequence) {
+    case SkipConsequence::None: return QStringLiteral("none");
+    case SkipConsequence::OmitsOptionalChange: return QStringLiteral("omits-optional-change");
+    case SkipConsequence::BlocksDependents: return QStringLiteral("blocks-dependents");
+    case SkipConsequence::LeavesIncompleteOutput: return QStringLiteral("leaves-incomplete-output");
+    }
+    return QStringLiteral("none");
 }
 
 QString ServicingPlan::operationStateName(OperationState state)
@@ -870,6 +1186,21 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             QStringLiteral("Windows/Setup/Scripts/WimForge/%1").arg(QFileInfo(file).fileName()),
             QStringLiteral("image"), QStringLiteral("unattended-file"), {}});
     }
+    for (const StagedPayload &payload : project.stagedPayloads) {
+        stagedFiles.append(StagedFile{
+            payload.sourcePath, safeRelative(payload.destinationPath),
+            payload.scope == PayloadScope::Media ? QStringLiteral("media") : QStringLiteral("image"),
+            payload.role.trimmed().isEmpty() ? QStringLiteral("payload") : payload.role.trimmed(),
+            payload.expectedSha256.trimmed()});
+    }
+    for (const AnswerFileAction &answerFile : project.answerFileActions) {
+        if (answerFile.mode != AnswerFileMode::Place)
+            continue;
+        stagedFiles.append(StagedFile{
+            answerFile.sourcePath, safeRelative(answerFile.destinationPath),
+            answerFile.scope == PayloadScope::Media ? QStringLiteral("media") : QStringLiteral("image"),
+            QStringLiteral("answer-file"), {}});
+    }
     const QJsonValue stagedValue = project.options.extra.value(QStringLiteral("stagedFiles"));
     if (!stagedValue.isUndefined() && !stagedValue.isArray())
         result.errors.append(QStringLiteral("options.extra.stagedFiles must be an array."));
@@ -885,7 +1216,13 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
                           object.value(QStringLiteral("scope")).toString().trimmed().toLower(),
                           object.value(QStringLiteral("role")).toString().trimmed(),
                           object.value(QStringLiteral("sha256")).toString().trimmed()};
-        const QString label = QStringLiteral("Staged file %1").arg(index + 1);
+        stagedFiles.append(staged);
+    }
+
+    QSet<QString> stagedDestinations;
+    for (qsizetype index = 0; index < stagedFiles.size(); ++index) {
+        const StagedFile &staged = stagedFiles.at(index);
+        const QString label = QStringLiteral("Staged payload %1").arg(index + 1);
         if (staged.source.isEmpty() || !QFileInfo(staged.source).isAbsolute())
             result.errors.append(label + QStringLiteral(" source must be absolute."));
         else if (!QFileInfo::exists(staged.source))
@@ -901,7 +1238,43 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         }
         if (staged.scope == QStringLiteral("image") && online)
             result.errors.append(label + QStringLiteral(" cannot target image scope during online servicing."));
-        stagedFiles.append(staged);
+        const QString destinationKey = staged.scope + QLatin1Char(':')
+            + safeRelative(staged.destination).toCaseFolded();
+        if (stagedDestinations.contains(destinationKey)) {
+            result.errors.append(QStringLiteral("Multiple staged payloads target %1:%2.")
+                                     .arg(staged.scope, staged.destination));
+        }
+        stagedDestinations.insert(destinationKey);
+    }
+    for (qsizetype index = 0; index < project.answerFileActions.size(); ++index) {
+        const AnswerFileAction &answerFile = project.answerFileActions.at(index);
+        if (answerFile.mode == AnswerFileMode::Apply)
+            continue;
+        const QStringList reasons = unsafeRelativeReasons(answerFile.destinationPath);
+        if (!reasons.isEmpty()) {
+            result.errors.append(QStringLiteral("Answer file %1 destination '%2' is unsafe: %3.")
+                                     .arg(index + 1).arg(answerFile.destinationPath,
+                                         reasons.join(QStringLiteral(", "))));
+        }
+        if (online && answerFile.scope == PayloadScope::Image)
+            result.errors.append(QStringLiteral("Answer file %1 cannot target image scope during online servicing.")
+                                     .arg(index + 1));
+    }
+    for (qsizetype index = 0; index < project.scheduledTaskChanges.size(); ++index) {
+        const ScheduledTaskChange &change = project.scheduledTaskChanges.at(index);
+        const QStringList reasons = unsafeRelativeReasons(change.taskPath);
+        if (!reasons.isEmpty()) {
+            result.errors.append(QStringLiteral("Scheduled task %1 path '%2' is unsafe: %3.")
+                                     .arg(index + 1).arg(project.scheduledTaskChanges.at(index).taskPath,
+                                         reasons.join(QStringLiteral(", "))));
+        }
+        if (online)
+            result.errors.append(QStringLiteral("Scheduled task changes require an offline image."));
+        if (change.disposition == ScheduledTaskDisposition::Remove
+            && !change.compatibilityOverride) {
+            result.errors.append(QStringLiteral(
+                "Scheduled task %1 removal requires an explicit compatibility override.").arg(index + 1));
+        }
     }
 
     QStringList selectedPayloads = project.updates + project.packages + project.drivers
@@ -909,6 +1282,10 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
     if (!project.unattendedXmlPath.trimmed().isEmpty())
         selectedPayloads.append(project.unattendedXmlPath);
     selectedPayloads.append(project.unattendedFiles);
+    for (const AnswerFileAction &answerFile : project.answerFileActions) {
+        if (answerFile.mode == AnswerFileMode::Apply)
+            selectedPayloads.append(answerFile.sourcePath);
+    }
     for (const QString &payload : selectedPayloads) {
         if (!QFileInfo(payload).isAbsolute())
             result.errors.append(QStringLiteral("Payload path must be absolute: %1").arg(payload));
@@ -1121,17 +1498,33 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             QStringLiteral("dism.exe"), arguments, true), lastImageWrite);
     }
 
-    for (const QString &package : project.updates + project.packages) {
-        chainImageWrite(result.operations, operation(
+    for (const QString &update : project.updates) {
+        ServicingOperation integrate = operation(
+            sequence, QStringLiteral("update"), OperationKind::Update,
+            QStringLiteral("Integrate update: %1").arg(QFileInfo(update).fileName()),
+            QStringLiteral("整合更新：%1").arg(QFileInfo(update).fileName()),
+            QStringLiteral("Add a CAB/MSU servicing-stack, cumulative, enablement, or language update."),
+            QStringLiteral("加入 CAB/MSU 維護堆疊、累積、啟用或語言更新。"),
+            QStringLiteral("dism.exe"),
+            {QStringLiteral("/English"), dismTarget(project), QStringLiteral("/Add-Package"),
+             QStringLiteral("/PackagePath:%1").arg(update), QStringLiteral("/PreventPending")}, true);
+        integrate.metadata.insert(QStringLiteral("packageClass"), QStringLiteral("update"));
+        integrate.metadata.insert(QStringLiteral("sourcePath"), update);
+        chainImageWrite(result.operations, std::move(integrate), lastImageWrite);
+    }
+    for (const QString &package : project.packages) {
+        ServicingOperation integrate = operation(
             sequence, QStringLiteral("package"), OperationKind::Package,
             QStringLiteral("Integrate package: %1").arg(QFileInfo(package).fileName()),
             QStringLiteral("整合套件：%1").arg(QFileInfo(package).fileName()),
-            QStringLiteral("Add a CAB/MSU update, language pack, FOD or enablement package."),
-            QStringLiteral("加入 CAB/MSU 更新、語言包、FOD 或啟用套件。"),
+            QStringLiteral("Add a language pack, Feature on Demand, or other standalone package."),
+            QStringLiteral("加入語言包、按需功能或其他獨立套件。"),
             QStringLiteral("dism.exe"),
             {QStringLiteral("/English"), dismTarget(project), QStringLiteral("/Add-Package"),
-             QStringLiteral("/PackagePath:%1").arg(package), QStringLiteral("/PreventPending")}, true),
-            lastImageWrite);
+             QStringLiteral("/PackagePath:%1").arg(package), QStringLiteral("/PreventPending")}, true);
+        integrate.metadata.insert(QStringLiteral("packageClass"), QStringLiteral("package"));
+        integrate.metadata.insert(QStringLiteral("sourcePath"), package);
+        chainImageWrite(result.operations, std::move(integrate), lastImageWrite);
     }
 
     for (const QString &feature : project.featuresToEnable) {
@@ -1179,7 +1572,7 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             lastImageWrite);
     }
     for (const QString &packageName : project.appxPackagesToRemove) {
-        chainImageWrite(result.operations, operation(
+        ServicingOperation remove = operation(
             sequence, QStringLiteral("appx"), OperationKind::Appx,
             QStringLiteral("Remove provisioned app: %1").arg(packageName),
             QStringLiteral("移除預載 App：%1").arg(packageName),
@@ -1188,10 +1581,13 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             QStringLiteral("dism.exe"),
             {QStringLiteral("/English"), dismTarget(project),
              QStringLiteral("/Remove-ProvisionedAppxPackage"),
-             QStringLiteral("/PackageName:%1").arg(packageName)}, true, true), lastImageWrite);
+             QStringLiteral("/PackageName:%1").arg(packageName)}, true, true);
+        remove.metadata.insert(QStringLiteral("appxAction"), QStringLiteral("remove"));
+        remove.metadata.insert(QStringLiteral("packageName"), packageName);
+        chainImageWrite(result.operations, std::move(remove), lastImageWrite);
     }
     for (const QString &packagePath : project.appxPackagesToProvision) {
-        chainImageWrite(result.operations, operation(
+        ServicingOperation provision = operation(
             sequence, QStringLiteral("appx"), OperationKind::Appx,
             QStringLiteral("Provision app: %1").arg(QFileInfo(packagePath).fileName()),
             QStringLiteral("預載 App：%1").arg(QFileInfo(packagePath).fileName()),
@@ -1200,11 +1596,13 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             QStringLiteral("dism.exe"),
             {QStringLiteral("/English"), dismTarget(project),
              QStringLiteral("/Add-ProvisionedAppxPackage"),
-             QStringLiteral("/PackagePath:%1").arg(packagePath), QStringLiteral("/SkipLicense")}, true),
-            lastImageWrite);
+             QStringLiteral("/PackagePath:%1").arg(packagePath), QStringLiteral("/SkipLicense")}, true);
+        provision.metadata.insert(QStringLiteral("appxAction"), QStringLiteral("provision"));
+        provision.metadata.insert(QStringLiteral("packagePath"), packagePath);
+        chainImageWrite(result.operations, std::move(provision), lastImageWrite);
     }
     for (const QString &component : project.componentsToRemove) {
-        chainImageWrite(result.operations, operation(
+        ServicingOperation remove = operation(
             sequence, QStringLiteral("component"), OperationKind::Component,
             QStringLiteral("Remove component package: %1").arg(component),
             QStringLiteral("移除元件套件：%1").arg(component),
@@ -1212,8 +1610,44 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             QStringLiteral("相容性檢查後移除套件 identity；可能會降低日後維護能力。"),
             QStringLiteral("dism.exe"),
             {QStringLiteral("/English"), dismTarget(project), QStringLiteral("/Remove-Package"),
-             QStringLiteral("/PackageName:%1").arg(component), QStringLiteral("/NoRestart")}, true, true),
-            lastImageWrite);
+             QStringLiteral("/PackageName:%1").arg(component), QStringLiteral("/NoRestart")}, true, true);
+        remove.metadata.insert(QStringLiteral("componentAction"), QStringLiteral("remove-package"));
+        remove.metadata.insert(QStringLiteral("packageIdentity"), component);
+        remove.compatibilityNotes.append(QStringLiteral(
+            "Package identities are build-specific; confirm the identity exists in the selected image."));
+        chainImageWrite(result.operations, std::move(remove), lastImageWrite);
+    }
+    for (const ScheduledTaskChange &change : project.scheduledTaskChanges) {
+        const QString relative = safeRelative(change.taskPath);
+        const QString tasksRoot = QDir(project.mountPath).filePath(QStringLiteral("Windows/System32/Tasks"));
+        const QString taskFile = QDir(tasksRoot).filePath(relative);
+        const bool removing = change.disposition == ScheduledTaskDisposition::Remove;
+        const QString action = change.disposition == ScheduledTaskDisposition::Enable
+            ? QStringLiteral("Enable")
+            : removing ? QStringLiteral("Remove") : QStringLiteral("Disable");
+        ServicingOperation task = operation(
+            sequence, QStringLiteral("task"), OperationKind::ScheduledTask,
+            QStringLiteral("%1 scheduled task: %2").arg(action, relative),
+            QStringLiteral("%1排程工作：%2").arg(action, relative),
+            removing
+                ? QStringLiteral("Remove the offline task definition after an explicit compatibility override.")
+                : QStringLiteral("Atomically update the Enabled flag in the offline task definition."),
+            removing
+                ? QStringLiteral("明確相容性解鎖後移除離線工作定義。")
+                : QStringLiteral("原子更新離線工作定義嘅 Enabled 標記。"),
+            QStringLiteral("powershell.exe"),
+            powershellArguments(scheduledTaskScript(tasksRoot, relative, change.disposition)), true, removing);
+        task.reversible = !removing;
+        task.checkpointBefore = removing || !change.compatibilityOverride;
+        task.metadata = QJsonObject{
+            {QStringLiteral("taskAction"), action.toLower()},
+            {QStringLiteral("taskPath"), relative},
+            {QStringLiteral("taskFile"), taskFile},
+            {QStringLiteral("compatibilityOverride"), change.compatibilityOverride},
+        };
+        task.compatibilityNotes.append(QStringLiteral(
+            "Scheduled-task names and XML schemas are build-specific; validate the task on the selected image."));
+        chainImageWrite(result.operations, std::move(task), lastImageWrite);
     }
 
     for (const StagedFile &staged : std::as_const(stagedFiles)) {
@@ -1244,8 +1678,76 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         }
     }
 
-    for (qsizetype index = 0; index < project.registryTweaks.size(); ++index) {
-        const RegistryTweak &tweak = project.registryTweaks.at(index);
+    QList<RegistryTweak> effectiveRegistryTweaks = project.registryTweaks;
+    QHash<QString, QString> settingNotes;
+    for (const SettingDefinition &definition : settingDefinitions()) {
+        if (!settingEnabled(project, definition.id))
+            continue;
+        effectiveRegistryTweaks.append(definition.tweak);
+        const QString note = settingCompatibilityNote(definition, project.targetBuildNumber);
+        settingNotes.insert(definition.tweak.ownerId, note);
+        if (note.contains(QStringLiteral("outside the verified range")))
+            result.warnings.append(QStringLiteral("%1: %2").arg(definition.id, note));
+    }
+
+    for (qsizetype index = 0; index < effectiveRegistryTweaks.size(); ++index) {
+        const RegistryTweak &tweak = effectiveRegistryTweaks.at(index);
+        if (online) {
+            QString hive = tweak.hive.trimmed().toUpper();
+            if (hive == QStringLiteral("HKEY_LOCAL_MACHINE")) hive = QStringLiteral("HKLM");
+            else if (hive == QStringLiteral("HKEY_CURRENT_USER")) hive = QStringLiteral("HKCU");
+            else if (hive == QStringLiteral("HKEY_CLASSES_ROOT")) hive = QStringLiteral("HKCR");
+            else if (hive == QStringLiteral("HKEY_USERS")) hive = QStringLiteral("HKU");
+            else if (hive == QStringLiteral("HKEY_CURRENT_CONFIG")) hive = QStringLiteral("HKCC");
+            const QString relativeKey = registryKeyWithoutHivePrefix(tweak);
+            const QString targetKey = relativeKey.isEmpty() ? hive : hive + QLatin1Char('\\') + relativeKey;
+            const bool deleting = tweak.deleteValue || tweak.deleteAllValues;
+            QStringList arguments{deleting ? QStringLiteral("delete") : QStringLiteral("add"), targetKey};
+            if (tweak.deleteAllValues)
+                arguments << QStringLiteral("/va");
+            else if (!tweak.valueName.isEmpty())
+                arguments << QStringLiteral("/v") << tweak.valueName;
+            else
+                arguments << QStringLiteral("/ve");
+            if (deleting)
+                arguments << QStringLiteral("/f");
+            else
+                arguments << QStringLiteral("/t") << tweak.type << QStringLiteral("/d")
+                          << registryCommandValue(tweak) << QStringLiteral("/f");
+            ServicingOperation registryEdit = operation(
+                sequence, QStringLiteral("regedit"), OperationKind::Registry,
+                tweak.deleteAllValues ? QStringLiteral("Clear live registry key values")
+                                      : QStringLiteral("Apply live registry setting"),
+                tweak.deleteAllValues ? QStringLiteral("清除即時登錄 key 值") : QStringLiteral("套用即時登錄設定"),
+                QStringLiteral("Apply the typed registry edit to the explicitly selected live target."),
+                QStringLiteral("將已定型登錄修改套用去明確揀選嘅即時目標。"),
+                QStringLiteral("reg.exe"), arguments, true, deleting);
+            registryEdit.writeScope = OperationWriteScope::Host;
+            registryEdit.metadata = QJsonObject{
+                {QStringLiteral("writeScope"), QStringLiteral("host")},
+                {QStringLiteral("registryKey"), relativeKey},
+                {QStringLiteral("registryType"), tweak.type},
+                {QStringLiteral("deleteAllValues"), tweak.deleteAllValues},
+                {QStringLiteral("owner"), tweak.ownerId},
+            };
+            const auto settingNote = settingNotes.constFind(tweak.ownerId);
+            if (settingNote != settingNotes.cend()) {
+                const QString settingId = tweak.ownerId.mid(QStringLiteral("customize:").size());
+                registryEdit.reversible = true;
+                registryEdit.compatibilityNotes.append(*settingNote);
+                registryEdit.metadata.insert(QStringLiteral("customizeSetting"), settingId);
+                registryEdit.metadata.insert(QStringLiteral("reversal"), QJsonObject{
+                    {QStringLiteral("action"), QStringLiteral("delete-value")},
+                    {QStringLiteral("hive"), tweak.hive},
+                    {QStringLiteral("key"), tweak.key},
+                    {QStringLiteral("name"), tweak.valueName},
+                });
+            }
+            addDependency(registryEdit, lastImageWrite);
+            lastImageWrite = registryEdit.id;
+            result.operations.append(std::move(registryEdit));
+            continue;
+        }
         const QString mountKey = QStringLiteral("HKLM\\WimForgeOffline_%1").arg(index);
         const QString hiveFile = registryHiveFile(project, tweak);
         chainImageWrite(result.operations, operation(
@@ -1290,6 +1792,19 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             {QStringLiteral("deleteAllValues"), tweak.deleteAllValues},
             {QStringLiteral("owner"), tweak.ownerId},
         };
+        const auto settingNote = settingNotes.constFind(tweak.ownerId);
+        if (settingNote != settingNotes.cend()) {
+            const QString settingId = tweak.ownerId.mid(QStringLiteral("customize:").size());
+            registryEdit.reversible = true;
+            registryEdit.compatibilityNotes.append(*settingNote);
+            registryEdit.metadata.insert(QStringLiteral("customizeSetting"), settingId);
+            registryEdit.metadata.insert(QStringLiteral("reversal"), QJsonObject{
+                {QStringLiteral("action"), QStringLiteral("delete-value")},
+                {QStringLiteral("hive"), tweak.hive},
+                {QStringLiteral("key"), tweak.key},
+                {QStringLiteral("name"), tweak.valueName},
+            });
+        }
         chainImageWrite(result.operations, std::move(registryEdit), lastImageWrite);
         chainImageWrite(result.operations, operation(
             sequence, QStringLiteral("regunload"), OperationKind::Registry,
@@ -1300,28 +1815,81 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
     }
 
     if (!project.unattendedXmlPath.trimmed().isEmpty()) {
-        chainImageWrite(result.operations, operation(
+        ServicingOperation apply = operation(
             sequence, QStringLiteral("unattend"), OperationKind::Unattended,
             QStringLiteral("Apply unattended settings"), QStringLiteral("套用無人值守設定"),
             QStringLiteral("Apply the answer file to the offline image with Windows servicing."),
             QStringLiteral("用 Windows 維護引擎將答案檔套入離線映像。"),
             QStringLiteral("dism.exe"),
             {QStringLiteral("/English"), dismTarget(project),
-             QStringLiteral("/Apply-Unattend:%1").arg(project.unattendedXmlPath)}, true), lastImageWrite);
+             QStringLiteral("/Apply-Unattend:%1").arg(project.unattendedXmlPath)}, true);
+        apply.metadata.insert(QStringLiteral("answerFileAction"), QStringLiteral("apply"));
+        apply.metadata.insert(QStringLiteral("sourcePath"), project.unattendedXmlPath);
+        chainImageWrite(result.operations, std::move(apply), lastImageWrite);
     }
 
-    for (const QString &entry : project.postSetupItems) {
+    for (const AnswerFileAction &answerFile : project.answerFileActions) {
+        if (answerFile.mode == AnswerFileMode::Place)
+            continue; // Placement is represented by the typed StageFile operation above.
+        if (answerFile.mode == AnswerFileMode::Apply) {
+            ServicingOperation apply = operation(
+                sequence, QStringLiteral("unattend"), OperationKind::Unattended,
+                QStringLiteral("Apply answer file: %1").arg(QFileInfo(answerFile.sourcePath).fileName()),
+                QStringLiteral("套用答案檔：%1").arg(QFileInfo(answerFile.sourcePath).fileName()),
+                QStringLiteral("Apply the selected answer file to the offline image with DISM."),
+                QStringLiteral("用 DISM 將已揀答案檔套用去離線映像。"),
+                QStringLiteral("dism.exe"),
+                {QStringLiteral("/English"), dismTarget(project),
+                 QStringLiteral("/Apply-Unattend:%1").arg(answerFile.sourcePath)}, true);
+            apply.metadata.insert(QStringLiteral("answerFileAction"), QStringLiteral("apply"));
+            apply.metadata.insert(QStringLiteral("sourcePath"), answerFile.sourcePath);
+            chainImageWrite(result.operations, std::move(apply), lastImageWrite);
+            continue;
+        }
+
+        const QString root = answerFile.scope == PayloadScope::Media ? workspace : project.mountPath;
+        const QString destination = QDir(root).filePath(safeRelative(answerFile.destinationPath));
+        ServicingOperation remove = operation(
+            sequence, QStringLiteral("unattend"), OperationKind::Unattended,
+            QStringLiteral("Remove placed answer file: %1").arg(answerFile.destinationPath),
+            QStringLiteral("移除已放置答案檔：%1").arg(answerFile.destinationPath),
+            QStringLiteral("Remove only the explicitly selected answer-file destination."),
+            QStringLiteral("只移除明確揀選嘅答案檔目的地。"),
+            QStringLiteral("powershell.exe"),
+            powershellArguments(removeStagedPathScript(root, safeRelative(answerFile.destinationPath))), true, true);
+        remove.metadata = QJsonObject{
+            {QStringLiteral("answerFileAction"), QStringLiteral("remove")},
+            {QStringLiteral("destination"), destination},
+            {QStringLiteral("relativeDestination"), answerFile.destinationPath},
+        };
+        if (answerFile.scope == PayloadScope::Media) {
+            addDependency(remove, mediaPreparation);
+            chainMediaWrite(result.operations, std::move(remove), lastMediaWrite);
+        } else {
+            chainImageWrite(result.operations, std::move(remove), lastImageWrite);
+        }
+    }
+
+    QList<PostSetupCommand> commands = project.postSetupCommands;
+    for (const QString &entry : project.postSetupItems)
+        commands.append(PostSetupCommand{entry, QStringLiteral("Legacy post-setup command")});
+    for (const PostSetupCommand &command : std::as_const(commands)) {
         const QString setupDir = QDir(project.mountPath).filePath(QStringLiteral("Windows/Setup/Scripts"));
-        const QString script = QStringLiteral(
-            "$ErrorActionPreference='Stop'; $d=%1; New-Item -ItemType Directory -Force -Path $d | Out-Null; "
-            "Add-Content -LiteralPath (Join-Path $d 'SetupComplete.cmd') -Value %2")
-                                   .arg(quotePowerShellLiteral(setupDir), quotePowerShellLiteral(entry));
-        chainImageWrite(result.operations, operation(
+        const QString commandId = QString::fromLatin1(
+            QCryptographicHash::hash(command.command.toUtf8(), QCryptographicHash::Sha256).toHex().left(16));
+        const QString script = appendPostSetupScript(setupDir, command.command, commandId);
+        ServicingOperation append = operation(
             sequence, QStringLiteral("postsetup"), OperationKind::PostSetup,
-            QStringLiteral("Stage post-setup action"), QStringLiteral("加入裝完後工序"),
+            command.label.trimmed().isEmpty() ? QStringLiteral("Stage post-setup command") : command.label,
+            QStringLiteral("加入裝完後指令"),
             QStringLiteral("Append a transparent command to SetupComplete.cmd in the target."),
             QStringLiteral("將清楚可見嘅指令加入目標 SetupComplete.cmd。"),
-            QStringLiteral("powershell.exe"), powershellArguments(script), true), lastImageWrite);
+            QStringLiteral("powershell.exe"), powershellArguments(script), true);
+        append.metadata.insert(QStringLiteral("literalCommand"), command.command);
+        append.metadata.insert(QStringLiteral("commandLabel"), command.label);
+        append.metadata.insert(QStringLiteral("commandId"), commandId);
+        append.metadata.insert(QStringLiteral("idempotent"), true);
+        chainImageWrite(result.operations, std::move(append), lastImageWrite);
     }
 
     if (project.options.cleanupComponentStore) {
@@ -1433,7 +2001,8 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         addDependency(clear, dependency);
         result.operations.append(std::move(clear));
 
-        const int splitSize = qBound(100, extraInt(project, QStringLiteral("splitSizeMb"), 3800), 4095);
+        const int splitSize = qBound(
+            100, extraInt(project, QStringLiteral("splitSizeMb"), project.options.splitSizeMb), 4095);
         const QString temporaryFirstPart = QDir(temporary).filePath(QFileInfo(destinationFirstPart).fileName());
         ServicingOperation split = operation(
             sequence, QStringLiteral("split"), OperationKind::Split,
@@ -1585,6 +2154,13 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
     if (online)
         result.warnings.append(QStringLiteral(
             "Live-install servicing changes the running operating system; an offline image is safer."));
+    if (project.options.dryRun) {
+        result.warnings.append(QStringLiteral(
+            "Dry-run is enabled; callers must preview this plan without launching its commands."));
+        for (ServicingOperation &item : result.operations)
+            item.metadata.insert(QStringLiteral("previewOnly"), true);
+    }
+    finalizeOperationSemantics(result.operations);
     return result;
 }
 

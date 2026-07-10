@@ -17,11 +17,13 @@ enum class OperationKind
     StageFile,
     Mount,
     Driver,
+    Update,
     Package,
     Feature,
     Capability,
     Appx,
     Component,
+    ScheduledTask,
     Registry,
     Unattended,
     PostSetup,
@@ -38,6 +40,25 @@ enum class OperationKind
 // the operation could not run because a required dependency failed or was
 // cancelled; unlike an intentional skip, it makes the overall run fail.
 enum class OperationState { Queued, Running, Succeeded, Failed, Skipped, Blocked, Cancelled };
+
+enum class OperationWriteScope
+{
+    None,
+    ProjectWorkspace,
+    WorkingImage,
+    MountedImage,
+    MediaWorkspace,
+    Output,
+    Host
+};
+
+enum class SkipConsequence
+{
+    None,
+    OmitsOptionalChange,
+    BlocksDependents,
+    LeavesIncompleteOutput
+};
 
 struct ServicingOperation
 {
@@ -58,10 +79,15 @@ struct ServicingOperation
     bool writesMountedImage = false;
     bool writesMediaWorkspace = false;
     bool checkpointBefore = false;
+    bool reversible = false;
+    OperationWriteScope writeScope = OperationWriteScope::None;
+    SkipConsequence skipConsequence = SkipConsequence::None;
+    QStringList compatibilityNotes;
     OperationState state = OperationState::Queued;
     QJsonObject metadata;
 
     [[nodiscard]] QString previewCommand() const;
+    [[nodiscard]] QJsonObject toJson() const;
 };
 
 struct ServicingPlanResult
@@ -87,6 +113,8 @@ public:
     static QString quotePowerShellLiteral(const QString &value);
     static QString operationKindName(OperationKind kind);
     static QString operationStateName(OperationState state);
+    static QString writeScopeName(OperationWriteScope scope);
+    static QString skipConsequenceName(SkipConsequence consequence);
     static bool exportPowerShell(const ProjectConfig &project,
                                  const QList<ServicingOperation> &operations,
                                  const QString &destination,
