@@ -34,7 +34,10 @@ enum class OperationKind
     Recovery
 };
 
-enum class OperationState { Queued, Running, Succeeded, Failed, Skipped, Cancelled };
+// Skipped is reserved for an intentional review-time omission. Blocked means
+// the operation could not run because a required dependency failed or was
+// cancelled; unlike an intentional skip, it makes the overall run fail.
+enum class OperationState { Queued, Running, Succeeded, Failed, Skipped, Blocked, Cancelled };
 
 struct ServicingOperation
 {

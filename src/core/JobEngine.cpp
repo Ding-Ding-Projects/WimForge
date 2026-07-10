@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUuid>
@@ -19,6 +20,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace wimforge {
 namespace {
@@ -37,7 +39,68 @@ QString nowIso()
 bool terminal(OperationState state)
 {
     return state == OperationState::Succeeded || state == OperationState::Failed
-        || state == OperationState::Skipped || state == OperationState::Cancelled;
+        || state == OperationState::Skipped || state == OperationState::Blocked
+        || state == OperationState::Cancelled;
+}
+
+QString operationGraphError(const QList<ServicingOperation> &operations)
+{
+    QHash<QString, int> indexById;
+    for (qsizetype index = 0; index < operations.size(); ++index) {
+        const QString &id = operations.at(index).id;
+        if (id.trimmed().isEmpty())
+            return QStringLiteral("Servicing operation %1 has an empty ID.").arg(index + 1);
+        if (indexById.contains(id))
+            return QStringLiteral("Servicing operation ID '%1' is duplicated.").arg(id);
+        indexById.insert(id, static_cast<int>(index));
+    }
+
+    std::vector<int> inDegree(static_cast<std::size_t>(operations.size()), 0);
+    std::vector<std::vector<int>> dependents(static_cast<std::size_t>(operations.size()));
+    for (qsizetype index = 0; index < operations.size(); ++index) {
+        const ServicingOperation &operation = operations.at(index);
+        QSet<QString> seenDependencies;
+        for (const QString &dependency : operation.dependsOn) {
+            if (seenDependencies.contains(dependency))
+                continue;
+            seenDependencies.insert(dependency);
+            const auto found = indexById.constFind(dependency);
+            if (found == indexById.cend()) {
+                return QStringLiteral("Servicing operation '%1' depends on missing operation '%2'.")
+                    .arg(operation.id, dependency);
+            }
+            ++inDegree.at(static_cast<std::size_t>(index));
+            dependents.at(static_cast<std::size_t>(*found)).push_back(static_cast<int>(index));
+        }
+    }
+
+    QList<int> ready;
+    for (qsizetype index = 0; index < operations.size(); ++index)
+        if (inDegree.at(static_cast<std::size_t>(index)) == 0)
+            ready.append(static_cast<int>(index));
+
+    qsizetype orderedCount = 0;
+    while (!ready.isEmpty()) {
+        const int index = ready.takeFirst();
+        ++orderedCount;
+        for (const int dependent : dependents.at(static_cast<std::size_t>(index))) {
+            int &degree = inDegree.at(static_cast<std::size_t>(dependent));
+            --degree;
+            if (degree != 0)
+                continue;
+            const auto position = std::lower_bound(ready.begin(), ready.end(), dependent);
+            ready.insert(position, dependent);
+        }
+    }
+    if (orderedCount != operations.size()) {
+        QStringList unresolved;
+        for (qsizetype index = 0; index < operations.size(); ++index)
+            if (inDegree.at(static_cast<std::size_t>(index)) > 0)
+                unresolved.append(operations.at(index).id);
+        return QStringLiteral("Servicing operation dependencies contain a cycle involving: %1.")
+            .arg(unresolved.join(QStringLiteral(", ")));
+    }
+    return {};
 }
 
 } // namespace
@@ -145,6 +208,11 @@ bool JobEngine::start(const ProjectConfig &project,
         setError(error, validation.message());
         return false;
     }
+    const QString graphError = operationGraphError(operations);
+    if (!graphError.isEmpty()) {
+        setError(error, graphError);
+        return false;
+    }
     if (std::any_of(operations.cbegin(), operations.cend(), [](const ServicingOperation &item) {
             return item.requiresAdministrator;
         }) && !isAdministrator()) {
@@ -212,26 +280,46 @@ void JobEngine::cancel()
 
 bool JobEngine::dependenciesDone(const ServicingOperation &operation) const
 {
-    for (const QString &dependency : operation.dependsOn) {
-        const auto it = m_indexById.constFind(dependency);
-        if (it == m_indexById.cend() || !terminal(m_operations.at(*it).state))
+    for (const QString &dependency : operation.dependsOn)
+        if (!dependencyChainDone(dependency))
             return false;
-    }
     return true;
 }
 
 bool JobEngine::dependencyFailed(const ServicingOperation &operation) const
 {
-    for (const QString &dependency : operation.dependsOn) {
-        const auto it = m_indexById.constFind(dependency);
-        if (it != m_indexById.cend()) {
-            const OperationState state = m_operations.at(*it).state;
-            if (state == OperationState::Failed || state == OperationState::Cancelled
-                || state == OperationState::Skipped)
-                return true;
-        }
-    }
+    for (const QString &dependency : operation.dependsOn)
+        if (dependencyChainFailed(dependency))
+            return true;
     return false;
+}
+
+bool JobEngine::dependencyChainDone(const QString &operationId) const
+{
+    const auto found = m_indexById.constFind(operationId);
+    if (found == m_indexById.cend())
+        return false;
+    const ServicingOperation &operation = m_operations.at(*found);
+    if (operation.state != OperationState::Skipped)
+        return terminal(operation.state);
+    // An intentional skip is transparent, not a shortcut around the skipped
+    // operation's own prerequisites.
+    return dependenciesDone(operation);
+}
+
+bool JobEngine::dependencyChainFailed(const QString &operationId) const
+{
+    const auto found = m_indexById.constFind(operationId);
+    if (found == m_indexById.cend())
+        return true;
+    const ServicingOperation &operation = m_operations.at(*found);
+    if (operation.state == OperationState::Failed || operation.state == OperationState::Blocked
+        || operation.state == OperationState::Cancelled) {
+        return true;
+    }
+    // Preserve the user's explicit skip while still carrying any failure from
+    // its prerequisite chain to consumers that cannot safely run.
+    return operation.state == OperationState::Skipped && dependencyFailed(operation);
 }
 
 int JobEngine::completedCount() const
@@ -251,16 +339,21 @@ void JobEngine::schedule()
         return;
 
     bool changed = false;
-    for (qsizetype index = 0; index < m_operations.size(); ++index) {
-        ServicingOperation &operation = m_operations[index];
-        if (operation.state == OperationState::Queued && dependenciesDone(operation)
-            && dependencyFailed(operation)) {
-            operation.state = OperationState::Skipped;
-            changed = true;
-            emit operationChanged(static_cast<int>(index), ServicingPlan::operationStateName(operation.state),
-                                  QStringLiteral("Skipped because a dependency failed."));
+    bool blockedOperation = false;
+    do {
+        blockedOperation = false;
+        for (qsizetype index = 0; index < m_operations.size(); ++index) {
+            ServicingOperation &operation = m_operations[index];
+            if (operation.state == OperationState::Queued && dependenciesDone(operation)
+                && dependencyFailed(operation)) {
+                operation.state = OperationState::Blocked;
+                changed = true;
+                blockedOperation = true;
+                emit operationChanged(static_cast<int>(index), ServicingPlan::operationStateName(operation.state),
+                                      QStringLiteral("Blocked because a required dependency failed or was cancelled."));
+            }
         }
-    }
+    } while (blockedOperation);
 
     while (!m_cancelling && m_active.size() < m_maximumParallel) {
         int candidate = -1;
@@ -292,12 +385,34 @@ void JobEngine::schedule()
     }
 
     if (m_active.isEmpty() && completedCount() == m_operations.size()) {
-        const bool success = std::none_of(m_operations.cbegin(), m_operations.cend(), [](const ServicingOperation &item) {
-            return item.state == OperationState::Failed || item.state == OperationState::Cancelled;
+        const bool success = std::all_of(m_operations.cbegin(), m_operations.cend(), [](const ServicingOperation &item) {
+            return item.state == OperationState::Succeeded || item.state == OperationState::Skipped;
         });
-        finishRun(success, success ? QStringLiteral("All servicing operations completed.")
-                                   : (m_cancelling ? QStringLiteral("Servicing run cancelled safely.")
-                                                   : QStringLiteral("Servicing stopped after a failed operation.")));
+        const int skippedCount = static_cast<int>(std::count_if(
+            m_operations.cbegin(), m_operations.cend(), [](const ServicingOperation &item) {
+                return item.state == OperationState::Skipped;
+            }));
+        const int failedCount = static_cast<int>(std::count_if(
+            m_operations.cbegin(), m_operations.cend(), [](const ServicingOperation &item) {
+                return item.state == OperationState::Failed;
+            }));
+        const int blockedCount = static_cast<int>(std::count_if(
+            m_operations.cbegin(), m_operations.cend(), [](const ServicingOperation &item) {
+                return item.state == OperationState::Blocked;
+            }));
+        QString message;
+        if (success && skippedCount > 0) {
+            message = QStringLiteral("All selected servicing operations completed; %1 intentionally skipped.")
+                          .arg(skippedCount);
+        } else if (success) {
+            message = QStringLiteral("All servicing operations completed.");
+        } else if (m_cancelling) {
+            message = QStringLiteral("Servicing run cancelled safely.");
+        } else {
+            message = QStringLiteral("Servicing failed: %1 operation(s) failed and %2 blocked by dependencies.")
+                          .arg(failedCount).arg(blockedCount);
+        }
+        finishRun(success, message);
     }
 }
 
@@ -384,6 +499,7 @@ void JobEngine::finishRun(bool success, const QString &message)
     QFile file(journalPath());
     if (file.open(QIODevice::ReadOnly)) {
         QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+        file.close();
         QJsonObject object = document.object();
         object.insert(QStringLiteral("status"), success ? QStringLiteral("succeeded")
                                                         : (m_cancelling ? QStringLiteral("cancelled")

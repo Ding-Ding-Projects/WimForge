@@ -2,7 +2,9 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonValue>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -10,6 +12,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace wimforge {
 namespace {
@@ -526,6 +529,93 @@ QString registryCommandValue(const RegistryTweak &tweak)
     return value.split(QLatin1Char('\n'), Qt::SkipEmptyParts).join(QStringLiteral("\\0"));
 }
 
+bool stableTopologicalOrder(const QList<ServicingOperation> &operations,
+                            QList<int> *orderedIndices,
+                            QString *error)
+{
+    auto fail = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    QHash<QString, int> indexById;
+    for (qsizetype index = 0; index < operations.size(); ++index) {
+        const QString &id = operations.at(index).id;
+        if (id.trimmed().isEmpty())
+            return fail(QStringLiteral("Servicing operation %1 has an empty ID.").arg(index + 1));
+        if (indexById.contains(id))
+            return fail(QStringLiteral("Servicing operation ID '%1' is duplicated.").arg(id));
+        indexById.insert(id, static_cast<int>(index));
+    }
+
+    std::vector<int> inDegree(static_cast<std::size_t>(operations.size()), 0);
+    std::vector<std::vector<int>> dependents(static_cast<std::size_t>(operations.size()));
+    for (qsizetype index = 0; index < operations.size(); ++index) {
+        const ServicingOperation &operation = operations.at(index);
+        QSet<QString> seenDependencies;
+        for (const QString &dependency : operation.dependsOn) {
+            if (seenDependencies.contains(dependency))
+                continue;
+            seenDependencies.insert(dependency);
+            const auto found = indexById.constFind(dependency);
+            if (found == indexById.cend()) {
+                return fail(QStringLiteral("Servicing operation '%1' depends on missing operation '%2'.")
+                                .arg(operation.id, dependency));
+            }
+            ++inDegree.at(static_cast<std::size_t>(index));
+            dependents.at(static_cast<std::size_t>(*found)).push_back(static_cast<int>(index));
+        }
+    }
+
+    QList<int> ready;
+    for (qsizetype index = 0; index < operations.size(); ++index)
+        if (inDegree.at(static_cast<std::size_t>(index)) == 0)
+            ready.append(static_cast<int>(index));
+
+    QList<int> result;
+    result.reserve(operations.size());
+    while (!ready.isEmpty()) {
+        const int index = ready.takeFirst();
+        result.append(index);
+        for (const int dependent : dependents.at(static_cast<std::size_t>(index))) {
+            int &degree = inDegree.at(static_cast<std::size_t>(dependent));
+            --degree;
+            if (degree != 0)
+                continue;
+            const auto position = std::lower_bound(ready.begin(), ready.end(), dependent);
+            ready.insert(position, dependent);
+        }
+    }
+
+    if (result.size() != operations.size()) {
+        QStringList unresolved;
+        for (qsizetype index = 0; index < operations.size(); ++index)
+            if (inDegree.at(static_cast<std::size_t>(index)) > 0)
+                unresolved.append(operations.at(index).id);
+        return fail(QStringLiteral("Servicing operation dependencies contain a cycle involving: %1.")
+                        .arg(unresolved.join(QStringLiteral(", "))));
+    }
+
+    if (orderedIndices)
+        *orderedIndices = std::move(result);
+    if (error)
+        error->clear();
+    return true;
+}
+
+QString powerShellCommentText(QString value)
+{
+    value.replace(QLatin1Char('\r'), QLatin1Char(' '));
+    value.replace(QLatin1Char('\n'), QLatin1Char(' '));
+    return value;
+}
+
+QString boolText(bool value)
+{
+    return value ? QStringLiteral("true") : QStringLiteral("false");
+}
+
 } // namespace
 
 QString ServicingOperation::previewCommand() const
@@ -618,6 +708,7 @@ QString ServicingPlan::operationStateName(OperationState state)
     case OperationState::Succeeded: return QStringLiteral("done");
     case OperationState::Failed: return QStringLiteral("failed");
     case OperationState::Skipped: return QStringLiteral("skipped");
+    case OperationState::Blocked: return QStringLiteral("blocked");
     case OperationState::Cancelled: return QStringLiteral("cancelled");
     }
     return QStringLiteral("unknown");
@@ -1507,6 +1598,9 @@ bool ServicingPlan::exportPowerShell(const ProjectConfig &project,
             *error = QStringLiteral("Choose a PowerShell script destination.");
         return false;
     }
+    QList<int> orderedIndices;
+    if (!stableTopologicalOrder(operations, &orderedIndices, error))
+        return false;
     if (!QDir().mkpath(QFileInfo(destination).absolutePath())) {
         if (error)
             *error = QStringLiteral("Could not create the script folder.");
@@ -1527,8 +1621,25 @@ bool ServicingPlan::exportPowerShell(const ProjectConfig &project,
     script += QStringLiteral("  if ($LASTEXITCODE -ne 0) { throw \"Step $Id failed with exit code $LASTEXITCODE\" }\r\n");
     script += QStringLiteral("}\r\n\r\n");
 
-    for (const ServicingOperation &item : operations) {
-        script += QStringLiteral("# %1 | %2\r\n").arg(item.titleEn, item.titleZh);
+    for (const int index : std::as_const(orderedIndices)) {
+        const ServicingOperation &item = operations.at(index);
+        if (item.state == OperationState::Skipped)
+            continue;
+        script += QStringLiteral("# %1 | %2\r\n")
+                      .arg(powerShellCommentText(item.titleEn), powerShellCommentText(item.titleZh));
+        script += QStringLiteral("# ReviewState: %1\r\n").arg(operationStateName(item.state));
+        script += QStringLiteral("# DependsOn: %1\r\n")
+                      .arg(powerShellCommentText(item.dependsOn.join(QStringLiteral(", "))));
+        script += QStringLiteral("# Safety: requiresAdministrator=%1; destructive=%2; checkpointBefore=%3; "
+                                 "writesMountedImage=%4; writesMediaWorkspace=%5; mayRunInParallel=%6\r\n")
+                      .arg(boolText(item.requiresAdministrator), boolText(item.destructive),
+                           boolText(item.checkpointBefore), boolText(item.writesMountedImage),
+                           boolText(item.writesMediaWorkspace), boolText(item.mayRunInParallel));
+        if (!item.metadata.isEmpty()) {
+            script += QStringLiteral("# Metadata: %1\r\n")
+                          .arg(powerShellCommentText(QString::fromUtf8(
+                              QJsonDocument(item.metadata).toJson(QJsonDocument::Compact))));
+        }
         QStringList quoted;
         for (const QString &argument : item.arguments)
             quoted.append(quotePowerShellLiteral(argument));

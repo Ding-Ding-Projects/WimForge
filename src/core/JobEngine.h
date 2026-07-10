@@ -58,6 +58,8 @@ private:
     void finishRun(bool success, const QString &message);
     [[nodiscard]] bool dependenciesDone(const ServicingOperation &operation) const;
     [[nodiscard]] bool dependencyFailed(const ServicingOperation &operation) const;
+    [[nodiscard]] bool dependencyChainDone(const QString &operationId) const;
+    [[nodiscard]] bool dependencyChainFailed(const QString &operationId) const;
     [[nodiscard]] int completedCount() const;
     [[nodiscard]] QString stateDirectory() const;
     bool writeJournal(QString *error = nullptr) const;

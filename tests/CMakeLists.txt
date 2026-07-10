@@ -80,6 +80,15 @@ wimforge_add_core_test(servicing_plan_tests
         ${PROJECT_SOURCE_DIR}/src/core/ServicingPlan.cpp
 )
 
+wimforge_add_core_test(job_engine_tests
+    SOURCES job_engine_tests.cpp
+    CORE_SOURCES
+        ${PROJECT_SOURCE_DIR}/src/core/GitHistory.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/JobEngine.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/ProjectConfig.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/ServicingPlan.cpp
+)
+
 wimforge_add_core_test(winforge_bridge_tests
     SOURCES winforge_bridge_tests.cpp
     CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/WinForgeBridge.cpp

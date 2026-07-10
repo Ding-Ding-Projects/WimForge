@@ -472,6 +472,84 @@ void testQuotingAndExport(TestRun &test, const QString &root)
     test.check(opened && contents.contains("O''''Brien")
                    && contents.contains("Invoke-WimForgeStep"),
                QStringLiteral("export uses literal argument arrays rather than a concatenated command line"));
+
+    ServicingOperation publish;
+    publish.id = QStringLiteral("publish");
+    publish.titleEn = QStringLiteral("Publish output");
+    publish.titleZh = QStringLiteral("Publish output");
+    publish.executable = QStringLiteral("publish.exe");
+    publish.arguments = {QStringLiteral("--publish")};
+    publish.dependsOn = {QStringLiteral("optional")};
+    publish.requiresAdministrator = true;
+    publish.writesMountedImage = true;
+
+    ServicingOperation optional;
+    optional.id = QStringLiteral("optional");
+    optional.titleEn = QStringLiteral("Optional sentinel");
+    optional.titleZh = QStringLiteral("Optional sentinel");
+    optional.executable = QStringLiteral("optional.exe");
+    optional.dependsOn = {QStringLiteral("prepare")};
+    optional.state = OperationState::Skipped;
+
+    ServicingOperation prepare;
+    prepare.id = QStringLiteral("prepare");
+    prepare.titleEn = QStringLiteral("Prepare workspace");
+    prepare.titleZh = QStringLiteral("Prepare workspace");
+    prepare.executable = QStringLiteral("prepare.exe");
+    prepare.arguments = {QStringLiteral("--prepare")};
+    prepare.destructive = true;
+    prepare.checkpointBefore = true;
+    prepare.writesMediaWorkspace = true;
+    prepare.metadata = QJsonObject{{QStringLiteral("writeScope"), QStringLiteral("media")},
+                                   {QStringLiteral("crashSafe"), true}};
+
+    const QString orderedPath = QDir(root).filePath(QStringLiteral("output/ordered.ps1"));
+    error.clear();
+    test.check(ServicingPlan::exportPowerShell(
+                   project, {publish, optional, prepare}, orderedPath, &error),
+               QStringLiteral("out-of-order acyclic graph exports: %1").arg(error));
+    QFile orderedScript(orderedPath);
+    const bool orderedOpened = orderedScript.open(QIODevice::ReadOnly);
+    const QByteArray orderedContents = orderedOpened ? orderedScript.readAll() : QByteArray{};
+    const qsizetype preparePosition = orderedContents.indexOf("Invoke-WimForgeStep 'prepare'");
+    const qsizetype publishPosition = orderedContents.indexOf("Invoke-WimForgeStep 'publish'");
+    test.check(orderedOpened && preparePosition >= 0 && publishPosition > preparePosition,
+               QStringLiteral("export stable-topologically orders dependencies before consumers"));
+    test.check(!orderedContents.contains("Invoke-WimForgeStep 'optional'")
+                   && !orderedContents.contains("Optional sentinel"),
+               QStringLiteral("export omits an intentionally skipped operation"));
+    test.check(orderedContents.contains("checkpointBefore=true")
+                   && orderedContents.contains("writesMediaWorkspace=true")
+                   && orderedContents.contains("\"writeScope\":\"media\"")
+                   && orderedContents.contains("requiresAdministrator=true")
+                   && orderedContents.contains("writesMountedImage=true"),
+               QStringLiteral("export preserves safety flags and operation metadata as review comments"));
+
+    ServicingOperation missingDependency = publish;
+    missingDependency.dependsOn = {QStringLiteral("absent")};
+    const QString missingPath = QDir(root).filePath(QStringLiteral("output/missing.ps1"));
+    error.clear();
+    test.check(!ServicingPlan::exportPowerShell(
+                   project, {missingDependency}, missingPath, &error)
+                   && error.contains(QStringLiteral("missing operation"))
+                   && !QFileInfo::exists(missingPath),
+               QStringLiteral("export rejects a missing dependency before writing a script: %1")
+                   .arg(error));
+
+    ServicingOperation cycleFirst = prepare;
+    cycleFirst.id = QStringLiteral("cycle-first");
+    cycleFirst.dependsOn = {QStringLiteral("cycle-second")};
+    ServicingOperation cycleSecond = publish;
+    cycleSecond.id = QStringLiteral("cycle-second");
+    cycleSecond.dependsOn = {QStringLiteral("cycle-first")};
+    const QString cyclePath = QDir(root).filePath(QStringLiteral("output/cycle.ps1"));
+    error.clear();
+    test.check(!ServicingPlan::exportPowerShell(
+                   project, {cycleFirst, cycleSecond}, cyclePath, &error)
+                   && error.contains(QStringLiteral("cycle"))
+                   && !QFileInfo::exists(cyclePath),
+               QStringLiteral("export rejects cyclic dependencies before writing a script: %1")
+                   .arg(error));
 }
 
 void testOfflineRegistrySemantics(TestRun &test, const QString &root)
