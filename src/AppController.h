@@ -114,6 +114,7 @@ class AppController final : public QObject
     Q_PROPERTY(QString packageProfileName READ packageProfileName NOTIFY studioChanged)
     Q_PROPERTY(int selectedPackageCount READ selectedPackageCount NOTIFY studioChanged)
     Q_PROPERTY(QVariantList unattendedSettings READ unattendedSettings NOTIFY studioChanged)
+    Q_PROPERTY(bool unattendedNarratorAutostart READ unattendedNarratorAutostart NOTIFY studioChanged)
     Q_PROPERTY(QVariantList microsoftProductKeys READ microsoftProductKeys CONSTANT)
     Q_PROPERTY(int computerNameMode READ computerNameMode NOTIFY studioChanged)
     Q_PROPERTY(QString computerNameValue READ computerNameValue NOTIFY studioChanged)
@@ -236,6 +237,7 @@ public:
     [[nodiscard]] QString packageProfileName() const;
     [[nodiscard]] int selectedPackageCount() const;
     [[nodiscard]] QVariantList unattendedSettings() const;
+    [[nodiscard]] bool unattendedNarratorAutostart() const;
     [[nodiscard]] QVariantList microsoftProductKeys() const;
     [[nodiscard]] int computerNameMode() const;
     [[nodiscard]] QString computerNameValue() const;
@@ -361,6 +363,10 @@ public:
                                         const QString &component,
                                         const QString &path,
                                         const QString &value);
+    Q_INVOKABLE void clearUnattendedValue(const QString &pass,
+                                          const QString &component,
+                                          const QString &path);
+    Q_INVOKABLE void setUnattendedNarratorAutostart(bool enabled);
     Q_INVOKABLE bool importUnattended(const QString &sourceFile);
     Q_INVOKABLE bool exportUnattended(const QString &destinationFile);
     Q_INVOKABLE void askOpenCodeToFillUnattended(const QString &intent);

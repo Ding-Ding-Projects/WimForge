@@ -3806,6 +3806,51 @@ void AppController::setUnattendedValue(const QString &pass,
     emit studioChanged();
 }
 
+void AppController::clearUnattendedValue(const QString &pass,
+                                         const QString &component,
+                                         const QString &path)
+{
+    const auto parsedPass = UnattendBuilder::parsePass(pass);
+    if (!parsedPass)
+        return;
+    const QStringList wanted = path.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    const QString trimmedComponent = component.trimmed();
+    bool removed = false;
+    for (qsizetype index = m_unattendProfile.settings.size(); index > 0; --index) {
+        const UnattendSetting &setting = m_unattendProfile.settings.at(index - 1);
+        QStringList settingPath;
+        for (const UnattendPathSegment &segment : setting.path)
+            settingPath.append(segment.name);
+        if (setting.pass == *parsedPass && setting.component == trimmedComponent
+            && settingPath == wanted) {
+            m_unattendProfile.settings.removeAt(index - 1);
+            removed = true;
+        }
+    }
+    if (!removed)
+        return;
+    persistUnattendedProfile(bilingualCommitMessage(
+        QStringLiteral("unattended: clear %1/%2/%3").arg(pass, trimmedComponent, path.trimmed()),
+        QStringLiteral("無人值守：清除 %1/%2/%3").arg(pass, trimmedComponent, path.trimmed())));
+    emit studioChanged();
+}
+
+void AppController::setUnattendedNarratorAutostart(bool enabled)
+{
+    m_unattendProfile.setNarratorAutostart(enabled);
+    persistUnattendedProfile(bilingualCommitMessage(
+        enabled ? QStringLiteral("unattended: enable Narrator autostart")
+                : QStringLiteral("unattended: disable Narrator autostart"),
+        enabled ? QStringLiteral("無人值守：啟用 Narrator 自動啟動")
+                : QStringLiteral("無人值守：停用 Narrator 自動啟動")));
+    emit studioChanged();
+}
+
+bool AppController::unattendedNarratorAutostart() const
+{
+    return m_unattendProfile.narratorAutostartEnabled();
+}
+
 bool AppController::importUnattended(const QString &sourceFile)
 {
     QString error;

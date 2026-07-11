@@ -884,6 +884,53 @@ void testGvlkCatalog(TestRun &test)
 
 } // namespace
 
+void testNarratorAutostart(TestRun &test)
+{
+    UnattendProfile profile;
+    test.check(!profile.narratorAutostartEnabled(),
+               QStringLiteral("Narrator autostart is off by default"));
+
+    profile.setNarratorAutostart(true);
+    test.check(profile.narratorAutostartEnabled()
+                   && firstLogonCommandSettingCount(profile) == 4
+                   && hasFirstLogonLeafValue(profile, QStringLiteral("Description"),
+                                             QStringLiteral("WimForge Narrator autostart"))
+                   && hasFirstLogonLeafValue(profile, QStringLiteral("CommandLine"),
+                                             UnattendBuilder::narratorAutostartCommand()),
+               QStringLiteral("enabling Narrator adds one complete first-logon command"));
+
+    profile.setNarratorAutostart(true);
+    test.check(firstLogonCommandSettingCount(profile) == 4,
+               QStringLiteral("enabling Narrator again does not duplicate the command"));
+
+    QString error;
+    const auto restored = UnattendProfile::fromJson(profile.toJson(), &error);
+    test.check(restored && restored->narratorAutostartEnabled(),
+               QStringLiteral("Narrator autostart survives a JSON round-trip: %1").arg(error));
+
+    const QByteArray xml = profile.toXml(&error);
+    test.check(!xml.isEmpty() && error.isEmpty()
+                   && xml.contains(QByteArrayLiteral("WimForge Narrator autostart"))
+                   && xml.contains(QByteArrayLiteral("Accessibility"))
+                   && !xml.contains(QByteArrayLiteral("_wimforgeInternalIdentity")),
+               QStringLiteral("Narrator command exports to a clean answer-file XML"));
+
+    UnattendProfile mixed;
+    mixed.computerNameMode = ComputerNameMode::Prompt;
+    mixed.applyComputerNameBehavior();
+    mixed.setNarratorAutostart(true);
+    test.check(mixed.narratorAutostartEnabled()
+                   && firstLogonCommandSettingCount(mixed) == 8,
+               QStringLiteral("Narrator and computer-name commands coexist"));
+
+    mixed.setNarratorAutostart(false);
+    test.check(!mixed.narratorAutostartEnabled()
+                   && firstLogonCommandSettingCount(mixed) == 4
+                   && hasFirstLogonLeafValue(mixed, QStringLiteral("Description"),
+                                             QStringLiteral("WimForge computer-name prompt")),
+               QStringLiteral("disabling Narrator leaves the computer-name command intact"));
+}
+
 int main(int argc, char **argv)
 {
     QCoreApplication application(argc, argv);
@@ -901,6 +948,7 @@ int main(int argc, char **argv)
     testValidationAndNamingRules(test, temporary.path());
     testComputerNameModes(test);
     testGeneratedCommandIsolation(test, temporary.path());
+    testNarratorAutostart(test);
     testTemplates(test);
     testGvlkCatalog(test);
     return test.result();

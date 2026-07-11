@@ -94,6 +94,11 @@ public:
                                 const QStringList &path,
                                 const QString &architecture = QStringLiteral("amd64")) const;
     void applyComputerNameBehavior();
+    // Start the Windows Narrator screen reader automatically at first sign-in
+    // via a WimForge-owned oobeSystem first-logon command. The command writes
+    // the documented accessibility auto-start registry value.
+    void setNarratorAutostart(bool enabled);
+    [[nodiscard]] bool narratorAutostartEnabled() const;
 };
 
 class UnattendBuilder
@@ -106,6 +111,7 @@ public:
     static UnattendProfile aiDevelopmentTemplate();
     static QString computerNamePromptCommand();
     static QString computerNameSerialCommand(const QString &prefix);
+    static QString narratorAutostartCommand();
 };
 
 } // namespace wimforge

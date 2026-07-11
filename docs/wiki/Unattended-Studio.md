@@ -44,6 +44,22 @@ Prompt/Serial happen after setup has already used a generated temporary name. Do
 
 For centrally assigned names that must exist before OOBE, use [Docker Provisioning](Docker-Provisioning). The service resolves hardware inventory before Setup and renders the assignment as ordinary **Fixed** mode; it is not a fifth computer-name mode. Domain-join settings can run in more than one pass, so validate the exact join ordering. The WinPE client must fetch the answer file before launching `setup.exe /unattend`.
 
+## Convenience settings
+
+Typed convenience cards write directly into the same profile as the generic **Any unattend setting** editor, so anything a card sets also appears in the settings list and round-trips through JSON and XML. Each card names the exact Microsoft component and pass it targets, and a card reflects the live value even after an import.
+
+| Card | Component · pass | Settings |
+| --- | --- | --- |
+| Accessibility | `Microsoft-Windows-Shell-Setup` FirstLogonCommands · `oobeSystem` | Start Narrator at sign-in (a WimForge-owned first-logon command that appends `narrator` to the documented accessibility auto-start registry value). |
+| Out-of-box experience | `Microsoft-Windows-Shell-Setup/OOBE` · `oobeSystem` | Hide EULA, OEM registration, Microsoft-account sign-in, local-account and wireless screens; `NetworkLocation`; `ProtectYourPC`. |
+| Regional and language | `Microsoft-Windows-International-Core` · `oobeSystem` | `UILanguage`, `SystemLocale`, `UserLocale`, `InputLocale`. |
+| Owner, time zone and licensing | `Microsoft-Windows-Shell-Setup` and `Microsoft-Windows-Security-SPP` · `specialize` | `RegisteredOwner`, `RegisteredOrganization`, `TimeZone`, `CopyProfile`, `SkipAutoActivation`. |
+| OEM information | `Microsoft-Windows-Shell-Setup/OEMInformation` · `specialize` | Manufacturer, Model, Support phone/hours/URL (shown in Settings › System › About). |
+
+The Narrator command uses `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Accessibility\Configuration`, the [documented per-user auto-start list](https://learn.microsoft.com/en-us/windows/win32/winauto/ease-of-access---assistive-technology-registration). WimForge marks the command internally so it can be toggled off cleanly; the exported answer file carries only the standard command, never WimForge's internal marker. 粵語速讀：方便卡片同通用編輯器改嘅係同一份 profile，Narrator 靠一條首次登入指令寫入官方無障礙自動啟動登錄值。
+
+The **Browse…** control beside the XML / JSON path opens a native file picker; choosing a file imports it, and **Export…** opens a save picker.
+
 ## Import and export
 
 Portable schema `wimforge.unattend`, version 1, preserves:

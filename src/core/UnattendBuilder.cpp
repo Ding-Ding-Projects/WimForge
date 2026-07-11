@@ -24,6 +24,7 @@ constexpr auto UnattendNamespace = "urn:schemas-microsoft-com:unattend";
 constexpr auto WcmNamespace = "http://schemas.microsoft.com/WMIConfig/2002/State";
 constexpr auto InternalIdentityAttribute = "_wimforgeInternalIdentity";
 constexpr auto GeneratedComputerNameIdentity = "generated-computer-name";
+constexpr auto GeneratedNarratorIdentity = "generated-narrator";
 
 void setError(QString *target, const QString &value)
 {
@@ -176,6 +177,14 @@ bool hasGeneratedComputerNameIdentity(const UnattendSetting &setting)
             == QString::fromLatin1(GeneratedComputerNameIdentity);
 }
 
+bool hasGeneratedNarratorIdentity(const UnattendSetting &setting)
+{
+    return isFirstLogonCommandSetting(setting)
+        && setting.path.at(1).attributes.value(
+               QString::fromLatin1(InternalIdentityAttribute))
+            == QString::fromLatin1(GeneratedNarratorIdentity);
+}
+
 bool isComputerNameSetting(const UnattendSetting &setting)
 {
     return (setting.pass == SetupPass::OfflineServicing
@@ -296,6 +305,48 @@ void setGeneratedComputerNameCommandValue(UnattendProfile &profile,
                 {{QStringLiteral("wcm:action"), QStringLiteral("add")},
                  {QString::fromLatin1(InternalIdentityAttribute),
                   QString::fromLatin1(GeneratedComputerNameIdentity)}}),
+        segment(leaf),
+    };
+    const QString wanted = pathKey(path);
+    for (UnattendSetting &setting : profile.settings) {
+        if (setting.pass == SetupPass::OobeSystem
+            && setting.component == QStringLiteral("Microsoft-Windows-Shell-Setup")
+            && setting.architecture == QStringLiteral("amd64")
+            && pathKey(setting.path) == wanted) {
+            setting.value = value;
+            return;
+        }
+    }
+    profile.settings.append(UnattendSetting{
+        SetupPass::OobeSystem,
+        QStringLiteral("Microsoft-Windows-Shell-Setup"),
+        QStringLiteral("amd64"),
+        QStringLiteral("31bf3856ad364e35"),
+        QStringLiteral("neutral"),
+        QStringLiteral("nonSxS"),
+        path,
+        value,
+    });
+}
+
+void removeGeneratedNarratorCommand(UnattendProfile &profile)
+{
+    for (qsizetype index = profile.settings.size(); index > 0; --index) {
+        if (hasGeneratedNarratorIdentity(profile.settings.at(index - 1)))
+            profile.settings.removeAt(index - 1);
+    }
+}
+
+void setGeneratedNarratorCommandValue(UnattendProfile &profile,
+                                      const QString &leaf,
+                                      const QString &value)
+{
+    const QList<UnattendPathSegment> path{
+        segment(QStringLiteral("FirstLogonCommands")),
+        segment(QStringLiteral("SynchronousCommand"),
+                {{QStringLiteral("wcm:action"), QStringLiteral("add")},
+                 {QString::fromLatin1(InternalIdentityAttribute),
+                  QString::fromLatin1(GeneratedNarratorIdentity)}}),
         segment(leaf),
     };
     const QString wanted = pathKey(path);
@@ -767,6 +818,39 @@ void UnattendProfile::applyComputerNameBehavior()
             *this, QStringLiteral("RequiresUserInput"), QStringLiteral("false"));
         break;
     }
+}
+
+void UnattendProfile::setNarratorAutostart(bool enabled)
+{
+    removeGeneratedNarratorCommand(*this);
+    if (!enabled)
+        return;
+    // Order 2 keeps Narrator behind the WimForge computer-name command (Order 1)
+    // when both are generated, so the answer file stays deterministic.
+    setGeneratedNarratorCommandValue(*this, QStringLiteral("Order"), QStringLiteral("2"));
+    setGeneratedNarratorCommandValue(
+        *this, QStringLiteral("Description"), QStringLiteral("WimForge Narrator autostart"));
+    setGeneratedNarratorCommandValue(
+        *this, QStringLiteral("CommandLine"), UnattendBuilder::narratorAutostartCommand());
+    setGeneratedNarratorCommandValue(
+        *this, QStringLiteral("RequiresUserInput"), QStringLiteral("false"));
+}
+
+bool UnattendProfile::narratorAutostartEnabled() const
+{
+    for (const UnattendSetting &setting : settings)
+        if (hasGeneratedNarratorIdentity(setting))
+            return true;
+    return false;
+}
+
+QString UnattendBuilder::narratorAutostartCommand()
+{
+    // Append Narrator to the documented per-user accessibility auto-start list
+    // so Windows launches it whenever the sign-in (logon) desktop is active.
+    return QStringLiteral(
+        "reg add \"HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Accessibility\" "
+        "/v Configuration /t REG_SZ /d narrator /f");
 }
 
 QList<ProductKeyEntry> UnattendBuilder::microsoftPublishedGvlks()
