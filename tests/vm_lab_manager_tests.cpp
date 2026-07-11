@@ -47,6 +47,11 @@ ProcessResult successResult(const QByteArray &output = {}, const QByteArray &err
     return result;
 }
 
+QString fakeExecutable(const QString &name)
+{
+    return QDir(QDir::rootPath()).filePath(QStringLiteral("fake/") + name);
+}
+
 bool waitUntil(const std::function<bool()> &predicate, int timeoutMs = 3000)
 {
     QElapsedTimer timer;
@@ -127,8 +132,8 @@ ProviderInfo fakeProvider()
     ProviderInfo provider;
     provider.id = virtualBoxProviderId();
     provider.displayName = QStringLiteral("Fake VirtualBox");
-    provider.executable = QStringLiteral("C:/fake/VBoxManage.exe");
-    provider.consoleExecutable = QStringLiteral("C:/fake/VirtualBox.exe");
+    provider.executable = fakeExecutable(QStringLiteral("VBoxManage.exe"));
+    provider.consoleExecutable = fakeExecutable(QStringLiteral("VirtualBox.exe"));
     provider.version = QStringLiteral("7.1.0");
     provider.available = true;
     provider.capabilities = {
@@ -160,7 +165,7 @@ public:
     QList<ProviderInfo> detect(const QList<ProviderProbePaths> &,
                                CommandRunner &runner) const override
     {
-        runner.run(Command{QStringLiteral("C:/fake/detect.exe"), {}, {}, 1000});
+        runner.run(Command{fakeExecutable(QStringLiteral("detect.exe")), {}, {}, 1000});
         return {providerInfo};
     }
 
@@ -168,7 +173,7 @@ public:
                                              const QList<Machine> &,
                                              CommandRunner &runner) const override
     {
-        runner.run(Command{QStringLiteral("C:/fake/inventory.exe"), {}, {}, 1000});
+        runner.run(Command{fakeExecutable(QStringLiteral("inventory.exe")), {}, {}, 1000});
         FakeProviderAdapter *self = const_cast<FakeProviderAdapter *>(this);
         const int refreshIndex = self->refreshCalls++;
         InventoryRefreshResult result;
@@ -205,7 +210,7 @@ public:
         result.preview = makePreview(
             managerActionName(request.action), target, risk,
             {QStringLiteral("fake reviewed effect")}, {},
-            {Command{QStringLiteral("C:/fake/provider.exe"),
+            {Command{fakeExecutable(QStringLiteral("provider.exe")),
                      {managerActionName(request.action)}, {}, 1000}},
             request.revision, request.now);
         if (guardedDeletion && request.action == ManagerAction::Delete
@@ -233,8 +238,10 @@ public:
         if (error)
             error->clear();
         return {
-            Snapshot{QStringLiteral("one"), QStringLiteral("snapshot-one")},
-            Snapshot{QStringLiteral("two"), QStringLiteral("snapshot-two")}};
+            Snapshot{QStringLiteral("one"), QStringLiteral("snapshot-one"),
+                     {}, {}, false, {}},
+            Snapshot{QStringLiteral("two"), QStringLiteral("snapshot-two"),
+                     {}, {}, false, {}}};
     }
 
     static Plan errorPlan(const QString &error)
@@ -343,7 +350,8 @@ void testDestructiveConfirmation(TestRun &test, const QString &root)
                          adapter, std::make_shared<FakeRunnerFactory>(state));
     prepareSelectedManager(manager, *adapter, test);
     const std::optional<OperationPreview> preview = manager.reviewDeleteSnapshot(
-        Snapshot{QStringLiteral("snapshot-id"), QStringLiteral("Before update")});
+        Snapshot{QStringLiteral("snapshot-id"), QStringLiteral("Before update"),
+                 {}, {}, false, {}});
     test.check(preview && preview->risk == Risk::Destructive
                    && !preview->confirmation.isEmpty(),
                QStringLiteral("destructive snapshot operation has an exact token"));
@@ -511,7 +519,8 @@ void testTypedReviewSurface(TestRun &test, const QString &root)
     expect(manager.reviewTakeSnapshot(QStringLiteral("Before changes"),
                                       QStringLiteral("reviewed description")),
            QStringLiteral("take-snapshot"));
-    const Snapshot snapshot{QStringLiteral("snapshot-id"), QStringLiteral("Before changes")};
+    const Snapshot snapshot{QStringLiteral("snapshot-id"), QStringLiteral("Before changes"),
+                            {}, {}, false, {}};
     expect(manager.reviewRestoreSnapshot(snapshot), QStringLiteral("restore-snapshot"));
     expect(manager.reviewDeleteSnapshot(snapshot), QStringLiteral("delete-snapshot"));
     expect(manager.reviewUnregister(), QStringLiteral("unregister"));
@@ -577,7 +586,7 @@ void testNativeTopologyAndGates(TestRun &test, const QString &root)
     ProviderInfo vmware;
     vmware.id = vmwareWorkstationProviderId();
     vmware.displayName = QStringLiteral("Fake VMware");
-    vmware.executable = QStringLiteral("C:/fake/vmrun.exe");
+    vmware.executable = fakeExecutable(QStringLiteral("vmrun.exe"));
     vmware.available = true;
     vmware.capabilities = {capability::inventory(), capability::configure(), capability::media()};
     const QString vmx = QDir(root).filePath(QStringLiteral("native/vmware.vmx"));

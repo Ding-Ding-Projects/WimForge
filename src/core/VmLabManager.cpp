@@ -1780,10 +1780,12 @@ std::optional<OperationPreview> VmLabManager::reviewRegister(
 {
     OperationRequest request;
     request.action = ManagerAction::Register;
-    request.machine = Machine{VmRef{providerId, configurationPath,
-                                    displayName.trimmed().isEmpty()
-                                        ? QFileInfo(configurationPath).completeBaseName()
-                                        : displayName}};
+    Machine machine;
+    machine.ref = VmRef{providerId, configurationPath,
+                        displayName.trimmed().isEmpty()
+                            ? QFileInfo(configurationPath).completeBaseName()
+                            : displayName};
+    request.machine = std::move(machine);
     request.path = configurationPath;
     request.name = displayName;
     request.ownership = ownership;

@@ -194,7 +194,7 @@ public:
         return {
             Snapshot{providerId + QStringLiteral("-snapshot"),
                      QString::fromUtf8(standardOutput).trimmed(),
-                     QStringLiteral("fake snapshot"), {}, true},
+                     QStringLiteral("fake snapshot"), {}, true, {}},
         };
     }
 };

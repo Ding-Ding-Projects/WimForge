@@ -20,4 +20,5 @@ __pycache__
 docs
 deploy
 installer
-qml
+
+# Keep qml in the context: qml_contract_tests validates it in CLI-only builds.

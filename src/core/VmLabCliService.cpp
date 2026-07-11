@@ -765,7 +765,9 @@ bool parseOperationParameters(const QJsonObject &parameters,
         request->ownership = *parsed;
         const QString displayName = request->name.trimmed().isEmpty()
             ? QFileInfo(request->path).completeBaseName() : request->name.trimmed();
-        request->machine = Machine{VmRef{*providerId, request->path, displayName}};
+        Machine machine;
+        machine.ref = VmRef{*providerId, request->path, displayName};
+        request->machine = std::move(machine);
         return true;
     }
 

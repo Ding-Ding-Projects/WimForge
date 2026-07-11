@@ -26,6 +26,8 @@
 #endif
 #include <windows.h>
 #include <winternl.h>
+#else
+#include <sys/stat.h>
 #endif
 
 namespace wimforge::vmlab {
@@ -316,17 +318,20 @@ QString pathIdentity(const QString &path, QString *error)
 
 QString pathIdentity(const QString &path, QString *error)
 {
-    const QFileInfo info(path);
-    const QString canonical = info.canonicalFilePath();
-    if (canonical.isEmpty()) {
-        setError(error, QStringLiteral("Could not resolve managed path identity."));
+    const QByteArray encodedPath = QFile::encodeName(path);
+    struct stat metadata {};
+    if (::lstat(encodedPath.constData(), &metadata) != 0) {
+        setError(error, QStringLiteral("Could not read managed path identity."));
+        return {};
+    }
+    if (S_ISLNK(metadata.st_mode)) {
+        setError(error, QStringLiteral("Managed path identity refuses a symbolic link."));
         return {};
     }
     setError(error, {});
-    return QStringLiteral("%1:%2:%3")
-        .arg(canonical)
-        .arg(info.lastModified().toMSecsSinceEpoch())
-        .arg(info.size());
+    return QStringLiteral("%1:%2")
+        .arg(static_cast<qulonglong>(metadata.st_dev), 0, 16)
+        .arg(static_cast<qulonglong>(metadata.st_ino), 0, 16);
 }
 
 #endif

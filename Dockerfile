@@ -5,6 +5,9 @@ FROM debian:trixie-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883
 ARG DEBIAN_FRONTEND=noninteractive
 ARG WIMFORGE_VERSION=0.1.0
 
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         build-essential \

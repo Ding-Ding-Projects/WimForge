@@ -1245,7 +1245,7 @@ QList<Snapshot> VmwareProvider::parseSnapshotList(const QByteArray &output, QStr
             setError(error, QStringLiteral("vmrun returned an empty snapshot name."));
             return {};
         }
-        snapshots.append(Snapshot{line, line, {}, {}, false});
+        snapshots.append(Snapshot{line, line, {}, {}, false, {}});
     }
     if (headerMatch.captured(1).toLongLong() != snapshots.size()) {
         setError(error, QStringLiteral("vmrun snapshot count does not match returned names."));

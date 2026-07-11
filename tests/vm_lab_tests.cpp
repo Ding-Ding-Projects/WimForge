@@ -305,6 +305,7 @@ void testManagedCreateDirectoryLease(TestRun &test, const QString &root)
 
 void testDetectionAndCapabilityDegrade(TestRun &test, const QString &root)
 {
+#ifdef Q_OS_WIN
     const QByteArray savedProgramFiles = qgetenv("ProgramFiles");
     const QString poisonedRoot = QDir(root).filePath(QStringLiteral("attacker-program-files"));
     qputenv("ProgramFiles", poisonedRoot.toUtf8());
@@ -319,6 +320,10 @@ void testDetectionAndCapabilityDegrade(TestRun &test, const QString &root)
         return candidate.executable.startsWith(poisonedRoot, Qt::CaseInsensitive)
             || candidate.trustedRoot.isEmpty();
     }), QStringLiteral("automatic elevated provider probes ignore caller-controlled ProgramFiles environment values"));
+#else
+    test.check(ProviderDetector::defaultWindowsCandidates().isEmpty(),
+               QStringLiteral("Windows provider auto-probes remain disabled on non-Windows hosts"));
+#endif
 
     const QString trustedRoot = QDir(root).filePath(QStringLiteral("trusted"));
     QDir().mkpath(trustedRoot);
@@ -375,16 +380,20 @@ void testDetectionAndCapabilityDegrade(TestRun &test, const QString &root)
     const QString dispatchRoot = QDir(root).filePath(QStringLiteral("dispatch"));
     const ProviderProbePaths vboxCandidate{
         virtualBoxProviderId(), makeFile(QDir(dispatchRoot).filePath(QStringLiteral("VBoxManage.exe"))),
-        makeFile(QDir(dispatchRoot).filePath(QStringLiteral("VirtualBox.exe"))), {}};
+        makeFile(QDir(dispatchRoot).filePath(QStringLiteral("VirtualBox.exe"))), {}, {}};
     const ProviderProbePaths vmwareCandidate{
         vmwareWorkstationProviderId(), makeFile(QDir(dispatchRoot).filePath(QStringLiteral("vmrun.exe"))),
         makeFile(QDir(dispatchRoot).filePath(QStringLiteral("vmware.exe"))),
-        makeFile(QDir(dispatchRoot).filePath(QStringLiteral("vmware-vdiskmanager.exe")))};
+        makeFile(QDir(dispatchRoot).filePath(QStringLiteral("vmware-vdiskmanager.exe"))), {}};
     FakeRunner dispatchRunner;
+    ProcessResult vmwareBanner;
+    vmwareBanner.started = true;
+    vmwareBanner.exitCode = 1;
+    vmwareBanner.standardError = QByteArray("vmrun version 17.0.0");
     dispatchRunner.responses = {
         successResult("7.0.0\n"),
         successResult("Total running VMs: 0\n"),
-        ProcessResult{true, false, 1, {}, QByteArray("vmrun version 17.0.0"), {}},
+        vmwareBanner,
     };
     const QList<ProviderInfo> detected = ProviderDetector::detect(
         {vboxCandidate, vmwareCandidate}, dispatchRunner);
