@@ -1,0 +1,17 @@
+{
+  "name": "WimForge — Windows Image Studio",
+  "short_name": "WimForge",
+  "description": "Open-source, inspectable Windows image customization.",
+  "start_url": "./",
+  "display": "browser",
+  "background_color": "#141218",
+  "theme_color": "#141218",
+  "icons": [
+    {
+      "src": "assets/brand/wimforge-logo.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -392,7 +392,7 @@ try {
         throw 'Artifact verification accepted an empty package.'
     }
 
-    $sitePath = Join-Path $repoRoot 'site\index.html'
+    $sitePath = Join-Path $repoRoot 'website\index.html'
     $siteText = Get-Content -LiteralPath $sitePath -Raw
     foreach ($siteContract in @(
         "[Guid]::NewGuid().ToString('N')",
