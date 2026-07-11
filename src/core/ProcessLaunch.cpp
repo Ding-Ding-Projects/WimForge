@@ -182,7 +182,6 @@ QString resolveExecutableForLaunch(const QString &executable)
 QProcessEnvironment sanitizedPowerShellEnvironment()
 {
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-#ifdef Q_OS_WIN
     const QStringList keys = environment.keys();
     for (const QString &key : keys) {
         const QString upper = key.toUpper();
@@ -195,6 +194,7 @@ QProcessEnvironment sanitizedPowerShellEnvironment()
         }
     }
 
+#ifdef Q_OS_WIN
     wchar_t systemBuffer[MAX_PATH + 1]{};
     const UINT systemLength = ::GetSystemDirectoryW(systemBuffer, MAX_PATH);
     if (systemLength > 0 && systemLength < MAX_PATH) {
