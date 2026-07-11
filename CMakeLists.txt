@@ -56,14 +56,20 @@ set(WIMFORGE_CORE_SOURCES
     src/core/GpoCatalog.h
     src/core/GpoPolicyCompiler.cpp
     src/core/GpoPolicyCompiler.h
+    src/core/ImageSourceInspector.cpp
+    src/core/ImageSourceInspector.h
     src/core/JobEngine.cpp
     src/core/JobEngine.h
     src/core/PackageStudio.cpp
     src/core/PackageStudio.h
+    src/core/PayloadCatalog.cpp
+    src/core/PayloadCatalog.h
     src/core/ProcessLaunch.cpp
     src/core/ProcessLaunch.h
     src/core/ServicingPlan.cpp
     src/core/ServicingPlan.h
+    src/core/StructuredLogger.cpp
+    src/core/StructuredLogger.h
     src/core/SearchIndex.cpp
     src/core/SearchIndex.h
     src/core/UnattendBuilder.cpp
@@ -82,6 +88,8 @@ set(WIMFORGE_CORE_SOURCES
     src/core/VmValidationStore.h
     src/core/VmLabVmx.cpp
     src/core/VmLabVmx.h
+    src/core/WorkspaceTabs.cpp
+    src/core/WorkspaceTabs.h
     src/core/WinForgeBridge.cpp
     src/core/WinForgeBridge.h
 )
@@ -98,9 +106,12 @@ target_compile_definitions(WimForgeCli PRIVATE
     WIMFORGE_VERSION="${WIMFORGE_BUILD_VERSION}"
 )
 target_link_libraries(WimForgeCli PRIVATE Qt6::Core)
+if(WIN32)
+    target_link_libraries(WimForgeCli PRIVATE shell32)
+endif()
 
 if(MSVC)
-    target_compile_options(WimForgeCli PRIVATE /W4 /permissive- /utf-8)
+    target_compile_options(WimForgeCli PRIVATE /W4 /permissive- /utf-8 /FS)
 else()
     target_compile_options(WimForgeCli PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -110,6 +121,8 @@ install(TARGETS WimForgeCli RUNTIME DESTINATION .)
 if(NOT WIMFORGE_CLI_ONLY)
     qt_add_executable(WimForge WIN32
         src/main.cpp
+        src/startup/Elevation.cpp
+        src/startup/Elevation.h
         src/AppController.cpp
         src/AppController.h
         ${WIMFORGE_CORE_SOURCES}
@@ -119,11 +132,22 @@ if(NOT WIMFORGE_CLI_ONLY)
     qt_add_executable(WimForgeIconTool EXCLUDE_FROM_ALL tools/icon_converter.cpp)
     target_link_libraries(WimForgeIconTool PRIVATE Qt6::Gui)
 
+    set_source_files_properties(qml/components/DesignTokens.qml PROPERTIES
+        QT_QML_SINGLETON_TYPE TRUE)
+
     qt_add_qml_module(WimForge
         URI WimForge
         VERSION 1.0
         QML_FILES
             qml/Main.qml
+            qml/components/DesignTokens.qml
+            qml/components/WfCard.qml
+            qml/components/WfButton.qml
+            qml/components/WfStatusChip.qml
+            qml/components/WfPageHeader.qml
+            qml/components/WfField.qml
+            qml/components/WfIconButton.qml
+            qml/components/ProjectStartPage.qml
             qml/components/MetricCard.qml
             qml/components/NotificationCenter.qml
             qml/components/ContextHistoryPanel.qml
@@ -143,6 +167,18 @@ if(NOT WIMFORGE_CLI_ONLY)
             qml/pages/WinForgeBridgePage.qml
         RESOURCES
             assets/app-icon.svg
+            assets/icons/overview.svg
+            assets/icons/source.svg
+            assets/icons/customize.svg
+            assets/icons/policy.svg
+            assets/icons/unattended.svg
+            assets/icons/package.svg
+            assets/icons/bridge.svg
+            assets/icons/vm.svg
+            assets/icons/run.svg
+            assets/icons/history.svg
+            assets/icons/settings.svg
+            assets/icons/terminal.svg
     )
 
     target_include_directories(WimForge PRIVATE src)
@@ -163,9 +199,12 @@ if(NOT WIMFORGE_CLI_ONLY)
         Qt6::QuickControls2
         Qt6::QuickDialogs2
     )
+    if(WIN32)
+        target_link_libraries(WimForge PRIVATE advapi32 shell32)
+    endif()
 
     if(MSVC)
-        target_compile_options(WimForge PRIVATE /W4 /permissive- /utf-8)
+        target_compile_options(WimForge PRIVATE /W4 /permissive- /utf-8 /FS)
         # The application resource already embeds the audited DPI/elevation
         # manifest. Prevent link.exe from adding a second resource with ID 1.
         target_link_options(WimForge PRIVATE /MANIFEST:NO)

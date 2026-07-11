@@ -1,4 +1,5 @@
 #include "EmbeddedTerminalSession.h"
+#include "StructuredLogger.h"
 
 #include <QByteArray>
 #include <QDir>
@@ -30,6 +31,45 @@ namespace {
 
 constexpr qsizetype kMinimumBufferBytes = 64;
 constexpr qsizetype kMaximumBufferBytes = 64 * 1024 * 1024;
+
+QString terminalStateName(EmbeddedTerminalSession::State state)
+{
+    using State = EmbeddedTerminalSession::State;
+    switch (state) {
+    case State::Idle: return QStringLiteral("idle");
+    case State::Starting: return QStringLiteral("starting");
+    case State::Running: return QStringLiteral("running");
+    case State::Stopping: return QStringLiteral("stopping");
+    case State::Exited: return QStringLiteral("exited");
+    case State::Failed: return QStringLiteral("failed");
+    case State::Unsupported: return QStringLiteral("unsupported");
+    }
+    return QStringLiteral("unknown");
+}
+
+QString terminalShellName(EmbeddedTerminalSession::Shell shell)
+{
+    using Shell = EmbeddedTerminalSession::Shell;
+    switch (shell) {
+    case Shell::DefaultShell: return QStringLiteral("default");
+    case Shell::PowerShell: return QStringLiteral("powershell");
+    case Shell::CommandPrompt: return QStringLiteral("command-prompt");
+    }
+    return QStringLiteral("unknown");
+}
+
+QString terminalExitStatusName(EmbeddedTerminalSession::ExitStatus status)
+{
+    using Status = EmbeddedTerminalSession::ExitStatus;
+    switch (status) {
+    case Status::NotExited: return QStringLiteral("not-exited");
+    case Status::NormalExit: return QStringLiteral("normal-exit");
+    case Status::Crashed: return QStringLiteral("crashed");
+    case Status::Terminated: return QStringLiteral("terminated");
+    }
+    return QStringLiteral("unknown");
+}
+
 #ifdef Q_OS_WIN
 constexpr int kMaximumTerminalDimension =
     static_cast<int>((std::numeric_limits<short>::max)());
@@ -384,10 +424,24 @@ EmbeddedTerminalSession::EmbeddedTerminalSession(QObject *parent)
     : QObject(parent)
     , m_impl(std::make_unique<Impl>())
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("terminal"),
+        QStringLiteral("terminal.lifecycle.created"),
+        QStringLiteral("Embedded terminal session was created. / 內嵌終端機工作階段已經建立。"),
+        QJsonObject{{QStringLiteral("state"), terminalStateName(m_state)},
+                    {QStringLiteral("supported"), isSupported()}});
 }
 
 EmbeddedTerminalSession::~EmbeddedTerminalSession()
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("terminal"),
+        QStringLiteral("terminal.lifecycle.stopping"),
+        QStringLiteral("Embedded terminal session is stopping. / 內嵌終端機工作階段而家停止。"),
+        QJsonObject{{QStringLiteral("state"), terminalStateName(m_state)},
+                    {QStringLiteral("running"), running()},
+                    {QStringLiteral("sessionGeneration"),
+                     static_cast<qint64>(m_sessionGeneration)}});
     m_impl->destroying.store(true);
     m_impl->suppressExitNotification.store(true);
 #ifdef Q_OS_WIN
@@ -422,6 +476,10 @@ EmbeddedTerminalSession::~EmbeddedTerminalSession()
     }
 #endif
     cleanupNativeResources();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("terminal"),
+        QStringLiteral("terminal.lifecycle.stopped"),
+        QStringLiteral("Embedded terminal session stopped. / 內嵌終端機工作階段已經停止。"));
 }
 
 EmbeddedTerminalSession::State EmbeddedTerminalSession::state() const
@@ -474,7 +532,16 @@ void EmbeddedTerminalSession::setState(State state)
 {
     if (m_state == state)
         return;
+    const State previous = m_state;
     m_state = state;
+    StructuredLogger::instance().log(
+        LogSeverity::Debug, QStringLiteral("terminal"),
+        QStringLiteral("terminal.state.changed"),
+        QStringLiteral("Embedded terminal state changed. / 內嵌終端機狀態已經改變。"),
+        QJsonObject{{QStringLiteral("from"), terminalStateName(previous)},
+                    {QStringLiteral("to"), terminalStateName(state)},
+                    {QStringLiteral("sessionGeneration"),
+                     static_cast<qint64>(m_sessionGeneration)}});
     emit stateChanged();
 }
 
@@ -486,6 +553,16 @@ void EmbeddedTerminalSession::setError(const QString &message, bool fatal)
     }
     if (!message.isEmpty())
         emit errorOccurred(message);
+    if (!message.isEmpty()) {
+        StructuredLogger::instance().log(
+            fatal ? LogSeverity::Error : LogSeverity::Warning,
+            QStringLiteral("terminal"), QStringLiteral("terminal.failure"),
+            QStringLiteral("An embedded terminal operation failed; diagnostic contents were omitted from logging. / 內嵌終端機操作失敗；記錄已經省略診斷內容。"),
+            QJsonObject{{QStringLiteral("fatal"), fatal},
+                        {QStringLiteral("state"), terminalStateName(m_state)},
+                        {QStringLiteral("sessionGeneration"),
+                         static_cast<qint64>(m_sessionGeneration)}});
+    }
     if (fatal)
         setState(State::Failed);
 }
@@ -539,6 +616,26 @@ QString EmbeddedTerminalSession::resolveShellExecutable(Shell shell, QString *er
 
 bool EmbeddedTerminalSession::start(const StartOptions &options)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("terminal"),
+        QStringLiteral("terminal.start.requested"),
+        QStringLiteral("Embedded terminal startup was requested. / 已經要求啟動內嵌終端機。"),
+        QJsonObject{
+            // Never log argument values, executable paths, working-directory
+            // paths, environment values, or terminal input/output contents.
+            {QStringLiteral("shell"), terminalShellName(options.shell)},
+            {QStringLiteral("argumentCount"), options.arguments.size()},
+            {QStringLiteral("workingDirectoryProvided"),
+             !options.workingDirectory.isEmpty()},
+            {QStringLiteral("columns"), options.initialSize.width()},
+            {QStringLiteral("rows"), options.initialSize.height()},
+            {QStringLiteral("maxTranscriptBytes"),
+             static_cast<qint64>(options.maxTranscriptBytes)},
+            {QStringLiteral("maxPendingOutputBytes"),
+             static_cast<qint64>(options.maxPendingOutputBytes)},
+            {QStringLiteral("maxPendingInputBytes"),
+             static_cast<qint64>(options.maxPendingInputBytes)},
+        });
     if (QThread::currentThread() != thread()) {
         QMetaObject::invokeMethod(
             this,
@@ -597,6 +694,10 @@ bool EmbeddedTerminalSession::start(const StartOptions &options)
     emit errorChanged();
     emit errorOccurred(unsupported);
     setState(State::Unsupported);
+    StructuredLogger::instance().log(
+        LogSeverity::Warning, QStringLiteral("terminal"),
+        QStringLiteral("terminal.start.unsupported"),
+        QStringLiteral("Embedded terminal startup is unsupported on this platform. / 呢個平台唔支援啟動內嵌終端機。"));
     return false;
 #else
     if (!conPtyApi().available()) {
@@ -606,6 +707,10 @@ bool EmbeddedTerminalSession::start(const StartOptions &options)
         emit errorChanged();
         emit errorOccurred(unsupported);
         setState(State::Unsupported);
+        StructuredLogger::instance().log(
+            LogSeverity::Warning, QStringLiteral("terminal"),
+            QStringLiteral("terminal.start.unsupported"),
+            QStringLiteral("Windows ConPTY is unavailable. / Windows ConPTY 而家用唔到。"));
         return false;
     }
 
@@ -1123,6 +1228,15 @@ bool EmbeddedTerminalSession::start(const StartOptions &options)
     closeIfValid(pseudoInputRead);
     closeIfValid(pseudoOutputWrite);
     setState(State::Running);
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("terminal"),
+        QStringLiteral("terminal.started"),
+        QStringLiteral("Embedded terminal started. / 內嵌終端機已經啟動。"),
+        QJsonObject{{QStringLiteral("shell"), terminalShellName(options.shell)},
+                    {QStringLiteral("columns"), options.initialSize.width()},
+                    {QStringLiteral("rows"), options.initialSize.height()},
+                    {QStringLiteral("sessionGeneration"),
+                     static_cast<qint64>(m_sessionGeneration)}});
     return true;
 #endif
 }
@@ -1169,6 +1283,14 @@ bool EmbeddedTerminalSession::startShell(const QString &shellName,
 
 bool EmbeddedTerminalSession::writeInput(const QString &text)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Trace, QStringLiteral("terminal"),
+        QStringLiteral("terminal.input.requested"),
+        QStringLiteral("Embedded terminal input metadata was received. / 已經收到內嵌終端機輸入嘅中繼資料。"),
+        QJsonObject{{QStringLiteral("characterCount"), text.size()},
+                    {QStringLiteral("state"), terminalStateName(m_state)},
+                    {QStringLiteral("sessionGeneration"),
+                     static_cast<qint64>(m_sessionGeneration)}});
     if (QThread::currentThread() != thread()) {
         QMetaObject::invokeMethod(
             this,
@@ -1195,8 +1317,14 @@ bool EmbeddedTerminalSession::writeInput(const QString &text)
         return false;
     }
     const QByteArray bytes = text.toUtf8();
-    if (bytes.isEmpty())
+    if (bytes.isEmpty()) {
+        StructuredLogger::instance().log(
+            LogSeverity::Trace, QStringLiteral("terminal"),
+            QStringLiteral("terminal.input.queued"),
+            QStringLiteral("Empty terminal input required no queue write. / 空白終端機輸入唔需要寫入佇列。"),
+            QJsonObject{{QStringLiteral("utf8Bytes"), 0}});
         return true;
+    }
 
     QString rejection;
     {
@@ -1216,12 +1344,27 @@ bool EmbeddedTerminalSession::writeInput(const QString &text)
         return false;
     }
     m_impl->inputCondition.notify_one();
+    StructuredLogger::instance().log(
+        LogSeverity::Trace, QStringLiteral("terminal"),
+        QStringLiteral("terminal.input.queued"),
+        QStringLiteral("Terminal input was queued without logging its contents. / 終端機輸入已經加入佇列，記錄冇保存內容。"),
+        QJsonObject{{QStringLiteral("characterCount"), text.size()},
+                    {QStringLiteral("utf8Bytes"), bytes.size()},
+                    {QStringLiteral("sessionGeneration"),
+                     static_cast<qint64>(m_sessionGeneration)}});
     return true;
 #endif
 }
 
 bool EmbeddedTerminalSession::resize(int columns, int rows)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Debug, QStringLiteral("terminal"),
+        QStringLiteral("terminal.resize.requested"),
+        QStringLiteral("Embedded terminal resize was requested. / 已經要求調整內嵌終端機大小。"),
+        QJsonObject{{QStringLiteral("columns"), columns},
+                    {QStringLiteral("rows"), rows},
+                    {QStringLiteral("state"), terminalStateName(m_state)}});
     if (QThread::currentThread() != thread()) {
         QMetaObject::invokeMethod(
             this,
@@ -1265,6 +1408,12 @@ bool EmbeddedTerminalSession::resize(int columns, int rows)
                  false);
         return false;
     }
+    StructuredLogger::instance().log(
+        LogSeverity::Debug, QStringLiteral("terminal"),
+        QStringLiteral("terminal.resize.completed"),
+        QStringLiteral("Embedded terminal resize completed. / 內嵌終端機大小調整完成。"),
+        QJsonObject{{QStringLiteral("columns"), columns},
+                    {QStringLiteral("rows"), rows}});
     return true;
 #endif
 }
@@ -1281,6 +1430,14 @@ void EmbeddedTerminalSession::stopGracefully(int forceAfterMs)
 #ifdef Q_OS_WIN
     if (m_state != State::Running)
         return;
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("terminal"),
+        QStringLiteral("terminal.stop.requested"),
+        QStringLiteral("Graceful terminal stop was requested. / 已經要求正常停止終端機。"),
+        QJsonObject{{QStringLiteral("forceAfterMs"),
+                     std::clamp(forceAfterMs, 0, 60'000)},
+                    {QStringLiteral("sessionGeneration"),
+                     static_cast<qint64>(m_sessionGeneration)}});
     setState(State::Stopping);
     const QByteArray exitCommand("exit\r\n");
     {
@@ -1322,6 +1479,12 @@ void EmbeddedTerminalSession::forceStop()
 #ifdef Q_OS_WIN
     if (!running())
         return;
+    StructuredLogger::instance().log(
+        LogSeverity::Warning, QStringLiteral("terminal"),
+        QStringLiteral("terminal.force-stop.requested"),
+        QStringLiteral("Forced terminal stop was requested. / 已經要求強制停止終端機。"),
+        QJsonObject{{QStringLiteral("sessionGeneration"),
+                     static_cast<qint64>(m_sessionGeneration)}});
     m_impl->forced.store(true);
     setState(State::Stopping);
 
@@ -1359,6 +1522,7 @@ void EmbeddedTerminalSession::clearTranscript()
     const bool hadTranscript = !m_transcript.isEmpty();
     const bool hadDisplayTranscript = !m_displayTranscript.isEmpty();
     const bool wasTruncated = m_transcriptTruncated;
+    const qsizetype storedCharacters = m_transcript.size();
     m_transcript.clear();
     m_displayTranscript.clear();
     m_displayEscapeCarry.clear();
@@ -1369,6 +1533,12 @@ void EmbeddedTerminalSession::clearTranscript()
         emit displayTranscriptChanged();
     if (wasTruncated)
         emit transcriptTruncatedChanged();
+    StructuredLogger::instance().log(
+        LogSeverity::Debug, QStringLiteral("terminal"),
+        QStringLiteral("terminal.transcript.cleared"),
+        QStringLiteral("The embedded terminal transcript was cleared. / 內嵌終端機記錄已經清除。"),
+        QJsonObject{{QStringLiteral("storedCharacterCount"), storedCharacters},
+                    {QStringLiteral("wasTruncated"), wasTruncated}});
 }
 
 void EmbeddedTerminalSession::enqueueOutputFromWorker(const QByteArray &bytes)
@@ -1432,6 +1602,14 @@ void EmbeddedTerminalSession::drainOutput()
         m_droppedOutputBytes += discarded;
         emit droppedOutputBytesChanged();
         emit outputDiscarded(m_droppedOutputBytes);
+        StructuredLogger::instance().log(
+            LogSeverity::Warning, QStringLiteral("terminal"),
+            QStringLiteral("terminal.output.discarded"),
+            QStringLiteral("Bounded terminal output was discarded. / 有界終端機輸出有部分已經丟棄。"),
+            QJsonObject{{QStringLiteral("discardedBytes"),
+                         static_cast<qint64>(discarded)},
+                        {QStringLiteral("totalDiscardedBytes"),
+                         static_cast<qint64>(m_droppedOutputBytes)}});
     }
     if (bytes.isEmpty())
         return;
@@ -1719,6 +1897,23 @@ void EmbeddedTerminalSession::handleNativeExit(quint32 nativeExitCode, bool forc
         m_exitStatus = ExitStatus::NormalExit;
     emit exitChanged();
     setState(State::Exited);
+    StructuredLogger::instance().log(
+        m_exitStatus == ExitStatus::NormalExit ? LogSeverity::Info
+                                               : LogSeverity::Warning,
+        QStringLiteral("terminal"), QStringLiteral("terminal.exited"),
+        m_exitStatus == ExitStatus::NormalExit
+            ? QStringLiteral("Embedded terminal exited normally. / 內嵌終端機已經正常結束。")
+            : QStringLiteral("Embedded terminal exited abnormally. / 內嵌終端機異常結束。"),
+        QJsonObject{{QStringLiteral("exitCode"), m_exitCode},
+                    {QStringLiteral("exitStatus"),
+                     terminalExitStatusName(m_exitStatus)},
+                    {QStringLiteral("forced"), forced},
+                    {QStringLiteral("transcriptTruncated"),
+                     m_transcriptTruncated},
+                    {QStringLiteral("droppedOutputBytes"),
+                     static_cast<qint64>(m_droppedOutputBytes)},
+                    {QStringLiteral("sessionGeneration"),
+                     static_cast<qint64>(m_sessionGeneration)}});
     emit processExited(m_exitCode, m_exitStatus);
 }
 

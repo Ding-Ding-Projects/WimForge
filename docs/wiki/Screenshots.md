@@ -1,12 +1,20 @@
-# Screenshots
+# Screenshots / 截圖
 
-The canonical gallery covers all twelve desktop routes. Every image comes from the
-same build, populated non-production demo, English UI mode, 1,480×920 Qt Quick
+The canonical gallery covers Project Start plus all twelve desktop routes. Every image comes from the
+same build, populated non-production demo, bilingual English/Hong Kong Cantonese UI mode, 1,440×900 Qt Quick
 client area, and 96-DPI PNG output. A route-specific public fixture keeps paths,
 Git history, settings, and notification state deterministic without exposing a
 real Windows image, private project, account name, or secret.
 
+標準畫廊包括工程起始頁同全部十二個桌面功能頁。每幅圖都由同一個 build、同一套無害 demo 資料、English / 香港粵語雙語模式、1,440×900 client area 同 96 DPI 產生。公開 fixture 只用中性路徑同虛構資料，唔會露出真實映像、帳戶、秘密或私人工程。
+
 ## Complete application gallery
+
+### Project Start / 工程起始頁
+
+![WimForge Project Start showing bilingual create, open, import, and recent-project actions](https://raw.githubusercontent.com/codingmachineedge/WimForge/main/docs/screenshots/project-start.png)
+
+呢個係 app 開啟後嘅第一個畫面：可以建立新工程、開啟現有資料夾、匯入 `.json` / `.wimforge`，或由最近清單繼續。
 
 ### Overview
 
@@ -72,7 +80,7 @@ cmake --build build-capture --config Debug --target WimForge --parallel
 ./scripts/capture-documentation-screenshots.ps1
 ```
 
-The script launches each route with `--demo --language en --page <id>`, gives
+The script launches each route with `--demo --language bilingual --page <id>`, gives
 every route a clean public fixture and notification ledger, waits for the window
 to settle, and uses WimForge's `--screenshot` option to save the normalized Qt
 Quick client area. It fails if a route exits unsuccessfully, omits its image, or
@@ -80,6 +88,7 @@ produces dimensions inconsistent with the rest of the set.
 
 | Page | Page ID | Image |
 | --- | --- | --- |
+| Project Start / 工程起始頁 | startup capture | `project-start.png` |
 | Overview | `overview` | `overview.png` |
 | Source and editions | `source` | `source.png` |
 | Customize | `customize` | `customize.png` |
@@ -95,7 +104,7 @@ produces dimensions inconsistent with the rest of the set.
 
 ## Capture contract
 
-- Use one application commit, theme, language mode, viewport, and DPI for the
+- Use one application commit, theme, bilingual language mode, viewport, and DPI for the
   primary set.
 - Keep source, project, output, profile, notification, and application-data
   paths under the public screenshot fixture.
@@ -108,9 +117,11 @@ produces dimensions inconsistent with the rest of the set.
 - Use descriptive alt text that names the route and the meaningful visible
   state.
 
-Secondary dark-theme, Cantonese, bilingual, density, minimum-viewport, and
+Secondary dark-theme, single-language English/Cantonese, density, minimum-viewport, and
 overlay matrices are useful visual-regression work, but they should remain
 clearly named QA sets rather than replacing this stable primary tour.
+
+截圖合約重點：主畫廊一定要用 `--language bilingual`，全套保持同 commit、theme、viewport 同 DPI。路徑、通知、工程名同 payload 都要用公開 fixture；唔好放客戶名、私人 hostname、credential、product key 或專有 payload 入鏡。如果 shared shell、主 fixture 或 capture normalization 有改，就要重拍工程起始頁同全部十二個功能頁。
 
 ## What a screenshot does not prove
 

@@ -6,8 +6,8 @@ Start with the exact in-app status, persistent notification, operation output, a
 
 | Symptom | Checks |
 | --- | --- |
-| Application does not start from a portable folder | Extract the complete archive; keep the executable beside deployed Qt/MSVC files and the `platforms`/QML directories. Do not run only a copied `WimForge.exe`. |
-| Project will not create | Use a valid writable destination, ensure Git is on `PATH`, and review any existing destination contents. |
+| Application does not start from a portable folder | Extract the complete archive into a trusted access-controlled directory; keep the executable beside deployed Qt/MSVC files and the `platforms`/QML directories. Do not run only a copied `WimForge.exe`, and do not elevate it from Downloads, Temp, or a shared/writable folder. |
+| Project will not create | Use a valid writable destination, install Git for Windows machine-wide under protected Program Files, and review any existing destination contents. For elevation safety, WimForge does not use a user-profile or arbitrary PATH Git executable. |
 | Project will not open | Select a directory containing `project.json`, not the JSON file itself. Use the import destination field for `.json` or `.wimforge` input. |
 | A project mutation reports a Git error | Confirm Git is available and the project `.git` directory is writable. Do not delete lock files until no WimForge/Git process owns them. |
 | Complete-save import is refused | The importer rejects unsafe paths, links/reparse points, collisions, incomplete Git declarations, unsupported format flags, and an existing destination unless overwrite was explicitly requested. |
@@ -18,7 +18,7 @@ Use `WimForgeCli.exe --project <folder> project validate --execution --json` whe
 
 ### A raw ISO shows no edition list
 
-Direct inspection needs a readable WIM/ESD/SWM or extracted media directory. Mount or extract the ISO, then point **Image path** at `sources\install.wim`, `install.esd`, or the first `install.swm`. The reviewed servicing plan may still use the original ISO as its source.
+Choose the ISO with **Browse ISO / image**, then let inspection finish. WimForge mounts it read-only, finds `sources\install.wim`, `install.esd`, or `install.swm`, runs DISM, and confirms dismount. If none exists, verify that the file is Windows installation media. Error 740 means the desktop process does not have the required administrator token.
 
 ### DISM inspection or servicing fails
 
@@ -63,7 +63,7 @@ The catalog is built from an installed or selected PolicyDefinitions store. Conf
 
 ### OpenCode setup fails
 
-WimForge first looks for an existing `opencode` and live-verifies `opencode --version`. Otherwise it needs npm, or WinGet to install exact package ID `OpenJS.NodeJS.LTS`, before running `npm install -g opencode-ai@latest`. Review the notification for the exact failed stage. Managed environments may intentionally block global npm or WinGet changes; the rest of WimForge remains usable.
+Open Package Studio and select **Verify / install now**; the elevated desktop intentionally performs no developer-tool discovery at startup. After that explicit approval, WimForge looks for an existing `opencode` and live-verifies `opencode --version`. Otherwise it needs npm, or WinGet to install exact package ID `OpenJS.NodeJS.LTS`, before running `npm install -g opencode-ai@latest`. Review the in-app error for the exact failed stage. Managed environments may intentionally block global npm or WinGet changes; the rest of WimForge remains usable.
 
 ### A package profile will not stage
 
@@ -83,6 +83,8 @@ Select and detect a published runtime. A typed action is supported only when the
 - Contextual action journal: `<project>\.wimforge\action-history.jsonl`
 - Job journal: `<project>\.wimforge\job-journal.json`
 - Per-run output: `<project>\.wimforge\logs\<run-id>\`
+- Workspace tabs and their hardened Git history: `<project>\.wimforge\tabs\`
+- Rotating application JSONL: the exact `logs\wimforge.jsonl` path shown in **Settings**
 - Notification store: the path shown in **Settings**, normally under Qt's per-user application-local data location
 
 Preserve journals/logs before cleanup when reporting a reproducible issue. Remove secrets, private keys, credentials, product keys, usernames, and proprietary payload details from reports and screenshots.
@@ -99,6 +101,14 @@ Include:
 6. Whether the issue reproduces with `--demo` or the CLI.
 
 Do not attach Windows images, proprietary installers, credentials, or a secret-bearing `.wimforge` bundle to a public issue.
+
+## 香港粵語排查提示
+
+- 見到 `Qt6Guid.dll was not found`：通常係直接開咗未 deploy 嘅 Visual Studio output。請用完整 installer/portable ZIP，或先 `cmake --install` 去 `dev-runtime`。
+- ISO 冇 edition：用 **Browse ISO / image** 再等 inspect；Error 740 代表冇管理員 token。如果檢查話未 dismount，唔好當成已完成。
+- Drivers/Updates 冇資料：檢查撳嘅係 INF/folder 或 CAB/MSU，再用 refresh；Microsoft Catalog 搜尋結果仍然要對目標 build、edition 同架構。
+- 工程開唔到：桌面版只會用 Program Files 內受保護嘅 machine-wide Git，唔會用 user profile 或任意 PATH Git。
+- 報告前保留 `.wimforge` journals、分頁 repo 同 Settings 顯示嘅 JSONL log；先刪/遮帳戶、私人路徑、token、product key 同 proprietary payload 資料。
 
 ---
 

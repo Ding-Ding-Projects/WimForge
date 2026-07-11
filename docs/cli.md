@@ -177,7 +177,7 @@ generates the name at first logon. GVLK selection is limited to entries publishe
 by Microsoft; every result repeats that a GVLK grants no licence and performs no
 activation by itself.
 
-## Package Studio and automatic OpenCode setup
+## Package Studio and explicitly approved OpenCode setup
 
 ```powershell
 WimForge package catalog
@@ -279,3 +279,7 @@ defaults:
 `bundle`, `action-history`, and `winforge` are linked into the same validated
 core used by the desktop application. Unknown actions fail with exit 2; none of
 these namespaces silently ignores future or misspelled operations.
+
+## 香港粵語速讀
+
+CLI 同桌面版用同一套驗證核心；指令唔會等你入互動回應，錯嘅 namespace 或 action 會直接失敗，唔會靜雞雞跳過。用 `--json` 做 automation 會最穩陣；破壞性 apply、host OpenCode setup 同其他會改系統嘅動作，仍然要明確授權同足夠權限。

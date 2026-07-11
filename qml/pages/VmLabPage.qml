@@ -2,8 +2,10 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import "../components"
 
 Item {
     id: root
@@ -11,17 +13,23 @@ Item {
     required property var app
     required property var tr
 
-    readonly property bool compact: width < 820
-    readonly property color cardColor: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"
-    readonly property color raisedColor: Material.theme === Material.Dark ? "#2B292F" : "#F7F2FA"
-    readonly property color outlineColor: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC"
-    readonly property color secondaryText: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
-    readonly property color errorText: Material.theme === Material.Dark ? "#FFB4AB" : "#BA1A1A"
-    readonly property color warningText: Material.theme === Material.Dark ? "#FFD18B" : "#8B5000"
-    readonly property color successText: Material.theme === Material.Dark ? "#A8D5A2" : "#386A20"
+    required property bool dark
+    Material.theme: dark ? Material.Dark : Material.Light
+    readonly property bool compact: width < 900
+    readonly property bool compactHeight: height < 520
+    readonly property color cardColor: DesignTokens.surfaceLowest(root.dark)
+    readonly property color raisedColor: DesignTokens.surfaceLow(root.dark)
+    readonly property color outlineColor: DesignTokens.outlineVariant(root.dark)
+    readonly property color secondaryText: DesignTokens.onSurfaceVariant(root.dark)
+    readonly property color errorText: DesignTokens.error(root.dark)
+    readonly property color warningText: DesignTokens.tertiary(root.dark)
+    readonly property color successText: DesignTokens.success(root.dark)
+    readonly property color primaryText: DesignTokens.primary(root.dark)
+    readonly property color surfaceForeground: DesignTokens.onSurface(root.dark)
 
     property string selectedSnapshotId: ""
     property string selectedValidationRunId: ""
+    property bool inventoryDetailOpen: false
     property string pendingDispatchKind: "vm"
     property string pendingAction: ""
     property var pendingOptions: ({})
@@ -38,7 +46,37 @@ Item {
     function chooseVm(providerId, id) {
         root.app.selectVm(providerId, id)
         root.selectedSnapshotId = ""
+        if (root.compact)
+            root.inventoryDetailOpen = true
         Qt.callLater(root.resetConfigurationEditor)
+    }
+
+    component VmSectionCard: WfCard {
+        id: sectionCard
+
+        property string titleText: ""
+        default property alias sectionContent: sectionLayout.data
+
+        dark: root.dark
+        outlined: true
+        surfaceLevel: "lowest"
+        padding: DesignTokens.spacing16
+
+        ColumnLayout {
+            id: sectionLayout
+            anchors.fill: parent
+            spacing: DesignTokens.spacing12
+
+            Label {
+                Layout.fillWidth: true
+                text: sectionCard.titleText
+                color: DesignTokens.onSurface(sectionCard.dark)
+                font.family: DesignTokens.fontDisplay
+                font.pixelSize: 15
+                font.weight: Font.Bold
+                wrapMode: Text.Wrap
+            }
+        }
     }
 
     function submitCreate(spec) {
@@ -236,25 +274,32 @@ Item {
                 && root.powerState(root.selectedVm()) === "running"
     }
 
-    function stateGlyph(machine) {
+    function stateTone(machine) {
         var state = root.powerState(machine)
-        if (state === "running") return "▶"
-        if (state === "paused" || state === "suspended" || state === "saved") return "Ⅱ"
-        if (root.isPoweredOff(machine)) return "■"
-        if (state === "inaccessible" || state === "error") return "⚠"
-        return "?"
+        if (state === "running") return "success"
+        if (state === "inaccessible" || state === "error") return "error"
+        if (state === "paused" || state === "suspended" || state === "saved") return "warning"
+        return "neutral"
+    }
+
+    function stateColor(machine) {
+        var tone = root.stateTone(machine)
+        if (tone === "success") return DesignTokens.success(root.dark)
+        if (tone === "error") return DesignTokens.error(root.dark)
+        if (tone === "warning") return DesignTokens.tertiary(root.dark)
+        return DesignTokens.outline(root.dark)
     }
 
     function stateLabel(state) {
         var normalized = String(state || "unknown").toLowerCase()
         if (normalized === "all") return root.tr("All states", "全部狀態")
-        if (normalized === "running") return root.tr("Running", "運行中")
+        if (normalized === "running") return root.tr("Running", "運作緊")
         if (normalized === "paused") return root.tr("Paused", "已暫停")
         if (normalized === "suspended") return root.tr("Suspended", "已擱置")
         if (normalized === "saved") return root.tr("Saved", "已儲存")
         if (normalized === "powered-off" || normalized === "poweredoff") return root.tr("Powered off", "已關機")
         if (normalized === "aborted") return root.tr("Aborted", "已中止")
-        if (normalized === "inaccessible") return root.tr("Inaccessible", "無法存取")
+        if (normalized === "inaccessible") return root.tr("Inaccessible", "存取唔到")
         return normalized.length > 0 ? normalized : root.tr("Unknown", "未知")
     }
 
@@ -354,61 +399,39 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 10
+        spacing: DesignTokens.spacing16
 
-        GridLayout {
+        WfPageHeader {
             Layout.fillWidth: true
-            columns: root.width >= 760 ? 3 : 1
-            columnSpacing: 10
-            rowSpacing: 6
+            dark: root.dark
+            title: root.tr("Virtual Machine Lab", "虛擬機實驗室")
+            description: root.compactHeight ? "" : root.tr(
+                             "Boot the finished ISO in VMware or VirtualBox, snapshot state, and record a validation run before it ships.",
+                             "喺 VMware 或 VirtualBox 啟動完成嘅 ISO、建立狀態快照，並喺交付前記錄驗證執行。")
 
-            ColumnLayout {
-                Layout.fillWidth: true
-                Label {
-                    Layout.fillWidth: true
-                    text: root.tr("Virtual Machine Lab", "虛擬機實驗室")
-                    font.pixelSize: 30
-                    font.weight: Font.Bold
-                    wrapMode: Text.Wrap
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: root.tr("Load the current Windows ISO into VMware or VirtualBox, manage its complete lifecycle, and preserve structured validation evidence.",
-                                  "將目前 Windows ISO 載入 VMware 或 VirtualBox，管理完整生命週期，並保存結構化驗證證據。")
-                    wrapMode: Text.Wrap
-                    color: root.secondaryText
-                }
+            WfStatusChip {
+                visible: !root.compact
+                dark: root.dark
+                tone: root.list(root.app.vmInventory).length > 0 ? "success" : "neutral"
+                showDot: true
+                uppercase: false
+                compact: false
+                text: root.tr("%1 machines", "%1 部虛擬機").arg(root.list(root.app.vmInventory).length)
             }
-
-            Pane {
-                Layout.fillWidth: root.width < 760
-                padding: 10
-                background: Rectangle {
-                    radius: 16
-                    color: root.cardColor
-                    border.color: root.outlineColor
-                }
-                ColumnLayout {
-                    Label {
-                        text: root.list(root.app.vmInventory).length
-                        font.pixelSize: 23
-                        font.bold: true
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-                    Label {
-                        text: root.tr("machines found", "部虛擬機")
-                        font.pixelSize: 10
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-                }
-            }
-
-            Button {
-                Layout.fillWidth: root.width < 760
-                text: "↻  " + root.tr("Refresh providers", "重新整理供應器")
+            WfButton {
+                dark: root.dark
+                variant: "outlined"
+                text: root.tr("Refresh", "重新整理")
                 Accessible.name: root.tr("Refresh VM providers and inventory", "重新整理虛擬機供應器及清單")
                 enabled: !root.app.vmBusy
                 onClicked: root.refreshLab()
+            }
+            WfButton {
+                dark: root.dark
+                variant: "filled"
+                text: root.tr("New VM", "新增虛擬機")
+                Accessible.name: root.tr("Open virtual machine creation", "開啟虛擬機建立畫面")
+                onClicked: sectionTabs.currentIndex = 1
             }
         }
 
@@ -417,379 +440,437 @@ Item {
             Layout.fillWidth: true
             currentIndex: 0
 
-            TabButton { text: "▦  " + root.tr("Inventory", "清單") }
-            TabButton { text: "+  " + root.tr("Create / load", "建立／載入") }
-            TabButton { text: "⚙  " + root.tr("Hardware", "硬件") }
-            TabButton { text: "◈  " + root.tr("Snapshots", "快照") }
-            TabButton { text: "✓  " + root.tr("Validation", "驗證") }
+            background: Rectangle { color: "transparent" }
+
+            TabButton {
+                width: sectionTabs.width / 5
+                text: root.tr("Inventory", "清單")
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 12
+                implicitHeight: DesignTokens.rowHeight
+            }
+            TabButton {
+                width: sectionTabs.width / 5
+                text: root.compact ? root.tr("Create", "建立／載入")
+                                   : root.tr("Create / load", "建立／載入")
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 12
+                implicitHeight: DesignTokens.rowHeight
+            }
+            TabButton {
+                width: sectionTabs.width / 5
+                text: root.tr("Hardware", "硬件")
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 12
+                implicitHeight: DesignTokens.rowHeight
+            }
+            TabButton {
+                width: sectionTabs.width / 5
+                text: root.tr("Snapshots", "快照")
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 12
+                implicitHeight: DesignTokens.rowHeight
+            }
+            TabButton {
+                width: sectionTabs.width / 5
+                text: root.tr("Validation", "驗證")
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 12
+                implicitHeight: DesignTokens.rowHeight
+            }
         }
 
         StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumHeight: 260
+            Layout.minimumHeight: root.compactHeight ? 180 : 260
             currentIndex: sectionTabs.currentIndex
 
             Item {
-                ColumnLayout {
+                GridLayout {
                     anchors.fill: parent
-                    spacing: 8
+                    columns: root.compact ? 1 : 2
+                    columnSpacing: DesignTokens.spacing16
+                    rowSpacing: DesignTokens.spacing16
 
-                    ListView {
-                        id: providerList
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 120
-                        Layout.minimumHeight: 96
-                        orientation: ListView.Horizontal
-                        spacing: 8
-                        clip: true
-                        model: root.app.vmProviders || []
-                        ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
+                    WfCard {
+                        visible: !root.compact || !root.inventoryDetailOpen
+                        Layout.fillWidth: root.compact
+                        Layout.preferredWidth: root.compact ? -1 : 300
+                        Layout.fillHeight: true
+                        Layout.minimumWidth: 0
+                        Layout.minimumHeight: root.compactHeight ? 180 : 230
+                        dark: root.dark
+                        outlined: true
+                        surfaceLevel: "lowest"
+                        padding: DesignTokens.spacing12
 
-                        delegate: Pane {
-                            id: providerCard
-                            required property var modelData
-                            width: Math.min(330, Math.max(250, providerList.width * 0.42))
-                            height: providerList.height - 10
-                            padding: 12
-                            Accessible.name: root.tr("Provider %1", "供應器 %1").arg(root.value(providerCard.modelData, "displayName", ""))
-                            background: Rectangle {
-                                radius: 17
-                                color: root.cardColor
-                                border.width: root.value(providerCard.modelData, "available", false) ? 2 : 1
-                                border.color: root.value(providerCard.modelData, "available", false) ? root.successText : root.outlineColor
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: DesignTokens.spacing8
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.tr("Virtual machines", "虛擬機")
+                                color: root.surfaceForeground
+                                font.family: DesignTokens.fontDisplay
+                                font.pixelSize: 15
+                                font.weight: Font.Bold
                             }
-                            ColumnLayout {
-                                anchors.fill: parent
-                                GridLayout {
-                                    Layout.fillWidth: true
-                                    columns: 2
-                                    Label {
-                                        Layout.fillWidth: true
-                                        text: root.value(providerCard.modelData, "displayName", root.value(providerCard.modelData, "id", ""))
-                                        font.weight: Font.DemiBold
-                                        wrapMode: Text.Wrap
+
+                            ListView {
+                                id: providerList
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 46
+                                orientation: ListView.Horizontal
+                                spacing: DesignTokens.spacing8
+                                clip: true
+                                model: root.app.vmProviders || []
+                                ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                                delegate: Rectangle {
+                                    id: providerCard
+                                    required property var modelData
+                                    width: Math.max(142, providerNameLabel.implicitWidth + 38)
+                                    height: DesignTokens.rowHeight
+                                    radius: DesignTokens.radiusControl
+                                    color: DesignTokens.surfaceLow(root.dark)
+                                    border.width: 1
+                                    border.color: root.outlineColor
+                                    Accessible.name: root.tr("Provider %1", "供應器 %1").arg(root.value(providerCard.modelData, "displayName", ""))
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 10
+                                        spacing: DesignTokens.spacing8
+                                        Rectangle {
+                                            Layout.preferredWidth: 8
+                                            Layout.preferredHeight: 8
+                                            radius: 4
+                                            color: root.value(providerCard.modelData, "available", false)
+                                                   ? root.successText : root.errorText
+                                        }
+                                        Label {
+                                            id: providerNameLabel
+                                            Layout.fillWidth: true
+                                            text: root.value(providerCard.modelData, "displayName",
+                                                             root.value(providerCard.modelData, "id", ""))
+                                            color: root.surfaceForeground
+                                            font.family: DesignTokens.fontBody
+                                            font.pixelSize: 11
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                            ToolTip.visible: providerHover.containsMouse
+                                            ToolTip.text: root.value(providerCard.modelData, "version", root.tr("Version not reported", "未回報版本"))
+                                                          + "\n" + root.capabilitySummary(providerCard.modelData)
+                                        }
                                     }
-                                    Label {
-                                        text: root.value(providerCard.modelData, "available", false)
-                                              ? "● " + root.tr("Detected", "已偵測")
-                                              : "○ " + root.tr("Unavailable", "不可用")
-                                        color: root.value(providerCard.modelData, "available", false) ? root.successText : root.errorText
-                                        font.pixelSize: 10
-                                        font.bold: true
-                                    }
+                                    MouseArea { id: providerHover; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
                                 }
+
                                 Label {
-                                    Layout.fillWidth: true
-                                    text: root.value(providerCard.modelData, "version", root.tr("Version not reported", "未回報版本"))
-                                          + "  ·  " + root.value(providerCard.modelData, "executable", root.tr("Executable not found", "找不到執行檔"))
-                                    wrapMode: Text.WrapAnywhere
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 2
-                                    font.pixelSize: 10
+                                    anchors.centerIn: parent
+                                    visible: providerList.count === 0
+                                    text: root.tr("No providers detected", "未偵測到供應器")
                                     color: root.secondaryText
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: root.capabilitySummary(providerCard.modelData)
-                                    wrapMode: Text.Wrap
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 2
-                                    font.pixelSize: 9
-                                    color: Material.accent
+                                    font.family: DesignTokens.fontBody
+                                    font.pixelSize: 11
                                 }
                             }
-                        }
 
-                        Label {
-                            anchors.centerIn: parent
-                            visible: providerList.count === 0
-                            text: root.tr("Refresh to detect VMware and VirtualBox.", "重新整理以偵測 VMware 同 VirtualBox。")
-                            wrapMode: Text.Wrap
+                            TextField {
+                                id: inventorySearch
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: DesignTokens.fieldHeight
+                                placeholderText: root.tr("Search machine, ID or path…", "搜尋虛擬機、ID 或路徑……")
+                                Accessible.name: root.tr("Search virtual machines", "搜尋虛擬機")
+                                selectByMouse: true
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 12
+                            }
+
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: 2
+                                columnSpacing: DesignTokens.spacing8
+                                ComboBox {
+                                    id: providerFilter
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: DesignTokens.controlHeight
+                                    model: ["all"].concat(root.providerIds(false))
+                                    displayText: currentText === "all" ? root.tr("All providers", "全部供應器") : root.providerName(currentText)
+                                    Accessible.name: root.tr("Filter by provider", "按供應器篩選")
+                                    delegate: ItemDelegate {
+                                        required property var modelData
+                                        width: providerFilter.width
+                                        text: modelData === "all" ? root.tr("All providers", "全部供應器") : root.providerName(modelData)
+                                    }
+                                }
+                                ComboBox {
+                                    id: stateFilter
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: DesignTokens.controlHeight
+                                    model: ["all", "running", "paused", "suspended", "saved", "powered-off", "inaccessible"]
+                                    displayText: root.stateLabel(currentText)
+                                    Accessible.name: root.tr("Filter by power state", "按電源狀態篩選")
+                                    delegate: ItemDelegate {
+                                        required property var modelData
+                                        width: stateFilter.width
+                                        text: root.stateLabel(modelData)
+                                    }
+                                }
+                            }
+
+                            ListView {
+                                id: inventoryList
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumHeight: 120
+                                clip: true
+                                spacing: DesignTokens.spacing8
+                                boundsBehavior: Flickable.StopAtBounds
+                                model: root.filteredInventory()
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                                delegate: Rectangle {
+                                    id: machineDelegate
+                                    required property var modelData
+                                    readonly property bool selected:
+                                        root.value(machineDelegate.modelData, "id", "") === root.app.vmSelectedId
+                                        && root.value(machineDelegate.modelData, "providerId", "")
+                                           === root.value(root.app.vmSelected, "providerId", "")
+                                    width: inventoryList.width
+                                    height: 62
+                                    radius: DesignTokens.radiusCard
+                                    color: selected ? DesignTokens.primaryContainer(root.dark)
+                                                    : DesignTokens.surfaceLowest(root.dark)
+                                    border.width: 1
+                                    border.color: selected ? DesignTokens.primary(root.dark) : root.outlineColor
+                                    Accessible.name: root.tr("Select %1, %2", "選取 %1，%2")
+                                                        .arg(root.value(machineDelegate.modelData, "name", ""))
+                                                        .arg(root.stateLabel(root.powerState(machineDelegate.modelData)))
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: DesignTokens.spacing12
+                                        anchors.rightMargin: DesignTokens.spacing12
+                                        spacing: DesignTokens.spacing12
+                                        Rectangle {
+                                            Layout.preferredWidth: 9
+                                            Layout.preferredHeight: 9
+                                            radius: 5
+                                            color: root.stateColor(machineDelegate.modelData)
+                                            Accessible.ignored: true
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: root.value(machineDelegate.modelData, "name",
+                                                                 root.value(machineDelegate.modelData, "id", ""))
+                                                color: selected ? DesignTokens.onPrimaryContainer(root.dark) : root.surfaceForeground
+                                                font.family: DesignTokens.fontBody
+                                                font.pixelSize: 12
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideRight
+                                            }
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: root.providerName(root.value(machineDelegate.modelData, "providerId", ""))
+                                                      + " · " + root.stateLabel(root.powerState(machineDelegate.modelData))
+                                                color: selected ? DesignTokens.onPrimaryContainer(root.dark) : root.secondaryText
+                                                font.family: DesignTokens.fontBody
+                                                font.pixelSize: 10
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.chooseVm(root.value(machineDelegate.modelData, "providerId", ""),
+                                                                 root.value(machineDelegate.modelData, "id", ""))
+                                    }
+                                }
+
+                                Label {
+                                    anchors.centerIn: parent
+                                    width: Math.max(80, parent.width - 24)
+                                    visible: inventoryList.count === 0
+                                    text: root.tr("No machines match these filters.", "冇虛擬機符合篩選條件。")
+                                    horizontalAlignment: Text.AlignHCenter
+                                    wrapMode: Text.Wrap
+                                    color: root.secondaryText
+                                    font.family: DesignTokens.fontBody
+                                    font.pixelSize: 12
+                                }
+                            }
                         }
                     }
 
-                    GridLayout {
+                    ScrollView {
+                        id: machineDetailScroll
+                        visible: !root.compact || root.inventoryDetailOpen
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        columns: root.compact ? 1 : 2
-                        columnSpacing: 8
-                        rowSpacing: 8
+                        Layout.minimumWidth: 0
+                        Layout.minimumHeight: root.compactHeight ? 180 : 230
+                        clip: true
+                        contentWidth: availableWidth
 
-                        Pane {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.minimumWidth: 0
-                            Layout.minimumHeight: 130
-                            padding: 10
-                            background: Rectangle { radius: 18; color: root.cardColor; border.color: root.outlineColor }
+                        ColumnLayout {
+                            width: machineDetailScroll.availableWidth
+                            spacing: DesignTokens.spacing12
 
-                            ColumnLayout {
-                                anchors.fill: parent
-                                GridLayout {
-                                    Layout.fillWidth: true
-                                    columns: inventoryList.width >= 520 ? 3 : 1
-                                    columnSpacing: 6
-                                    rowSpacing: 6
-
-                                    TextField {
-                                        id: inventorySearch
-                                        Layout.fillWidth: true
-                                        placeholderText: root.tr("Search machine, ID or path…", "搜尋虛擬機、ID 或路徑……")
-                                        Accessible.name: root.tr("Search virtual machines", "搜尋虛擬機")
-                                        selectByMouse: true
-                                    }
-                                    ComboBox {
-                                        id: providerFilter
-                                        Layout.fillWidth: inventoryList.width < 520
-                                        model: ["all"].concat(root.providerIds(false))
-                                        displayText: currentText === "all" ? root.tr("All providers", "全部供應器") : root.providerName(currentText)
-                                        Accessible.name: root.tr("Filter by provider", "按供應器篩選")
-                                        delegate: ItemDelegate {
-                                            required property var modelData
-                                            width: providerFilter.width
-                                            text: modelData === "all" ? root.tr("All providers", "全部供應器") : root.providerName(modelData)
-                                        }
-                                    }
-                                    ComboBox {
-                                        id: stateFilter
-                                        Layout.fillWidth: inventoryList.width < 520
-                                        model: ["all", "running", "paused", "suspended", "saved", "powered-off", "inaccessible"]
-                                        displayText: root.stateLabel(currentText)
-                                        Accessible.name: root.tr("Filter by power state", "按電源狀態篩選")
-                                        delegate: ItemDelegate {
-                                            required property var modelData
-                                            width: stateFilter.width
-                                            text: root.stateLabel(modelData)
-                                        }
-                                    }
-                                }
-
-                                ListView {
-                                    id: inventoryList
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    Layout.minimumHeight: 90
-                                    clip: true
-                                    spacing: 6
-                                    model: root.filteredInventory()
-                                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-                                    delegate: ItemDelegate {
-                                        id: machineDelegate
-                                        required property var modelData
-                                        width: inventoryList.width
-                                        highlighted: root.value(machineDelegate.modelData, "id", "") === root.app.vmSelectedId
-                                                     && root.value(machineDelegate.modelData, "providerId", "")
-                                                        === root.value(root.app.vmSelected, "providerId", "")
-                                        Accessible.name: root.tr("Select %1, %2", "選取 %1，%2")
-                                                            .arg(root.value(machineDelegate.modelData, "name", ""))
-                                                            .arg(root.stateLabel(root.powerState(machineDelegate.modelData)))
-                                        onClicked: root.chooseVm(root.value(machineDelegate.modelData, "providerId", ""),
-                                                                 root.value(machineDelegate.modelData, "id", ""))
-                                        contentItem: GridLayout {
-                                            columns: inventoryList.width >= 480 ? 3 : 2
-                                            columnSpacing: 8
-                                            Label {
-                                                text: root.stateGlyph(machineDelegate.modelData)
-                                                color: root.powerState(machineDelegate.modelData) === "running" ? root.successText
-                                                       : root.powerState(machineDelegate.modelData) === "inaccessible" ? root.errorText
-                                                       : root.warningText
-                                                font.pixelSize: 20
-                                            }
-                                            ColumnLayout {
-                                                Layout.fillWidth: true
-                                                Label {
-                                                    Layout.fillWidth: true
-                                                    text: root.value(machineDelegate.modelData, "name", root.value(machineDelegate.modelData, "id", ""))
-                                                    font.weight: Font.DemiBold
-                                                    wrapMode: Text.Wrap
-                                                }
-                                                Label {
-                                                    Layout.fillWidth: true
-                                                    text: root.providerName(root.value(machineDelegate.modelData, "providerId", ""))
-                                                          + "  ·  " + root.value(machineDelegate.modelData, "ownership", "external")
-                                                    font.pixelSize: 10
-                                                    color: root.secondaryText
-                                                    wrapMode: Text.Wrap
-                                                }
-                                            }
-                                            Label {
-                                                Layout.columnSpan: inventoryList.width >= 480 ? 1 : 2
-                                                Layout.fillWidth: inventoryList.width < 480
-                                                text: root.stateGlyph(machineDelegate.modelData) + " " + root.stateLabel(root.powerState(machineDelegate.modelData))
-                                                horizontalAlignment: inventoryList.width >= 480 ? Text.AlignRight : Text.AlignLeft
-                                                font.bold: true
-                                                font.pixelSize: 10
-                                                wrapMode: Text.Wrap
-                                            }
-                                        }
-                                    }
-
-                                    Label {
-                                        anchors.centerIn: parent
-                                        width: Math.max(80, parent.width - 24)
-                                        visible: inventoryList.count === 0
-                                        text: root.tr("No machines match these filters.", "沒有虛擬機符合篩選條件。")
-                                        horizontalAlignment: Text.AlignHCenter
-                                        wrapMode: Text.Wrap
-                                        color: root.secondaryText
-                                    }
-                                }
+                            WfButton {
+                                visible: root.compact
+                                Layout.alignment: Qt.AlignLeft
+                                dark: root.dark
+                                variant: "text"
+                                glyph: "←"
+                                text: root.tr("Back to machines", "返去虛擬機清單")
+                                Accessible.name: text
+                                onClicked: root.inventoryDetailOpen = false
                             }
-                        }
 
-                        Pane {
-                            Layout.fillWidth: root.compact
-                            Layout.preferredWidth: root.compact ? -1 : 390
-                            Layout.fillHeight: true
-                            Layout.minimumWidth: 0
-                            Layout.minimumHeight: 130
-                            padding: 0
-                            background: Rectangle { radius: 18; color: root.cardColor; border.color: root.outlineColor }
-
-                            ScrollView {
-                                id: machineDetailScroll
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                clip: true
-                                contentWidth: availableWidth
-
+                            WfCard {
+                                Layout.fillWidth: true
+                                visible: root.selectedVm() !== null
+                                dark: root.dark
+                                outlined: true
+                                surfaceLevel: "lowest"
+                                padding: DesignTokens.spacing16
                                 ColumnLayout {
-                                    width: machineDetailScroll.availableWidth
-                                    spacing: 8
-
-                                    GridLayout {
+                                    anchors.fill: parent
+                                    spacing: DesignTokens.spacing12
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        columns: width >= 360 ? 2 : 1
-                                        Label {
+                                        spacing: DesignTokens.spacing12
+                                        ColumnLayout {
                                             Layout.fillWidth: true
-                                            text: root.selectedVm() ? root.value(root.selectedVm(), "name", root.tr("Selected machine", "已選虛擬機"))
-                                                                    : root.tr("Machine details", "虛擬機詳情")
-                                            font.pixelSize: 20
-                                            font.weight: Font.Bold
-                                            wrapMode: Text.Wrap
+                                            spacing: 2
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: root.value(root.selectedVm(), "name", root.tr("Selected machine", "已選虛擬機"))
+                                                color: root.surfaceForeground
+                                                font.family: DesignTokens.fontDisplay
+                                                font.pixelSize: 18
+                                                font.weight: Font.Bold
+                                                elide: Text.ElideRight
+                                            }
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: root.providerName(root.value(root.selectedVm(), "providerId", ""))
+                                                      + " · " + root.value(root.selectedVm(), "cpuCount", 0) + " vCPU"
+                                                      + " · " + root.value(root.selectedVm(), "memoryMiB", 0) + " MiB"
+                                                      + " · " + String(root.value(root.selectedVm(), "firmware", "")).toUpperCase()
+                                                color: root.secondaryText
+                                                font.family: DesignTokens.fontBody
+                                                font.pixelSize: 11
+                                                elide: Text.ElideRight
+                                            }
                                         }
-                                        Label {
-                                            visible: root.selectedVm() !== null
-                                            text: root.stateGlyph(root.selectedVm()) + " " + root.stateLabel(root.powerState(root.selectedVm()))
-                                            horizontalAlignment: width >= 360 ? Text.AlignRight : Text.AlignLeft
-                                            font.bold: true
-                                            color: root.powerState(root.selectedVm()) === "running" ? root.successText : root.warningText
+                                        WfStatusChip {
+                                            dark: root.dark
+                                            tone: root.stateTone(root.selectedVm())
+                                            showDot: true
+                                            uppercase: false
+                                            text: root.stateLabel(root.powerState(root.selectedVm()))
                                         }
                                     }
-
                                     Label {
                                         Layout.fillWidth: true
-                                        visible: root.selectedVm() !== null
-                                        text: root.providerName(root.value(root.selectedVm(), "providerId", ""))
-                                              + "  ·  " + root.value(root.selectedVm(), "id", "")
-                                        wrapMode: Text.WrapAnywhere
-                                        font.family: "Cascadia Mono"
-                                        font.pixelSize: 10
-                                        color: root.secondaryText
-                                    }
-                                    Label {
-                                        Layout.fillWidth: true
-                                        visible: root.selectedVm() !== null
                                         text: root.value(root.selectedVm(), "configPath", root.tr("Configuration path unavailable", "設定路徑不可用"))
-                                        wrapMode: Text.WrapAnywhere
-                                        font.pixelSize: 10
                                         color: root.secondaryText
+                                        font.family: DesignTokens.fontMono
+                                        font.pixelSize: 10
+                                        wrapMode: Text.WrapAnywhere
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        visible: root.selectedVm() !== null && root.value(root.selectedVm(), "inaccessibleReason", "").length > 0
-                                        text: "⚠ " + root.value(root.selectedVm(), "inaccessibleReason", "")
-                                        wrapMode: Text.Wrap
+                                        visible: root.value(root.selectedVm(), "inaccessibleReason", "").length > 0
+                                        text: root.value(root.selectedVm(), "inaccessibleReason", "")
                                         color: root.errorText
+                                        font.family: DesignTokens.fontBody
+                                        font.pixelSize: 11
+                                        wrapMode: Text.Wrap
                                     }
-
-                                    GridLayout {
+                                    Flow {
                                         Layout.fillWidth: true
-                                        visible: root.selectedVm() !== null
-                                        columns: width >= 360 ? 3 : 2
-                                        columnSpacing: 5
-                                        rowSpacing: 5
-
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "▶ " + root.tr("Start", "啟動")
+                                        spacing: DesignTokens.spacing8
+                                        WfButton {
+                                            dark: root.dark; compact: true; variant: "filled"
+                                            text: root.tr("Start", "啟動")
                                             Accessible.name: root.tr("Start selected virtual machine", "啟動已選虛擬機")
-                                            enabled: !root.app.vmBusy && root.lifecycleAvailable()
-                                                     && root.allowsVmAction("start")
+                                            enabled: !root.app.vmBusy && root.lifecycleAvailable() && root.allowsVmAction("start")
                                             onClicked: root.submitVmAction("start", { vmId: root.selectedVmId() })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "▣ " + root.tr("Console", "主控台")
+                                        WfButton {
+                                            dark: root.dark; compact: true
+                                            text: root.tr("Open console", "開啟主控台")
                                             Accessible.name: root.tr("Open selected virtual machine console", "開啟已選虛擬機主控台")
                                             enabled: !root.app.vmBusy && root.providerSupports(root.value(root.selectedVm(), "providerId", ""), "open-console")
                                             onClicked: root.submitVmAction("openConsole", { vmId: root.selectedVmId() })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "■ " + root.tr("Shut down", "關機")
+                                        WfButton {
+                                            dark: root.dark; compact: true
+                                            text: root.tr("Shut down", "關機")
                                             Accessible.name: root.tr("Request guest shutdown", "要求客體系統關機")
-                                            enabled: !root.app.vmBusy && root.lifecycleAvailable()
-                                                     && root.allowsVmAction("shutdown")
+                                            enabled: !root.app.vmBusy && root.lifecycleAvailable() && root.allowsVmAction("shutdown")
                                             onClicked: root.submitVmAction("shutdown", { vmId: root.selectedVmId(), mode: "guest" })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "Ⅱ " + root.tr("Pause", "暫停")
+                                        WfButton {
+                                            dark: root.dark; compact: true
+                                            text: root.tr("Pause", "暫停")
                                             Accessible.name: root.tr("Pause selected virtual machine", "暫停已選虛擬機")
-                                            enabled: !root.app.vmBusy && root.lifecycleAvailable()
-                                                     && root.allowsVmAction("pause")
+                                            enabled: !root.app.vmBusy && root.lifecycleAvailable() && root.allowsVmAction("pause")
                                             ToolTip.visible: hovered && root.ambiguousVmwareActive()
                                             ToolTip.text: root.tr("VMware inventory cannot distinguish running from paused. The reviewed provider may report that this VM is already paused.",
-                                                                  "VMware 清單無法分辨運行中或已暫停；已審閱供應器可能回報 VM 已經暫停。")
+                                                                  "VMware 清單分辨唔到開緊定已暫停；已審閱供應器可能回報 VM 已經暫停。")
                                             onClicked: root.submitVmAction("pause", { vmId: root.selectedVmId() })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "▶ " + root.tr("Resume", "繼續")
+                                        WfButton {
+                                            dark: root.dark; compact: true
+                                            text: root.tr("Resume", "繼續")
                                             Accessible.name: root.tr("Resume selected virtual machine", "繼續已選虛擬機")
-                                            enabled: !root.app.vmBusy && root.lifecycleAvailable()
-                                                     && root.allowsVmAction("resume")
+                                            enabled: !root.app.vmBusy && root.lifecycleAvailable() && root.allowsVmAction("resume")
                                             ToolTip.visible: hovered && root.ambiguousVmwareActive()
                                             ToolTip.text: root.tr("VMware inventory cannot distinguish running from paused. Resume is offered so a paused active VM is not stranded.",
-                                                                  "VMware 清單無法分辨運行中或已暫停；提供繼續功能，避免已暫停 VM 無法恢復。")
+                                                                  "VMware 清單分辨唔到開緊定已暫停；提供繼續功能，避免已暫停 VM 返唔到去運作狀態。")
                                             onClicked: root.submitVmAction("resume", { vmId: root.selectedVmId() })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "▾ " + root.tr("Save state", "儲存狀態")
+                                        WfButton {
+                                            dark: root.dark; compact: true
+                                            text: root.tr("Save state", "儲存狀態")
                                             Accessible.name: root.tr("Save selected virtual machine state", "儲存已選虛擬機狀態")
-                                            enabled: !root.app.vmBusy && root.lifecycleAvailable()
-                                                     && root.allowsVmAction("saveState")
+                                            enabled: !root.app.vmBusy && root.lifecycleAvailable() && root.allowsVmAction("saveState")
                                             onClicked: root.submitVmAction("saveState", { vmId: root.selectedVmId() })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "⟳ " + root.tr("Reset", "重設")
+                                        WfButton {
+                                            dark: root.dark; compact: true
+                                            text: root.tr("Reset", "重設")
                                             Accessible.name: root.tr("Reset selected virtual machine", "重設已選虛擬機")
-                                            enabled: !root.app.vmBusy && root.lifecycleAvailable()
-                                                     && root.allowsVmAction("reset")
+                                            enabled: !root.app.vmBusy && root.lifecycleAvailable() && root.allowsVmAction("reset")
                                             onClicked: root.requestConfirmation("vm", "reset", root.tr("Reset virtual machine?", "重設虛擬機？"),
                                                                                 root.tr("The guest loses unsaved work. The reviewed provider command runs only after confirmation.", "客體系統未儲存的工作會遺失。確認後才會執行已檢查的供應器命令。"),
                                                                                 { vmId: root.selectedVmId() })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "⚠ " + root.tr("Power off", "強制關機")
+                                        WfButton {
+                                            dark: root.dark; compact: true; variant: "destructive"
+                                            text: root.tr("Power off", "強制關機")
                                             Accessible.name: root.tr("Force power off selected virtual machine", "強制關閉已選虛擬機")
-                                            enabled: !root.app.vmBusy && root.lifecycleAvailable()
-                                                     && root.allowsVmAction("powerOff")
+                                            enabled: !root.app.vmBusy && root.lifecycleAvailable() && root.allowsVmAction("powerOff")
                                             onClicked: root.requestConfirmation("vm", "powerOff", root.tr("Force power off?", "強制關機？"),
-                                                                                root.tr("This is equivalent to pulling the power cable and can corrupt the guest filesystem.", "這相當於拔除電源線，可能損壞客體檔案系統。"),
+                                                                                root.tr("This is equivalent to pulling the power cable and can corrupt the guest filesystem.", "咁樣等同直接拔電源線，有機會整壞客體檔案系統。"),
                                                                                 { vmId: root.selectedVmId() })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
+                                        WfButton {
+                                            dark: root.dark; compact: true; variant: "destructive"
                                             text: root.value(root.selectedVm(), "ownership", "") === "managed"
-                                                  ? "× " + root.tr("Delete managed VM", "刪除受管理 VM")
-                                                  : "× " + root.tr("Unregister", "取消註冊")
+                                                  ? root.tr("Delete managed VM", "刪除受管理 VM")
+                                                  : root.tr("Unregister", "取消註冊")
                                             Accessible.name: root.value(root.selectedVm(), "ownership", "") === "managed"
                                                              ? root.tr("Delete selected managed virtual machine", "刪除選取嘅受管理虛擬機")
                                                              : root.tr("Unregister selected external virtual machine", "取消註冊選取嘅外部虛擬機")
@@ -801,45 +882,173 @@ Item {
                                                                                     : root.tr("Provider registration will be removed while every provider file is preserved. The next screen shows the exact command before execution.", "供應器註冊會被移除，但所有供應器檔案都會保留。下一個畫面會喺執行前顯示完整命令。"),
                                                                                 { vmId: root.selectedVmId() })
                                         }
-                                        Button {
-                                            Layout.fillWidth: true
+                                        WfButton {
+                                            dark: root.dark; compact: true; variant: "text"
                                             visible: root.allowsVmAction("forget")
-                                            text: "⌫ " + root.tr("Forget in WimForge", "喺 WimForge 忘記")
+                                            text: root.tr("Forget in WimForge", "喺 WimForge 忘記")
                                             Accessible.name: root.tr("Forget external virtual machine in WimForge without changing provider files or registration", "喺 WimForge 忘記外部虛擬機而唔變更供應器檔案或註冊")
                                             enabled: !root.app.vmBusy && root.allowsVmAction("forget")
                                             onClicked: root.requestConfirmation("vm", "forget", root.tr("Forget this catalog entry?", "忘記呢個目錄項目？"),
-                                                                                root.tr("Only WimForge's project catalog entry is removed. Provider registration and every VM file remain untouched.", "只會移除 WimForge 專案目錄項目。供應器註冊同所有 VM 檔案都唔會改動。"),
+                                                                                root.tr("Only WimForge's project catalog entry is removed. Provider registration and every VM file remain untouched.", "只會移除 WimForge 工程目錄項目。供應器註冊同所有 VM 檔案都唔會改動。"),
                                                                                 { vmId: root.selectedVmId() })
                                         }
                                     }
+                                }
+                            }
 
-                                    Label {
+                            WfCard {
+                                Layout.fillWidth: true
+                                visible: root.selectedVm() !== null
+                                dark: root.dark
+                                outlined: true
+                                surfaceLevel: "lowest"
+                                padding: DesignTokens.spacing16
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    spacing: DesignTokens.spacing12
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        visible: root.selectedVm() !== null
-                                        text: root.tr("Provider console and operation log", "供應器主控台及操作記錄")
-                                        font.weight: Font.DemiBold
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: root.tr("Configuration", "設定")
+                                            color: root.surfaceForeground
+                                            font.family: DesignTokens.fontDisplay
+                                            font.pixelSize: 15
+                                            font.weight: Font.Bold
+                                        }
+                                        WfButton {
+                                            dark: root.dark; compact: true; variant: "text"
+                                            text: root.tr("Edit hardware", "編輯硬件")
+                                            onClicked: sectionTabs.currentIndex = 2
+                                        }
                                     }
+                                    GridLayout {
+                                        Layout.fillWidth: true
+                                        columns: width >= 560 ? 4 : 2
+                                        columnSpacing: DesignTokens.spacing12
+                                        rowSpacing: DesignTokens.spacing8
+                                        ColumnLayout { Label { text: root.tr("vCPU", "vCPU"); color: root.secondaryText; font.pixelSize: 10 } Label { text: root.value(root.selectedVm(), "cpuCount", "—"); color: root.surfaceForeground; font.family: DesignTokens.fontMono; font.pixelSize: 13 } }
+                                        ColumnLayout { Label { text: root.tr("Memory", "記憶體"); color: root.secondaryText; font.pixelSize: 10 } Label { text: root.value(root.selectedVm(), "memoryMiB", "—") + " MiB"; color: root.surfaceForeground; font.family: DesignTokens.fontMono; font.pixelSize: 13 } }
+                                        ColumnLayout { Label { text: root.tr("Firmware", "韌體"); color: root.secondaryText; font.pixelSize: 10 } Label { text: String(root.value(root.selectedVm(), "firmware", "—")).toUpperCase(); color: root.surfaceForeground; font.family: DesignTokens.fontBody; font.pixelSize: 13 } }
+                                        ColumnLayout { Label { text: root.tr("TPM", "TPM"); color: root.secondaryText; font.pixelSize: 10 } Label { text: root.value(root.selectedVm(), "tpm", false) ? root.tr("Enabled", "已啟用") : root.tr("Disabled", "已停用"); color: root.surfaceForeground; font.family: DesignTokens.fontBody; font.pixelSize: 13 } }
+                                    }
+                                }
+                            }
+
+                            WfCard {
+                                Layout.fillWidth: true
+                                visible: root.selectedVm() !== null
+                                dark: root.dark
+                                outlined: true
+                                surfaceLevel: "lowest"
+                                padding: DesignTokens.spacing16
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    spacing: DesignTokens.spacing8
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label { Layout.fillWidth: true; text: root.tr("Snapshots", "快照"); color: root.surfaceForeground; font.family: DesignTokens.fontDisplay; font.pixelSize: 15; font.weight: Font.Bold }
+                                        Label { text: root.list(root.app.vmSnapshots).length; color: root.secondaryText; font.family: DesignTokens.fontMono; font.pixelSize: 11 }
+                                        WfButton { dark: root.dark; compact: true; variant: "text"; text: root.tr("Manage", "管理"); onClicked: sectionTabs.currentIndex = 3 }
+                                    }
+                                    Repeater {
+                                        model: root.list(root.app.vmSnapshots)
+                                        delegate: RowLayout {
+                                            required property var modelData
+                                            required property int index
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: index < 3 ? DesignTokens.rowHeight : 0
+                                            visible: index < 3
+                                            spacing: DesignTokens.spacing8
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: root.value(modelData, "current", false) ? root.successText : DesignTokens.outline(root.dark) }
+                                            Label { Layout.fillWidth: true; text: root.value(modelData, "name", root.value(modelData, "id", "")); color: root.surfaceForeground; font.family: DesignTokens.fontBody; font.pixelSize: 12; elide: Text.ElideRight }
+                                            Label { text: root.value(modelData, "createdAt", root.value(modelData, "description", "")); color: root.secondaryText; font.family: DesignTokens.fontMono; font.pixelSize: 10; elide: Text.ElideRight; Layout.maximumWidth: 180 }
+                                        }
+                                    }
+                                    Label { Layout.fillWidth: true; visible: root.list(root.app.vmSnapshots).length === 0; text: root.tr("No snapshots reported.", "未回報快照。"); color: root.secondaryText; font.family: DesignTokens.fontBody; font.pixelSize: 11 }
+                                }
+                            }
+
+                            WfCard {
+                                Layout.fillWidth: true
+                                visible: root.selectedVm() !== null
+                                dark: root.dark
+                                outlined: true
+                                surfaceLevel: "lowest"
+                                padding: DesignTokens.spacing16
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    spacing: DesignTokens.spacing8
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label { Layout.fillWidth: true; text: root.tr("Validation runs", "驗證執行"); color: root.surfaceForeground; font.family: DesignTokens.fontDisplay; font.pixelSize: 15; font.weight: Font.Bold }
+                                        Label { text: root.list(root.app.vmValidationRuns).length; color: root.secondaryText; font.family: DesignTokens.fontMono; font.pixelSize: 11 }
+                                        WfButton { dark: root.dark; compact: true; variant: "text"; text: root.tr("Open evidence", "開啟證據"); onClicked: sectionTabs.currentIndex = 4 }
+                                    }
+                                    Repeater {
+                                        model: root.list(root.app.vmValidationRuns)
+                                        delegate: RowLayout {
+                                            required property var modelData
+                                            required property int index
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: index < 3 ? DesignTokens.rowHeight : 0
+                                            visible: index < 3
+                                            spacing: DesignTokens.spacing8
+                                            Rectangle {
+                                                Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4
+                                                color: root.value(modelData, "result", "") === "pass" ? root.successText
+                                                     : root.value(modelData, "result", "") === "fail" ? root.errorText
+                                                     : DesignTokens.secondary(root.dark)
+                                            }
+                                            Label { Layout.fillWidth: true; text: root.value(modelData, "name", root.tr("Validation run", "驗證執行")); color: root.surfaceForeground; font.family: DesignTokens.fontBody; font.pixelSize: 12; elide: Text.ElideRight }
+                                            Label { text: root.value(modelData, "result", root.value(modelData, "status", "running")); color: root.secondaryText; font.family: DesignTokens.fontBody; font.pixelSize: 10 }
+                                        }
+                                    }
+                                    Label { Layout.fillWidth: true; visible: root.list(root.app.vmValidationRuns).length === 0; text: root.tr("No validation evidence recorded.", "未記錄驗證證據。"); color: root.secondaryText; font.family: DesignTokens.fontBody; font.pixelSize: 11 }
+                                }
+                            }
+
+                            WfCard {
+                                Layout.fillWidth: true
+                                visible: root.selectedVm() !== null
+                                dark: root.dark
+                                outlined: true
+                                surfaceLevel: "low"
+                                padding: DesignTokens.spacing12
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    spacing: DesignTokens.spacing8
+                                    Label { Layout.fillWidth: true; text: root.tr("Provider operation log", "供應器操作記錄"); color: root.surfaceForeground; font.family: DesignTokens.fontDisplay; font.pixelSize: 13; font.weight: Font.Bold }
                                     TextArea {
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 92
+                                        Layout.preferredHeight: 86
                                         readOnly: true
                                         selectByMouse: true
                                         wrapMode: TextEdit.WrapAnywhere
-                                        font.family: "Cascadia Mono"
+                                        font.family: DesignTokens.fontMono
                                         font.pixelSize: 10
                                         Accessible.name: root.tr("Virtual machine operation log", "虛擬機操作記錄")
                                         text: root.value(root.selectedVm(), "consoleLog", root.statusMessage())
                                     }
+                                }
+                            }
 
-                                    Label {
-                                        Layout.fillWidth: true
-                                        visible: root.selectedVm() === null
-                                        text: root.tr("Choose a machine to manage power, open its provider console, inspect paths, or remove it safely.",
-                                                      "選取虛擬機以管理電源、開啟供應器主控台、檢查路徑或安全移除。")
-                                        wrapMode: Text.Wrap
-                                        horizontalAlignment: Text.AlignHCenter
-                                        color: root.secondaryText
-                                    }
+                            WfCard {
+                                Layout.fillWidth: true
+                                visible: root.selectedVm() === null
+                                dark: root.dark
+                                outlined: true
+                                surfaceLevel: "low"
+                                padding: DesignTokens.spacing24
+                                Label {
+                                    anchors.fill: parent
+                                    text: root.tr("Choose a machine to manage power, inspect configuration, review snapshots, or record validation evidence.",
+                                                  "選取虛擬機以管理電源、檢查設定、審閱快照或記錄驗證證據。")
+                                    color: root.secondaryText
+                                    font.family: DesignTokens.fontBody
+                                    font.pixelSize: 13
+                                    wrapMode: Text.Wrap
+                                    horizontalAlignment: Text.AlignHCenter
                                 }
                             }
                         }
@@ -854,12 +1063,15 @@ Item {
 
                 ColumnLayout {
                     width: createScroll.availableWidth
-                    spacing: 10
+                    spacing: DesignTokens.spacing12
 
-                    Pane {
+                    WfCard {
                         Layout.fillWidth: true
-                        padding: 14
-                        background: Rectangle { radius: 18; color: Material.theme === Material.Dark ? "#4A4458" : "#E8DEF8" }
+                        dark: root.dark
+                        outlined: true
+                        fillColor: DesignTokens.primaryContainer(root.dark)
+                        outlineColor: DesignTokens.primary(root.dark)
+                        padding: DesignTokens.spacing16
                         GridLayout {
                             width: parent.width
                             columns: width >= 650 ? 3 : 1
@@ -867,7 +1079,7 @@ Item {
                             rowSpacing: 6
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                Label { Layout.fillWidth: true; text: root.tr("Current WimForge output", "目前 WimForge 輸出"); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
+                                Label { Layout.fillWidth: true; text: root.tr("Current WimForge output", "而家嘅 WimForge 輸出"); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
                                 Label {
                                     Layout.fillWidth: true
                                     text: root.app.currentOutput || root.tr("Build an ISO first, or enter another ISO below.", "請先建立 ISO，或在下方輸入其他 ISO。")
@@ -875,16 +1087,20 @@ Item {
                                     font.pixelSize: 10
                                 }
                             }
-                            Button {
+                            WfButton {
                                 Layout.fillWidth: createScroll.availableWidth < 650
-                                text: "↧  " + root.tr("Use current output", "使用目前輸出")
-                                Accessible.name: root.tr("Use the current WimForge output ISO", "使用目前 WimForge 輸出 ISO")
+                                dark: root.dark
+                                variant: "outlined"
+                                text: root.tr("Use current output", "用而家嘅輸出")
+                                Accessible.name: root.tr("Use the current WimForge output ISO", "用而家嘅 WimForge 輸出 ISO")
                                 enabled: String(root.app.currentOutput || "").length > 0
                                 onClicked: sourceIso.text = root.app.currentOutput
                             }
-                            Button {
+                            WfButton {
                                 Layout.fillWidth: createScroll.availableWidth < 650
-                                text: "↻  " + root.tr("Refresh detection", "重新偵測")
+                                dark: root.dark
+                                variant: "tonal"
+                                text: root.tr("Refresh detection", "重新偵測")
                                 Accessible.name: root.tr("Refresh VM providers before creating", "建立前重新偵測虛擬機供應器")
                                 enabled: !root.app.vmBusy
                                 onClicked: root.refreshLab()
@@ -892,9 +1108,9 @@ Item {
                         }
                     }
 
-                    GroupBox {
+                    VmSectionCard {
                         Layout.fillWidth: true
-                        title: root.tr("Machine and installation media", "虛擬機及安裝媒體")
+                        titleText: root.tr("Machine and installation media", "虛擬機及安裝媒體")
                         GridLayout {
                             width: parent.width
                             columns: width >= 720 ? 2 : 1
@@ -970,9 +1186,9 @@ Item {
                         }
                     }
 
-                    GroupBox {
+                    VmSectionCard {
                         Layout.fillWidth: true
-                        title: root.tr("Load an existing provider machine", "載入現有供應器虛擬機")
+                        titleText: root.tr("Load an existing provider machine", "載入現有供應器虛擬機")
                         GridLayout {
                             width: parent.width
                             columns: width >= 760 ? 4 : width >= 500 ? 2 : 1
@@ -1004,9 +1220,11 @@ Item {
                                 Accessible.name: root.tr("Imported VM display name", "匯入 VM 顯示名稱")
                                 selectByMouse: true
                             }
-                            Button {
+                            WfButton {
                                 Layout.fillWidth: true
-                                text: "↧ " + root.tr("Load machine", "載入虛擬機")
+                                dark: root.dark
+                                variant: "outlined"
+                                text: root.tr("Load machine", "載入虛擬機")
                                 Accessible.name: root.tr("Load existing VMware or VirtualBox machine", "載入現有 VMware 或 VirtualBox 虛擬機")
                                 enabled: !root.app.vmBusy && importProvider.count > 0
                                          && importConfigurationPath.text.trim().length > 0
@@ -1019,9 +1237,9 @@ Item {
                         }
                     }
 
-                    GroupBox {
+                    VmSectionCard {
                         Layout.fillWidth: true
-                        title: root.tr("Security and hardware", "安全性及硬件")
+                        titleText: root.tr("Security and hardware", "安全性及硬件")
                         GridLayout {
                             width: parent.width
                             columns: width >= 760 ? 3 : width >= 470 ? 2 : 1
@@ -1093,9 +1311,9 @@ Item {
                         }
                     }
 
-                    GroupBox {
+                    VmSectionCard {
                         Layout.fillWidth: true
-                        title: root.tr("Network and launch", "網絡及啟動")
+                        titleText: root.tr("Network and launch", "網絡及啟動")
                         GridLayout {
                             width: parent.width
                             columns: width >= 720 ? 3 : 1
@@ -1130,24 +1348,25 @@ Item {
                     Label {
                         Layout.fillWidth: true
                         visible: createProvider.count === 0
-                        text: "⚠ " + root.tr("No creation-capable provider is available. Install or repair VMware/VirtualBox, then refresh detection.",
-                                             "沒有可建立虛擬機的供應器。請安裝或修復 VMware／VirtualBox，然後重新偵測。")
+                        text: root.tr("No creation-capable provider is available. Install or repair VMware/VirtualBox, then refresh detection.",
+                                             "冇可用嚟建立虛擬機嘅供應器。請安裝或修復 VMware／VirtualBox，之後再偵測。")
                         wrapMode: Text.Wrap
                         color: root.warningText
                     }
                     Label {
                         Layout.fillWidth: true
                         visible: !secureBoot.enabled && secureBoot.checked
-                        text: "⚠ " + root.tr("The detected provider/version has not proven Secure Boot support; it will be omitted unless the provider capability is available.",
+                        text: root.tr("The detected provider/version has not proven Secure Boot support; it will be omitted unless the provider capability is available.",
                                              "偵測到的供應器／版本未證實支援安全開機；除非能力可用，否則會省略。")
                         wrapMode: Text.Wrap
                         color: root.warningText
                     }
-                    Button {
+                    WfButton {
                         Layout.fillWidth: createScroll.availableWidth < 560
                         Layout.alignment: Qt.AlignRight
-                        highlighted: true
-                        text: "▶  " + root.tr("Create VM and load ISO", "建立虛擬機並載入 ISO")
+                        dark: root.dark
+                        variant: "filled"
+                        text: root.tr("Create VM and load ISO", "建立虛擬機並載入 ISO")
                         Accessible.name: root.tr("Create virtual machine and load installation ISO", "建立虛擬機並載入安裝 ISO")
                         enabled: !root.app.vmBusy && createProvider.count > 0
                                  && createName.text.trim().length > 0
@@ -1166,25 +1385,25 @@ Item {
 
                 ColumnLayout {
                     width: hardwareScroll.availableWidth
-                    spacing: 10
+                    spacing: DesignTokens.spacing12
 
-                    Pane {
+                    WfCard {
                         Layout.fillWidth: true
-                        padding: 12
-                        background: Rectangle {
-                            radius: 18
-                            color: root.selectedVm() && root.isPoweredOff(root.selectedVm())
-                                   ? (Material.theme === Material.Dark ? "#183824" : "#EAF5E8")
-                                   : (Material.theme === Material.Dark ? "#4A2800" : "#FFF3E0")
-                            border.color: root.selectedVm() && root.isPoweredOff(root.selectedVm()) ? root.successText : root.warningText
-                        }
+                        dark: root.dark
+                        outlined: true
+                        fillColor: root.selectedVm() && root.isPoweredOff(root.selectedVm())
+                                   ? DesignTokens.successContainer(root.dark)
+                                   : DesignTokens.tertiaryContainer(root.dark)
+                        outlineColor: root.selectedVm() && root.isPoweredOff(root.selectedVm())
+                                      ? root.successText : root.warningText
+                        padding: DesignTokens.spacing12
                         GridLayout {
                             width: parent.width
                             columns: width >= 680 ? 2 : 1
                             Label {
                                 Layout.fillWidth: true
                                 text: root.selectedVm()
-                                      ? root.value(root.selectedVm(), "name", "") + "  ·  " + root.stateGlyph(root.selectedVm()) + " " + root.stateLabel(root.powerState(root.selectedVm()))
+                                      ? root.value(root.selectedVm(), "name", "") + " · " + root.stateLabel(root.powerState(root.selectedVm()))
                                       : root.tr("Select a machine from Inventory first.", "請先從清單選取虛擬機。")
                                 font.weight: Font.DemiBold
                                 wrapMode: Text.Wrap
@@ -1199,10 +1418,10 @@ Item {
                         }
                     }
 
-                    GroupBox {
+                    VmSectionCard {
                         Layout.fillWidth: true
                         enabled: root.selectedVm() !== null
-                        title: root.tr("Powered-off machine settings", "關機狀態設定")
+                        titleText: root.tr("Powered-off machine settings", "關機狀態設定")
                         GridLayout {
                             width: parent.width
                             columns: width >= 760 ? 3 : width >= 480 ? 2 : 1
@@ -1302,9 +1521,10 @@ Item {
                                     Accessible.name: text
                                 }
                             }
-                            Button {
+                            WfButton {
                                 Layout.fillWidth: true
-                                highlighted: true
+                                dark: root.dark
+                                variant: "filled"
                                 text: root.tr("Apply settings", "套用設定")
                                 Accessible.name: root.tr("Apply powered-off virtual machine settings", "套用關機狀態虛擬機設定")
                                 enabled: !root.app.vmBusy && root.selectedVm() !== null
@@ -1335,25 +1555,27 @@ Item {
                         columnSpacing: 10
                         rowSpacing: 10
 
-                        GroupBox {
+                        VmSectionCard {
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
                             enabled: root.selectedVm() !== null
-                            title: root.tr("Storage topology", "儲存拓撲")
+                            titleText: root.tr("Storage topology", "儲存拓撲")
                             ColumnLayout {
                                 width: parent.width
                                 Repeater {
                                     model: root.list(root.value(root.selectedVm(), "storageDevices", root.value(root.selectedVm(), "storagePaths", [])))
-                                    delegate: Pane {
+                                    delegate: WfCard {
                                         id: storageCard
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        padding: 9
-                                        background: Rectangle { radius: 13; color: root.raisedColor; border.color: root.outlineColor }
+                                        dark: root.dark
+                                        outlined: true
+                                        surfaceLevel: "low"
+                                        padding: DesignTokens.spacing8
                                         GridLayout {
                                             width: parent.width
                                             columns: width >= 420 ? 3 : 1
-                                            Label { text: "▰"; color: Material.accent; font.pixelSize: 18 }
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: DesignTokens.secondary(root.dark) }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 Label {
@@ -1375,8 +1597,11 @@ Item {
                                                     color: root.secondaryText
                                                 }
                                             }
-                                            ToolButton {
-                                                text: "×"
+                                            WfButton {
+                                                dark: root.dark
+                                                compact: true
+                                                variant: "text"
+                                                text: root.tr("Detach", "卸載")
                                                 visible: typeof storageCard.modelData !== "string"
                                                 enabled: root.isPoweredOff(root.selectedVm()) && !root.app.vmBusy
                                                          && root.value(storageCard.modelData, "bus", "").length > 0
@@ -1444,9 +1669,12 @@ Item {
                                         Accessible.name: root.tr("Existing virtual disk path", "現有虛擬磁碟路徑")
                                         selectByMouse: true
                                     }
-                                    Button {
+                                    WfButton {
                                         Layout.fillWidth: true
-                                        text: "+ " + root.tr("Attach disk", "掛載磁碟")
+                                        dark: root.dark
+                                        compact: true
+                                        variant: "outlined"
+                                        text: root.tr("Attach disk", "掛載磁碟")
                                         Accessible.name: root.tr("Attach existing virtual disk", "掛載現有虛擬磁碟")
                                         enabled: root.isPoweredOff(root.selectedVm()) && !root.app.vmBusy
                                                  && newDiskPath.text.trim().length > 0
@@ -1465,32 +1693,37 @@ Item {
                             }
                         }
 
-                        GroupBox {
+                        VmSectionCard {
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
                             enabled: root.selectedVm() !== null
-                            title: root.tr("Optical drives and ISO media", "光碟機及 ISO 媒體")
+                            titleText: root.tr("Optical drives and ISO media", "光碟機及 ISO 媒體")
                             ColumnLayout {
                                 width: parent.width
                                 Repeater {
                                     model: root.list(root.value(root.selectedVm(), "opticalDevices", []))
-                                    delegate: Pane {
+                                    delegate: WfCard {
                                         id: opticalCard
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        padding: 9
-                                        background: Rectangle { radius: 13; color: root.raisedColor; border.color: root.outlineColor }
+                                        dark: root.dark
+                                        outlined: true
+                                        surfaceLevel: "low"
+                                        padding: DesignTokens.spacing8
                                         GridLayout {
                                             width: parent.width
                                             columns: width >= 420 ? 3 : 1
-                                            Label { text: "◉"; color: Material.accent; font.pixelSize: 18 }
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: DesignTokens.secondary(root.dark) }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 Label { Layout.fillWidth: true; text: root.value(opticalCard.modelData, "name", root.tr("Optical drive", "光碟機")); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
                                                 Label { Layout.fillWidth: true; text: root.value(opticalCard.modelData, "isoPath", root.tr("Empty", "空白")); font.pixelSize: 10; color: root.secondaryText; wrapMode: Text.WrapAnywhere }
                                             }
-                                            ToolButton {
-                                                text: "⏏"
+                                            WfButton {
+                                                dark: root.dark
+                                                compact: true
+                                                variant: "text"
+                                                text: root.tr("Eject", "退出")
                                                 enabled: root.value(opticalCard.modelData, "isoPath", "").length > 0
                                                          && root.value(opticalCard.modelData, "bus", "").length > 0
                                                          && root.value(opticalCard.modelData, "port", -1) >= 0
@@ -1555,7 +1788,10 @@ Item {
                                         from: 0; to: opticalBus.currentText === "ide" ? 1 : 0; value: 0
                                         Accessible.name: root.tr("Optical device index", "光碟機 device index")
                                     }
-                                    Button {
+                                    WfButton {
+                                        dark: root.dark
+                                        compact: true
+                                        variant: "outlined"
                                         text: root.tr("Attach ISO", "掛載 ISO")
                                         Accessible.name: root.tr("Attach ISO to selected virtual machine", "掛載 ISO 到已選虛擬機")
                                         enabled: root.isPoweredOff(root.selectedVm())
@@ -1575,25 +1811,27 @@ Item {
                             }
                         }
 
-                        GroupBox {
+                        VmSectionCard {
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
                             enabled: root.selectedVm() !== null
-                            title: root.tr("Network topology", "網絡拓撲")
+                            titleText: root.tr("Network topology", "網絡拓撲")
                             ColumnLayout {
                                 width: parent.width
                                 Repeater {
                                     model: root.list(root.value(root.selectedVm(), "networkDevices", []))
-                                    delegate: Pane {
+                                    delegate: WfCard {
                                         id: networkCard
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        padding: 9
-                                        background: Rectangle { radius: 13; color: root.raisedColor; border.color: root.outlineColor }
+                                        dark: root.dark
+                                        outlined: true
+                                        surfaceLevel: "low"
+                                        padding: DesignTokens.spacing8
                                         GridLayout {
                                             width: parent.width
                                             columns: width >= 420 ? 3 : 1
-                                            Label { text: "⌁"; color: Material.accent; font.pixelSize: 18 }
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: DesignTokens.secondary(root.dark) }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 Label { Layout.fillWidth: true; text: root.value(networkCard.modelData, "name", root.tr("Network adapter", "網絡介面卡")); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
@@ -1607,8 +1845,11 @@ Item {
                                                     wrapMode: Text.WrapAnywhere
                                                 }
                                             }
-                                            ToolButton {
-                                                text: "×"
+                                            WfButton {
+                                                dark: root.dark
+                                                compact: true
+                                                variant: "text"
+                                                text: root.tr("Remove", "移除")
                                                 enabled: root.isPoweredOff(root.selectedVm()) && !root.app.vmBusy
                                                          && root.value(networkCard.modelData, "slot", 0) > 0
                                                          && root.providerSupports(root.value(root.selectedVm(), "providerId", ""), "configure")
@@ -1650,8 +1891,11 @@ Item {
                                         Accessible.name: root.tr("Network interface or network name", "網絡介面或網絡名稱")
                                         selectByMouse: true
                                     }
-                                    Button {
+                                    WfButton {
                                         Layout.fillWidth: true
+                                        dark: root.dark
+                                        compact: true
+                                        variant: "outlined"
                                         text: root.tr("Apply slot", "套用插槽")
                                         Accessible.name: root.tr("Configure the explicit network adapter slot", "設定明確網絡介面卡插槽")
                                         enabled: root.isPoweredOff(root.selectedVm()) && !root.app.vmBusy
@@ -1676,16 +1920,18 @@ Item {
                 GridLayout {
                     anchors.fill: parent
                     columns: root.compact ? 1 : 2
-                    columnSpacing: 8
-                    rowSpacing: 8
+                    columnSpacing: DesignTokens.spacing16
+                    rowSpacing: DesignTokens.spacing16
 
-                    Pane {
+                    WfCard {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumWidth: 0
                         Layout.minimumHeight: 125
-                        padding: 10
-                        background: Rectangle { radius: 18; color: root.cardColor; border.color: root.outlineColor }
+                        dark: root.dark
+                        outlined: true
+                        surfaceLevel: "lowest"
+                        padding: DesignTokens.spacing12
                         ColumnLayout {
                             anchors.fill: parent
                             Label {
@@ -1710,11 +1956,12 @@ Item {
                                     placeholderText: root.tr("Optional description", "選填說明")
                                     Accessible.name: root.tr("New snapshot description", "新快照說明")
                                 }
-                                Button {
+                                WfButton {
                                     Layout.fillWidth: snapshotList.width < 520
-                                    text: "+ " + root.tr("Take snapshot", "建立快照")
+                                    dark: root.dark
+                                    variant: "filled"
+                                    text: root.tr("Take snapshot", "建立快照")
                                     Accessible.name: root.tr("Take virtual machine snapshot", "建立虛擬機快照")
-                                    highlighted: true
                                     enabled: root.selectedVm() !== null && snapshotName.text.trim().length > 0 && !root.app.vmBusy
                                              && root.providerSupports(root.value(root.selectedVm(), "providerId", ""), "snapshots")
                                     onClicked: root.submitSnapshotAction("take", {
@@ -1741,7 +1988,7 @@ Item {
                                     Accessible.name: root.tr("Select snapshot %1", "選取快照 %1").arg(root.value(snapshotDelegate.modelData, "name", ""))
                                     onClicked: root.selectedSnapshotId = root.value(snapshotDelegate.modelData, "id", "")
                                     contentItem: RowLayout {
-                                        Label { text: root.value(snapshotDelegate.modelData, "current", false) ? "◆" : "◇"; color: Material.accent; font.pixelSize: 18 }
+                                        Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: root.value(snapshotDelegate.modelData, "current", false) ? root.successText : DesignTokens.outline(root.dark) }
                                         ColumnLayout {
                                             Layout.fillWidth: true
                                             Label { Layout.fillWidth: true; text: root.value(snapshotDelegate.modelData, "name", ""); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
@@ -1762,14 +2009,16 @@ Item {
                         }
                     }
 
-                    Pane {
+                    WfCard {
                         Layout.fillWidth: root.compact
                         Layout.preferredWidth: root.compact ? -1 : 370
                         Layout.fillHeight: true
                         Layout.minimumWidth: 0
                         Layout.minimumHeight: 125
+                        dark: root.dark
+                        outlined: true
+                        surfaceLevel: "lowest"
                         padding: 0
-                        background: Rectangle { radius: 18; color: root.cardColor; border.color: root.outlineColor }
                         ScrollView {
                             id: snapshotDetailScroll
                             anchors.fill: parent
@@ -1784,29 +2033,33 @@ Item {
                                     font.weight: Font.DemiBold
                                     wrapMode: Text.Wrap
                                 }
-                                Label { Layout.fillWidth: true; visible: root.selectedSnapshot() !== null; text: root.value(root.selectedSnapshot(), "description", root.tr("No description", "沒有說明")); wrapMode: Text.Wrap; color: root.secondaryText }
-                                Label { Layout.fillWidth: true; visible: root.selectedSnapshot() !== null; text: root.value(root.selectedSnapshot(), "createdAt", "") + "\n" + root.value(root.selectedSnapshot(), "id", ""); wrapMode: Text.WrapAnywhere; font.family: "Cascadia Mono"; font.pixelSize: 10 }
-                                Label { Layout.fillWidth: true; visible: root.selectedSnapshot() !== null && root.value(root.selectedSnapshot(), "current", false); text: "● " + root.tr("Current snapshot", "目前快照"); color: root.successText; font.bold: true }
-                                Button {
+                                Label { Layout.fillWidth: true; visible: root.selectedSnapshot() !== null; text: root.value(root.selectedSnapshot(), "description", root.tr("No description", "冇說明")); wrapMode: Text.Wrap; color: root.secondaryText }
+                                Label { Layout.fillWidth: true; visible: root.selectedSnapshot() !== null; text: root.value(root.selectedSnapshot(), "createdAt", "") + "\n" + root.value(root.selectedSnapshot(), "id", ""); wrapMode: Text.WrapAnywhere; font.family: DesignTokens.fontMono; font.pixelSize: 10 }
+                                WfStatusChip { visible: root.selectedSnapshot() !== null && root.value(root.selectedSnapshot(), "current", false); dark: root.dark; tone: "success"; showDot: true; uppercase: false; text: root.tr("Current snapshot", "而家嘅快照") }
+                                WfButton {
                                     Layout.fillWidth: true
                                     visible: root.selectedSnapshot() !== null
-                                    text: "↶ " + root.tr("Restore snapshot", "還原快照")
+                                    dark: root.dark
+                                    variant: "outlined"
+                                    text: root.tr("Restore snapshot", "還原快照")
                                     Accessible.name: root.tr("Restore selected snapshot", "還原已選快照")
                                     enabled: !root.app.vmBusy
                                              && root.providerSupports(root.value(root.selectedVm(), "providerId", ""), "snapshots")
                                     onClicked: root.requestConfirmation("snapshot", "restore", root.tr("Restore snapshot?", "還原快照？"),
-                                                                                root.tr("The machine state and virtual disks return to this checkpoint. Newer guest changes may be lost.", "虛擬機狀態及虛擬磁碟會返回此檢查點，較新的客體變更可能遺失。"),
+                                                                                root.tr("The machine state and virtual disks return to this checkpoint. Newer guest changes may be lost.", "虛擬機狀態同虛擬磁碟會返去呢個檢查點；之後嘅客體變更可能會冇咗。"),
                                                                                 { vmId: root.selectedVmId(), snapshotId: root.selectedSnapshotId, expectedConfirmation: "DELETE " + root.value(root.selectedVm(), "name", "") })
                                 }
-                                Button {
+                                WfButton {
                                     Layout.fillWidth: true
                                     visible: root.selectedSnapshot() !== null
-                                    text: "× " + root.tr("Delete snapshot", "刪除快照")
+                                    dark: root.dark
+                                    variant: "destructive"
+                                    text: root.tr("Delete snapshot", "刪除快照")
                                     Accessible.name: root.tr("Delete selected snapshot", "刪除已選快照")
                                     enabled: !root.app.vmBusy && !root.value(root.selectedSnapshot(), "current", false)
                                              && root.providerSupports(root.value(root.selectedVm(), "providerId", ""), "snapshots")
                                     onClicked: root.requestConfirmation("snapshot", "delete", root.tr("Delete snapshot?", "刪除快照？"),
-                                                                                root.tr("The provider may merge snapshot storage. This can take time and cannot be undone.", "供應器可能合併快照儲存空間。此操作可能需時且無法復原。"),
+                                                                                root.tr("The provider may merge snapshot storage. This can take time and cannot be undone.", "供應器可能合併快照儲存空間。呢個操作可能需時，而且復原唔到。"),
                                                                                 { vmId: root.selectedVmId(), snapshotId: root.selectedSnapshotId, expectedConfirmation: "DELETE " + root.value(root.selectedVm(), "name", "") })
                                 }
                             }
@@ -1819,16 +2072,18 @@ Item {
                 GridLayout {
                     anchors.fill: parent
                     columns: root.compact ? 1 : 2
-                    columnSpacing: 8
-                    rowSpacing: 8
+                    columnSpacing: DesignTokens.spacing16
+                    rowSpacing: DesignTokens.spacing16
 
-                    Pane {
+                    WfCard {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumWidth: 0
                         Layout.minimumHeight: 135
-                        padding: 10
-                        background: Rectangle { radius: 18; color: root.cardColor; border.color: root.outlineColor }
+                        dark: root.dark
+                        outlined: true
+                        surfaceLevel: "lowest"
+                        padding: DesignTokens.spacing12
                         ColumnLayout {
                             anchors.fill: parent
                             Label { Layout.fillWidth: true; text: root.tr("Validation runs", "驗證執行"); font.pixelSize: 19; font.weight: Font.Bold; wrapMode: Text.Wrap }
@@ -1849,10 +2104,11 @@ Item {
                                     currentIndex: 4
                                     Accessible.name: root.tr("Validation profile", "驗證設定檔")
                                 }
-                                Button {
+                                WfButton {
                                     Layout.fillWidth: validationRunList.width < 520
-                                    text: "▶ " + root.tr("Start run", "開始執行")
-                                    highlighted: true
+                                    dark: root.dark
+                                    variant: "filled"
+                                    text: root.tr("Start run", "開始執行")
                                     Accessible.name: root.tr("Start validation run", "開始驗證執行")
                                     enabled: root.selectedVm() !== null && !root.app.vmBusy
                                              && String(root.app.currentOutput || "").length > 0
@@ -1892,12 +2148,10 @@ Item {
                                     onClicked: root.selectedValidationRunId = root.value(validationRunDelegate.modelData, "id", "")
                                     contentItem: GridLayout {
                                         columns: validationRunList.width >= 460 ? 3 : 2
-                                        Label {
-                                            text: root.value(validationRunDelegate.modelData, "result", root.value(validationRunDelegate.modelData, "status", "running")) === "pass" ? "✓"
-                                                  : root.value(validationRunDelegate.modelData, "result", "") === "fail" ? "×" : "●"
+                                        Rectangle {
+                                            Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4
                                             color: root.value(validationRunDelegate.modelData, "result", "") === "pass" ? root.successText
-                                                   : root.value(validationRunDelegate.modelData, "result", "") === "fail" ? root.errorText : Material.accent
-                                            font.pixelSize: 18
+                                                 : root.value(validationRunDelegate.modelData, "result", "") === "fail" ? root.errorText : DesignTokens.secondary(root.dark)
                                         }
                                         ColumnLayout {
                                             Layout.fillWidth: true
@@ -1918,14 +2172,16 @@ Item {
                         }
                     }
 
-                    Pane {
+                    WfCard {
                         Layout.fillWidth: root.compact
                         Layout.preferredWidth: root.compact ? -1 : 430
                         Layout.fillHeight: true
                         Layout.minimumWidth: 0
                         Layout.minimumHeight: 135
+                        dark: root.dark
+                        outlined: true
+                        surfaceLevel: "lowest"
                         padding: 0
-                        background: Rectangle { radius: 18; color: root.cardColor; border.color: root.outlineColor }
                         ScrollView {
                             id: validationDetailScroll
                             anchors.fill: parent
@@ -1963,12 +2219,14 @@ Item {
 
                                 Repeater {
                                     model: root.list(root.value(root.selectedValidationRun(), "milestones", []))
-                                    delegate: Pane {
+                                    delegate: WfCard {
                                         id: milestoneCard
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        padding: 8
-                                        background: Rectangle { radius: 12; color: root.raisedColor; border.color: root.outlineColor }
+                                        dark: root.dark
+                                        outlined: true
+                                        surfaceLevel: "low"
+                                        padding: DesignTokens.spacing8
                                         ColumnLayout {
                                             width: parent.width
                                             GridLayout {
@@ -1976,16 +2234,14 @@ Item {
                                                 columns: 2
                                                 Label { Layout.fillWidth: true; text: root.value(milestoneCard.modelData, "name", root.value(milestoneCard.modelData, "kind", "")); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
                                                 Label {
-                                                    text: root.value(milestoneCard.modelData, "result", "pending") === "pass" ? "✓ PASS"
-                                                          : root.value(milestoneCard.modelData, "result", "pending") === "fail" ? "× FAIL"
-                                                          : "○ " + String(root.value(milestoneCard.modelData, "result", "pending")).toUpperCase()
+                                                    text: String(root.value(milestoneCard.modelData, "result", "pending")).toUpperCase()
                                                     color: root.value(milestoneCard.modelData, "result", "") === "pass" ? root.successText
                                                            : root.value(milestoneCard.modelData, "result", "") === "fail" ? root.errorText : root.warningText
                                                     font.bold: true
                                                     font.pixelSize: 10
                                                 }
                                             }
-                                            Label { Layout.fillWidth: true; text: root.value(milestoneCard.modelData, "evidence", ""); wrapMode: Text.WrapAnywhere; font.family: "Cascadia Mono"; font.pixelSize: 10 }
+                                            Label { Layout.fillWidth: true; text: root.value(milestoneCard.modelData, "evidence", ""); wrapMode: Text.WrapAnywhere; font.family: DesignTokens.fontMono; font.pixelSize: 10 }
                                             Label { Layout.fillWidth: true; text: root.value(milestoneCard.modelData, "notes", ""); wrapMode: Text.Wrap; color: root.secondaryText; font.pixelSize: 10 }
                                         }
                                     }
@@ -2036,10 +2292,12 @@ Item {
                                     Accessible.name: root.tr("Milestone notes", "里程碑備註")
                                     wrapMode: TextEdit.Wrap
                                 }
-                                Button {
+                                WfButton {
                                     Layout.fillWidth: true
                                     visible: root.selectedValidationRun() !== null
-                                    text: "+ " + root.tr("Record milestone", "記錄里程碑")
+                                    dark: root.dark
+                                    variant: "outlined"
+                                    text: root.tr("Record milestone", "記錄里程碑")
                                     Accessible.name: root.tr("Record validation milestone", "記錄驗證里程碑")
                                     enabled: !root.app.vmBusy && root.selectedValidationRunning()
                                     onClicked: root.submitMilestone(root.selectedValidationRunId, {
@@ -2058,9 +2316,9 @@ Item {
                                     readOnly: true
                                     selectByMouse: true
                                     wrapMode: TextEdit.WrapAnywhere
-                                    font.family: "Cascadia Mono"
+                                    font.family: DesignTokens.fontMono
                                     font.pixelSize: 10
-                                    text: root.value(root.selectedValidationRun(), "log", root.tr("No log entries.", "沒有記錄。"))
+                                    text: root.value(root.selectedValidationRun(), "log", root.tr("No log entries.", "冇記錄。"))
                                     Accessible.name: root.tr("Validation run log", "驗證執行記錄")
                                 }
                                 Label {
@@ -2078,24 +2336,30 @@ Item {
                                     Layout.fillWidth: true
                                     visible: root.selectedValidationRun() !== null
                                     columns: width >= 390 ? 3 : 1
-                                    Button {
+                                    WfButton {
                                         Layout.fillWidth: true
-                                        text: "✓ " + root.tr("Finish pass", "完成：通過")
+                                        dark: root.dark
+                                        variant: "filled"
+                                        text: root.tr("Finish pass", "完成：通過")
                                         Accessible.name: root.tr("Finish validation as passed", "完成驗證並標記為通過")
                                         enabled: !root.app.vmBusy && root.selectedValidationRunning()
                                                  && Boolean(root.value(root.selectedValidationRun(), "canPass", false))
                                         onClicked: root.submitValidationResult(root.selectedValidationRunId, { result: "pass", notes: milestoneNotes.text.trim() })
                                     }
-                                    Button {
+                                    WfButton {
                                         Layout.fillWidth: true
-                                        text: "× " + root.tr("Finish fail", "完成：失敗")
+                                        dark: root.dark
+                                        variant: "destructive"
+                                        text: root.tr("Finish fail", "完成：失敗")
                                         Accessible.name: root.tr("Finish validation as failed", "完成驗證並標記為失敗")
                                         enabled: !root.app.vmBusy && root.selectedValidationRunning()
                                                  && milestoneNotes.text.trim().length > 0
                                         onClicked: root.submitValidationResult(root.selectedValidationRunId, { result: "fail", notes: milestoneNotes.text.trim() })
                                     }
-                                    Button {
+                                    WfButton {
                                         Layout.fillWidth: true
+                                        dark: root.dark
+                                        variant: "outlined"
                                         text: root.tr("Abort", "中止")
                                         Accessible.name: root.tr("Abort validation run", "中止驗證執行")
                                         enabled: !root.app.vmBusy && root.selectedValidationRunning()
@@ -2119,14 +2383,12 @@ Item {
             }
         }
 
-        Pane {
+        WfCard {
             Layout.fillWidth: true
-            padding: 8
-            background: Rectangle {
-                radius: 14
-                color: root.cardColor
-                border.color: root.outlineColor
-            }
+            dark: root.dark
+            outlined: true
+            surfaceLevel: "low"
+            padding: DesignTokens.spacing8
             GridLayout {
                 width: parent.width
                 columns: width >= 620 ? 3 : 1
@@ -2146,11 +2408,14 @@ Item {
                     font.pixelSize: 10
                     color: root.value(root.app.vmStatus, "tone", "") === "error" ? root.errorText : root.secondaryText
                 }
-                Button {
+                WfButton {
                     Layout.fillWidth: width < 620
                     visible: root.app.vmBusy
+                    dark: root.dark
+                    compact: true
+                    variant: "outlined"
                     text: root.tr("Cancel operation", "取消操作")
-                    Accessible.name: root.tr("Cancel current virtual machine operation", "取消目前虛擬機操作")
+                    Accessible.name: root.tr("Cancel current virtual machine operation", "取消而家個虛擬機操作")
                     onClicked: root.cancelCurrentAction()
                 }
             }
@@ -2191,7 +2456,7 @@ Item {
             }
             Label {
                 Layout.fillWidth: true
-                text: "⚠ " + root.tr("Continue to an exact, immutable operation preview. Nothing executes from this screen.", "繼續前往完全相同且不可變更嘅操作預覽。呢個畫面唔會執行任何操作。")
+                text: root.tr("Continue to an exact, immutable operation preview. Nothing executes from this screen.", "繼續前往完全相同且不可變更嘅操作預覽。呢個畫面唔會執行任何操作。")
                 wrapMode: Text.Wrap
                 color: root.warningText
                 font.pixelSize: 10
@@ -2303,7 +2568,7 @@ Item {
                         delegate: Label {
                             required property var modelData
                             Layout.fillWidth: true
-                            text: "⚠ " + String(modelData)
+                            text: String(modelData)
                             color: root.warningText
                             wrapMode: Text.Wrap
                         }
@@ -2323,19 +2588,17 @@ Item {
                     }
                     Repeater {
                         model: root.list(root.value(root.pendingPreview, "commands", []))
-                        delegate: Pane {
+                        delegate: WfCard {
                             id: commandPane
                             required property var modelData
                             Layout.fillWidth: true
-                            padding: 8
-                            background: Rectangle {
-                                radius: 8
-                                color: root.raisedColor
-                                border.color: root.outlineColor
-                            }
+                            dark: root.dark
+                            outlined: true
+                            surfaceLevel: "low"
+                            padding: DesignTokens.spacing8
                             contentItem: Label {
                                 text: root.commandText(commandPane.modelData)
-                                font.family: "Cascadia Mono"
+                                font.family: DesignTokens.fontMono
                                 font.pixelSize: 10
                                 wrapMode: Text.WrapAnywhere
                             }
@@ -2350,7 +2613,7 @@ Item {
                               .arg(root.value(root.pendingPreview, "revision", ""))
                               .arg(root.value(root.pendingPreview, "expiresAt", ""))
                         color: root.secondaryText
-                        font.family: "Cascadia Mono"
+                        font.family: DesignTokens.fontMono
                         font.pixelSize: 9
                         wrapMode: Text.WrapAnywhere
                     }

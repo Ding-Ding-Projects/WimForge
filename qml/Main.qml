@@ -4,52 +4,84 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import QtQuick.Window
 import "components"
 import "pages"
 
 ApplicationWindow {
     id: root
-    width: 1480
-    height: 920
-    minimumWidth: 1080
-    minimumHeight: 700
+    width: 1440
+    height: 900
+    minimumWidth: 900
+    minimumHeight: 640
     visible: true
     onClosing: Qt.quit()
     title: app.projectLoaded ? "WimForge — " + app.projectName : "WimForge"
-    color: Material.theme === Material.Dark ? "#141218" : "#F7F2FA"
+    color: DesignTokens.surfaceDim(darkTheme)
+    font.family: DesignTokens.fontBody
+    font.pixelSize: 13
 
     Material.theme: app.themeMode === 1 ? Material.Light
                   : app.themeMode === 2 ? Material.Dark
                   : (Application.styleHints.colorScheme === Qt.ColorScheme.Dark ? Material.Dark : Material.Light)
-    Material.accent: "#6750A4"
-    Material.primary: "#6750A4"
+    Material.accent: DesignTokens.primary(darkTheme)
+    Material.primary: DesignTokens.primary(darkTheme)
 
     property int currentPage: startupPage
     property bool notificationsOpen: false
     readonly property var controller: app
-    readonly property bool compactNavigation: width < 1280
+    readonly property real uiScale: Math.max(0.8, Math.min(1.25, app.interfaceScale))
+    readonly property bool compactNavigation: width / uiScale < 1280
     readonly property bool darkTheme: Material.theme === Material.Dark
-    readonly property color secondaryTextColor: darkTheme ? "#CAC4D0" : "#625B71"
-    readonly property color errorColor: darkTheme ? "#FFB4AB" : "#BA1A1A"
-    readonly property color errorBadgeColor: darkTheme ? "#8C1D18" : "#BA1A1A"
-    readonly property color successColor: darkTheme ? "#8BD7A6" : "#386A20"
-    readonly property color warningColor: darkTheme ? "#FFB95C" : "#744B00"
-    readonly property color warningContainerColor: darkTheme ? "#4A2800" : "#FFF3E0"
+    readonly property color secondaryTextColor: DesignTokens.onSurfaceVariant(darkTheme)
+    readonly property color errorColor: DesignTokens.error(darkTheme)
+    readonly property color errorBadgeColor: DesignTokens.error(darkTheme)
+    readonly property color successColor: DesignTokens.success(darkTheme)
+    readonly property color warningColor: DesignTokens.tertiary(darkTheme)
+    readonly property color warningContainerColor: DesignTokens.tertiaryContainer(darkTheme)
     property var navigationItems: [
-        { icon: "⌂", en: "Overview", zh: "總覽", context: "project" },
-        { icon: "◫", en: "Source & editions", zh: "來源同版本", context: "source" },
-        { icon: "⚙", en: "Customize", zh: "調校", context: "config" },
-        { icon: "▤", en: "Group Policy Studio", zh: "群組原則工房", context: "gpo" },
-        { icon: "✦", en: "Unattended Studio", zh: "無人值守工房", context: "unattended" },
-        { icon: "▦", en: "Package Studio", zh: "套件工房", context: "packages" },
-        { icon: "⌁", en: "WinForge Bridge", zh: "WinForge 橋接", context: "winforge" },
-        { icon: "▣", en: "Virtual Machine Lab", zh: "虛擬機實驗室", context: "vm-lab" },
-        { icon: "▶", en: "Review & run", zh: "檢查同開工", context: "plan" },
-        { icon: "↶", en: "History & recovery", zh: "歷史同復原", context: "history" },
-        { icon: "☷", en: "Settings", zh: "設定", context: "settings" },
-        { icon: ">_", en: "Embedded terminal", zh: "內嵌終端機", context: "terminal" }
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/overview.svg", en: "Overview", zh: "總覽", context: "project" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/source.svg", en: "Source & editions", zh: "來源同版本", context: "source" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/customize.svg", en: "Customize", zh: "調校", context: "config" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/policy.svg", en: "Group Policy Studio", zh: "群組原則工房", context: "gpo" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/unattended.svg", en: "Unattended Studio", zh: "無人值守工房", context: "unattended" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/package.svg", en: "Package Studio", zh: "套件工房", context: "packages" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/bridge.svg", en: "WinForge Bridge", zh: "WinForge 橋接", context: "winforge" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/vm.svg", en: "Virtual Machine Lab", zh: "虛擬機實驗室", context: "vm-lab" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/run.svg", en: "Review & run", zh: "檢查同開工", context: "plan" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/history.svg", en: "History & recovery", zh: "歷史同復原", context: "history" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/settings.svg", en: "Settings", zh: "設定", context: "settings" },
+        { icon: "qrc:/qt/qml/WimForge/assets/icons/terminal.svg", en: "Embedded terminal", zh: "內嵌終端機", context: "terminal" }
     ]
+
+    Binding {
+        target: DesignTokens
+        property: "reducedMotion"
+        value: !app.motionEnabled
+    }
+
+    function navigateToPage(page) {
+        var bounded = Math.max(0, Math.min(page, navigationItems.length - 1))
+        currentPage = bounded
+        if (app.projectLoaded
+                && !app.openWorkspacePage(bounded, tr2(navigationItems[bounded].en, navigationItems[bounded].zh)))
+            syncActiveWorkspaceTab()
+    }
+
+    function syncActiveWorkspaceTab() {
+        if (!app.projectLoaded || app.activeWorkspaceTab < 0
+                || app.activeWorkspaceTab >= app.workspaceTabs.length)
+            return
+        currentPage = app.workspaceTabs[app.activeWorkspaceTab].page
+    }
+
+    Component.onCompleted: {
+        if (startupPageRequested)
+            navigateToPage(startupPage)
+        else
+            syncActiveWorkspaceTab()
+    }
 
     function openContextHistory(x, y) {
         var item = navigationItems[Math.max(0, Math.min(currentPage, navigationItems.length - 1))]
@@ -66,11 +98,6 @@ ApplicationWindow {
         if (dependency === 1) return zh
         if (dependency === 2) return en + "  ·  " + zh
         return en
-    }
-
-    // AbstractButton interprets a single ampersand as a mnemonic marker.
-    function buttonText(value) {
-        return String(value).replace(/&/g, "&&")
     }
 
     function isTextEditor(item) {
@@ -98,13 +125,17 @@ ApplicationWindow {
         }
         function onExportProjectRequested() { exportProjectSheet.open() }
         function onExportScriptRequested() { exportScriptSheet.open() }
-        function onUnattendedStudioRequested() { root.currentPage = 4 }
-        function onRecoveryReviewRequested() { root.currentPage = 9 }
+        function onUnattendedStudioRequested() { root.navigateToPage(4) }
+        function onRecoveryReviewRequested() { root.navigateToPage(9) }
         function onSearchRequested(query) { searchPalette.openForQuery(query) }
         function onSearchNavigationRequested(page, focusId, query) {
-            root.currentPage = Math.max(0, Math.min(page, root.navigationItems.length - 1))
+            root.navigateToPage(page)
             globalSearch.clear()
             searchPalette.close()
+        }
+        function onWorkspaceTabsChanged() {
+            root.syncActiveWorkspaceTab()
+            workspaceTabsScroll.revealActiveTab()
         }
     }
 
@@ -123,6 +154,24 @@ ApplicationWindow {
         onActivated: root.openContextHistory(root.width / 2 - 210, 90)
     }
     Shortcut { sequence: "Ctrl+Enter"; onActivated: app.requestRunPlan() }
+    Shortcut {
+        sequence: "Ctrl+W"
+        context: Qt.ApplicationShortcut
+        enabled: app.projectLoaded && !root.isTextEditor(root.activeFocusItem)
+        onActivated: app.closeWorkspaceTab(app.activeWorkspaceTab)
+    }
+    Shortcut {
+        sequence: "Ctrl+Tab"
+        context: Qt.ApplicationShortcut
+        enabled: app.projectLoaded && app.workspaceTabs.length > 1
+        onActivated: app.activateWorkspaceTab((app.activeWorkspaceTab + 1) % app.workspaceTabs.length)
+    }
+    Shortcut {
+        sequence: "Ctrl+Shift+Tab"
+        context: Qt.ApplicationShortcut
+        enabled: app.projectLoaded && app.workspaceTabs.length > 1
+        onActivated: app.activateWorkspaceTab((app.activeWorkspaceTab - 1 + app.workspaceTabs.length) % app.workspaceTabs.length)
+    }
 
     MouseArea {
         parent: root.contentItem
@@ -136,42 +185,55 @@ ApplicationWindow {
     }
 
     RowLayout {
-        anchors.fill: parent
+        id: applicationShell
+        visible: app.projectLoaded
+        width: root.width / root.uiScale
+        height: root.height / root.uiScale
+        transformOrigin: Item.TopLeft
+        scale: root.uiScale
         spacing: 0
 
         Pane {
             id: navigation
             Layout.fillHeight: true
-            Layout.preferredWidth: root.compactNavigation ? 76 : 320
+            Layout.preferredWidth: root.compactNavigation ? DesignTokens.navCompactWidth : DesignTokens.navWidth
             Layout.minimumWidth: Layout.preferredWidth
-            padding: root.compactNavigation ? 8 : 12
+            padding: root.compactNavigation ? 8 : 10
             background: Rectangle {
-                color: Material.theme === Material.Dark ? "#1D1B20" : "#F3EDF7"
-                border.color: Material.theme === Material.Dark ? "#343139" : "#E7E0EC"
+                color: DesignTokens.navSurface(root.darkTheme)
+                border.color: "#0D1019"
                 border.width: 0
                 Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: parent.border.color }
             }
 
             ColumnLayout {
                 anchors.fill: parent
-                spacing: 8
+                spacing: 4
 
                 Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 52
+                    Layout.preferredHeight: DesignTokens.topBarHeight
 
-                    Image {
+                    Rectangle {
                         id: appLogo
                         anchors.left: root.compactNavigation ? undefined : parent.left
-                        anchors.leftMargin: root.compactNavigation ? 0 : 8
+                        anchors.leftMargin: root.compactNavigation ? 0 : 6
                         anchors.horizontalCenter: root.compactNavigation ? parent.horizontalCenter : undefined
                         anchors.verticalCenter: parent.verticalCenter
-                        source: "qrc:/qt/qml/WimForge/assets/app-icon.svg"
-                        sourceSize.width: 42
-                        sourceSize.height: 42
-                        width: 42
-                        height: 42
+                        width: 30
+                        height: 30
+                        radius: DesignTokens.radiusControl
+                        color: DesignTokens.primary(root.darkTheme)
                         Accessible.name: root.tr2("WimForge application", "WimForge 應用程式")
+                        Label {
+                            anchors.centerIn: parent
+                            text: "W"
+                            font.family: DesignTokens.fontDisplay
+                            font.pixelSize: 15
+                            font.weight: Font.Bold
+                            color: DesignTokens.onPrimary(root.darkTheme)
+                            Accessible.ignored: true
+                        }
                     }
                     Column {
                         visible: !root.compactNavigation
@@ -180,17 +242,19 @@ ApplicationWindow {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 0
-                        Label { width: parent.width; text: "WimForge"; font.pixelSize: 21; font.weight: Font.Bold; elide: Text.ElideRight }
-                        Label { width: parent.width; text: root.tr2("Windows Image Studio", "Windows 映像工房"); font.pixelSize: 10; color: root.secondaryTextColor; elide: Text.ElideRight }
+                        Label { width: parent.width; text: "WimForge"; color: DesignTokens.navOn(root.darkTheme); font.family: DesignTokens.fontDisplay; font.pixelSize: 14; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                        Label { width: parent.width; text: root.tr2("IMAGE OPERATIONS", "映像作業台"); font.family: DesignTokens.fontBody; font.pixelSize: 10; font.letterSpacing: 0.8; color: "#AEB4C5"; elide: Text.ElideRight }
                     }
                 }
 
-                Button {
+                WfButton {
                     Layout.fillWidth: true
-                    Layout.topMargin: root.compactNavigation ? 4 : 12
-                    icon.name: "document-new"
-                    text: root.compactNavigation ? "+" : root.buttonText(root.tr2("New project", "開新工程"))
-                    highlighted: true
+                    Layout.topMargin: 4
+                    Layout.leftMargin: root.compactNavigation ? 0 : 2
+                    Layout.rightMargin: root.compactNavigation ? 0 : 2
+                    text: root.compactNavigation ? "" : root.tr2("New project", "開新工程")
+                    glyph: "+"
+                    variant: "filled"
                     Accessible.name: root.tr2("New project", "開新工程")
                     onClicked: newProjectSheet.open()
                     ToolTip.visible: root.compactNavigation && hovered
@@ -212,27 +276,58 @@ ApplicationWindow {
 
                         Repeater {
                             model: root.navigationItems
-                            delegate: ItemDelegate {
+                            delegate: AbstractButton {
                                 id: navigationDelegate
                                 required property var modelData
                                 required property int index
                                 width: parent.width
-                                implicitHeight: 48
-                                text: root.compactNavigation
-                                      ? modelData.icon
-                                      : modelData.icon + "   " + root.buttonText(root.tr2(modelData.en, modelData.zh))
-                                highlighted: root.currentPage === index
-                                font.weight: highlighted ? Font.DemiBold : Font.Normal
-                                Accessible.name: (highlighted ? root.tr2("Current page: ", "目前頁面：") : "")
+                                implicitHeight: DesignTokens.rowHeight
+                                leftPadding: root.compactNavigation ? Math.max(0, (width - 20) / 2) : 12
+                                rightPadding: root.compactNavigation ? Math.max(0, (width - 20) / 2) : 12
+                                readonly property bool selected: root.currentPage === index
+                                focusPolicy: Qt.StrongFocus
+                                Accessible.name: (selected ? root.tr2("Current page: ", "而家呢頁：") : "")
                                                  + root.tr2(modelData.en, modelData.zh)
-                                onClicked: root.currentPage = index
+                                onClicked: root.navigateToPage(index)
                                 ToolTip.visible: root.compactNavigation && hovered
                                 ToolTip.text: root.tr2(modelData.en, modelData.zh)
                                 background: Rectangle {
-                                    radius: 22
-                                    color: navigationDelegate.highlighted
-                                           ? (Material.theme === Material.Dark ? "#4A4458" : "#E8DEF8")
-                                           : navigationDelegate.hovered ? (Material.theme === Material.Dark ? "#2B292F" : "#EDE7F1") : "transparent"
+                                    radius: DesignTokens.radiusPill
+                                    color: navigationDelegate.selected ? "#2A4F91"
+                                           : navigationDelegate.hovered ? DesignTokens.navHover(root.darkTheme) : "transparent"
+                                    border.width: navigationDelegate.visualFocus ? 2 : 0
+                                    border.color: navigationDelegate.visualFocus ? "#F7F9FF" : "transparent"
+                                }
+                                contentItem: RowLayout {
+                                    spacing: 12
+                                    Item {
+                                        Layout.preferredWidth: 20
+                                        Layout.preferredHeight: 20
+                                        Layout.alignment: Qt.AlignVCenter
+                                        Image {
+                                            anchors.centerIn: parent
+                                            width: 18
+                                            height: 18
+                                            source: navigationDelegate.modelData.icon
+                                            sourceSize.width: 18
+                                            sourceSize.height: 18
+                                            opacity: navigationDelegate.selected ? 1 : 0.72
+                                            Accessible.ignored: true
+                                        }
+                                    }
+                                    Label {
+                                        visible: !root.compactNavigation
+                                        Layout.fillWidth: true
+                                        text: root.tr2(navigationDelegate.modelData.en, navigationDelegate.modelData.zh)
+                                        color: navigationDelegate.selected
+                                               ? "#F7F9FF"
+                                               : DesignTokens.navOn(root.darkTheme)
+                                        font.family: DesignTokens.fontBody
+                                        font.pixelSize: 13
+                                        font.weight: navigationDelegate.selected ? Font.DemiBold : Font.Medium
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
                                 }
                             }
                         }
@@ -242,16 +337,15 @@ ApplicationWindow {
                 Pane {
                     Layout.fillWidth: true
                     Layout.preferredHeight: projectSummary.implicitHeight + topPadding + bottomPadding
-                    visible: app.projectLoaded
-                    padding: root.compactNavigation ? 8 : 12
+                    visible: app.projectLoaded && !root.compactNavigation
+                    padding: 10
                     Accessible.name: root.tr2("Project status: ", "工程狀態：") + app.projectName + ". " + app.gitStatusText
-                    background: Rectangle { radius: 16; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC" }
+                    background: Rectangle { radius: DesignTokens.radiusCard; color: "#242A3B"; border.color: "#343C50" }
                     ColumnLayout {
                         id: projectSummary
                         width: parent.width
-                        Label { visible: root.compactNavigation; text: app.busy ? "◉" : "▣"; font.pixelSize: 20; Layout.alignment: Qt.AlignHCenter; Accessible.ignored: true }
-                        Label { visible: !root.compactNavigation; text: "▣  " + app.projectName; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                        Label { visible: !root.compactNavigation; text: app.gitStatusText; font.pixelSize: 11; color: root.successColor; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Label { text: app.projectName; color: DesignTokens.navOn(root.darkTheme); font.family: DesignTokens.fontBody; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Label { text: app.gitStatusText; font.family: DesignTokens.fontBody; font.pixelSize: 11; color: "#8BD7A6"; Layout.fillWidth: true; elide: Text.ElideRight }
                         ProgressBar { visible: app.busy; Layout.fillWidth: true; value: app.progress; indeterminate: app.progress <= 0; Accessible.name: root.tr2("Project job progress", "工程工作進度") }
                     }
                     HoverHandler { id: projectSummaryHover }
@@ -263,8 +357,9 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: root.compactNavigation ? "v" + app.version : "v" + app.version + "  ·  MIT"
                     horizontalAlignment: Text.AlignHCenter
+                    font.family: DesignTokens.fontBody
                     font.pixelSize: 10
-                    color: Material.theme === Material.Dark ? "#938F99" : "#79747E"
+                    color: "#969CAA"
                 }
             }
         }
@@ -279,55 +374,147 @@ ApplicationWindow {
 
                 Pane {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 68
-                    leftPadding: 24; rightPadding: 18; topPadding: 10; bottomPadding: 10
+                    Layout.preferredHeight: DesignTokens.topBarHeight
+                    leftPadding: 20; rightPadding: 20; topPadding: 9; bottomPadding: 9
                     background: Rectangle {
-                        color: Material.theme === Material.Dark ? "#1D1B20" : "#FFFBFE"
-                        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Material.theme === Material.Dark ? "#343139" : "#E7E0EC" }
+                        color: DesignTokens.surfaceLowest(root.darkTheme)
+                        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: DesignTokens.outlineVariant(root.darkTheme) }
                     }
                     RowLayout {
                         anchors.fill: parent
-                        TextField {
-                            id: globalSearch
-                            Layout.preferredWidth: Math.min(440, parent.width * 0.42)
-                            placeholderText: root.tr2("Search features, commands and settings", "搜尋功能、指令同設定")
-                            Accessible.name: placeholderText
-                            leftPadding: 42
-                            Label { anchors.left: parent.left; anchors.leftMargin: 15; anchors.verticalCenter: parent.verticalCenter; text: "⌕"; font.pixelSize: 20; color: Material.accent; Accessible.ignored: true }
-                            onAccepted: app.search(text)
+                        spacing: 8
+                        Rectangle {
+                            Layout.preferredWidth: Math.min(420, parent.width * 0.44)
+                            Layout.preferredHeight: 36
+                            radius: DesignTokens.radiusPill
+                            color: DesignTokens.surfaceContainer(root.darkTheme)
+                            border.width: 1
+                            border.color: globalSearch.activeFocus
+                                          ? DesignTokens.primary(root.darkTheme)
+                                          : DesignTokens.outlineVariant(root.darkTheme)
+                            Label {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 12
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "⌕"
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 17
+                                color: DesignTokens.onSurfaceVariant(root.darkTheme)
+                                Accessible.ignored: true
+                            }
+                            TextField {
+                                id: globalSearch
+                                anchors.fill: parent
+                                leftPadding: 36
+                                rightPadding: 12
+                                topPadding: 0
+                                bottomPadding: 0
+                                placeholderText: root.tr2("Search features, commands and settings", "搜尋功能、指令同設定")
+                                placeholderTextColor: DesignTokens.onSurfaceVariant(root.darkTheme)
+                                color: DesignTokens.onSurface(root.darkTheme)
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 13
+                                Accessible.name: placeholderText
+                                background: Item { }
+                                onAccepted: app.search(text)
+                            }
                         }
                         Item { Layout.fillWidth: true }
-                        ToolButton {
-                            text: app.busy ? "◉" : "○"
-                            Accessible.name: app.busy ? root.tr2("Jobs are running; open job queue", "有工序行緊；開啟工序隊列") : root.tr2("Open job queue", "開啟工序隊列")
-                            onClicked: root.currentPage = 8
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
+                        WfIconButton {
+                            glyph: ""
+                            accessibleName: app.busy ? root.tr2("Jobs are running; open job queue", "有工序行緊；開啟工序隊列") : root.tr2("Open job queue", "開啟工序隊列")
+                            toolTip: accessibleName
+                            onClicked: root.navigateToPage(8)
+                            contentItem: Label {
+                                text: app.busy ? "\uE895" : "\uE823"
+                                font.family: "Segoe MDL2 Assets"
+                                font.pixelSize: 16
+                                color: app.busy ? DesignTokens.secondary(root.darkTheme)
+                                                : DesignTokens.onSurfaceVariant(root.darkTheme)
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
-                        ToolButton {
+                        WfIconButton {
                             id: bell
-                            text: "🔔"
-                            Accessible.name: app.notificationUnreadCount > 0
-                                             ? root.tr2("Notification center, %1 unread", "通知中心，%1 個未讀").arg(app.notificationUnreadCount)
-                                             : root.tr2("Notification center, no unread notifications", "通知中心，冇未讀通知")
+                            glyph: ""
+                            accessibleName: app.notificationUnreadCount > 0
+                                            ? root.tr2("Notification center, %1 unread", "通知中心，%1 個未讀").arg(app.notificationUnreadCount)
+                                            : root.tr2("Notification center, no unread notifications", "通知中心，冇未讀通知")
+                            toolTip: accessibleName
                             onClicked: root.notificationsOpen = !root.notificationsOpen
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
+                            contentItem: Label {
+                                text: "\uE7ED"
+                                font.family: "Segoe MDL2 Assets"
+                                font.pixelSize: 16
+                                color: DesignTokens.onSurfaceVariant(root.darkTheme)
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                             Rectangle {
                                 visible: app.notificationUnreadCount > 0
                                 anchors.right: parent.right; anchors.top: parent.top
-                                anchors.rightMargin: 2; anchors.topMargin: 1
-                                width: Math.max(18, unread.implicitWidth + 8); height: 18; radius: 9
+                                anchors.rightMargin: 0; anchors.topMargin: 0
+                                width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 8
                                 color: root.errorBadgeColor
-                                Label { id: unread; anchors.centerIn: parent; text: app.notificationUnreadCount; color: "white"; font.pixelSize: 10; font.bold: true; Accessible.ignored: true }
+                                Label { id: unread; anchors.centerIn: parent; text: app.notificationUnreadCount; color: DesignTokens.onError(root.darkTheme); font.family: DesignTokens.fontBody; font.pixelSize: 9; font.bold: true; Accessible.ignored: true }
                             }
                         }
-                        MenuSeparator { implicitHeight: 28 }
-                        Button {
-                            flat: true
-                            icon.name: "document-open"
-                            text: app.projectLoaded ? app.projectName : root.tr2("Open project", "開工程")
+                        WfIconButton {
+                            glyph: ""
+                            accessibleName: root.darkTheme
+                                            ? root.tr2("Use light theme", "使用淺色主題")
+                                            : root.tr2("Use dark theme", "使用深色主題")
+                            toolTip: accessibleName
+                            onClicked: app.themeMode = root.darkTheme ? 1 : 2
+                            contentItem: Label {
+                                text: root.darkTheme ? "\uE706" : "\uE708"
+                                font.family: "Segoe MDL2 Assets"
+                                font.pixelSize: 16
+                                color: DesignTokens.onSurfaceVariant(root.darkTheme)
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                        AbstractButton {
+                            id: projectChip
+                            Layout.preferredHeight: 36
+                            Layout.maximumWidth: 220
+                            implicitWidth: Math.min(220, Math.max(118, projectChipLabel.implicitWidth + 38))
+                            focusPolicy: Qt.StrongFocus
+                            Accessible.name: app.projectLoaded
+                                             ? root.tr2("Active project: ", "而家工程：") + app.projectName
+                                             : root.tr2("Open project", "開工程")
                             onClicked: openProjectSheet.open()
+                            background: Rectangle {
+                                radius: DesignTokens.radiusPill
+                                color: DesignTokens.surfaceLowest(root.darkTheme)
+                                border.width: projectChip.visualFocus ? 2 : 1
+                                border.color: projectChip.visualFocus
+                                              ? DesignTokens.primary(root.darkTheme)
+                                              : DesignTokens.outlineVariant(root.darkTheme)
+                            }
+                            contentItem: RowLayout {
+                                spacing: 8
+                                Rectangle {
+                                    Layout.preferredWidth: 8
+                                    Layout.preferredHeight: 8
+                                    radius: 4
+                                    color: app.projectLoaded
+                                           ? DesignTokens.success(root.darkTheme)
+                                           : DesignTokens.outline(root.darkTheme)
+                                }
+                                Label {
+                                    id: projectChipLabel
+                                    Layout.fillWidth: true
+                                    text: app.projectLoaded ? app.projectName : root.tr2("Open project", "開工程")
+                                    color: DesignTokens.onSurface(root.darkTheme)
+                                    font.family: DesignTokens.fontBody
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
+                            }
                         }
                     }
                 }
@@ -341,42 +528,204 @@ ApplicationWindow {
                     RowLayout {
                         id: recoveryRow
                         width: parent.width
-                        Label { text: "🛟"; font.pixelSize: 22 }
+                        Rectangle {
+                            width: 24
+                            height: 24
+                            radius: 12
+                            color: DesignTokens.tertiary(root.darkTheme)
+                            Label { anchors.centerIn: parent; text: "!"; font.family: DesignTokens.fontBody; font.weight: Font.Bold; color: DesignTokens.onTertiary(root.darkTheme) }
+                        }
                         Label {
                             Layout.fillWidth: true
                             text: root.tr2("Interrupted work found. The image is protected; choose how to recover when ready.",
                                            "搵到上次中斷嘅工序。映像仲安全；得閒先揀點樣復原，唔使即刻畀個彈窗追住。")
                             wrapMode: Text.Wrap
                         }
-                        Button { text: root.tr2("Review recovery", "檢查復原"); onClicked: recoverySheet.open() }
+                        WfButton { text: root.tr2("Review recovery", "檢查復原"); compact: true; onClicked: recoverySheet.open() }
+                    }
+                }
+
+                Pane {
+                    id: workspaceTabStrip
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 44
+                    visible: app.projectLoaded
+                    leftPadding: 12; rightPadding: 10; topPadding: 4; bottomPadding: 4
+                    background: Rectangle {
+                        color: DesignTokens.surfaceLow(root.darkTheme)
+                        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: DesignTokens.outlineVariant(root.darkTheme) }
+                    }
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 6
+                        ScrollView {
+                            id: workspaceTabsScroll
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            contentHeight: availableHeight
+                            ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                            function revealActiveTab() {
+                                Qt.callLater(function() {
+                                    var item = workspaceTabRepeater.itemAt(app.activeWorkspaceTab)
+                                    var flick = workspaceTabsScroll.contentItem
+                                    if (!item || !flick)
+                                        return
+                                    var left = item.x
+                                    var right = item.x + item.width
+                                    if (left < flick.contentX)
+                                        flick.contentX = Math.max(0, left - 5)
+                                    else if (right > flick.contentX + workspaceTabsScroll.availableWidth)
+                                        flick.contentX = Math.max(0, right - workspaceTabsScroll.availableWidth + 5)
+                                })
+                            }
+                            Row {
+                                height: workspaceTabsScroll.availableHeight
+                                spacing: 5
+                                Repeater {
+                                    id: workspaceTabRepeater
+                                    model: app.workspaceTabs
+                                    delegate: Rectangle {
+                                        id: workspaceTab
+                                        required property var modelData
+                                        required property int index
+                                        height: 36
+                                        width: Math.max(140, Math.min(280, tabTitle.implicitWidth + 76))
+                                        radius: DesignTokens.radiusControl
+                                        color: index === app.activeWorkspaceTab
+                                               ? DesignTokens.surfaceLowest(root.darkTheme)
+                                               : tabHover.hovered ? DesignTokens.surfaceContainer(root.darkTheme) : "transparent"
+                                        border.width: index === app.activeWorkspaceTab ? 1 : 0
+                                        border.color: index === app.activeWorkspaceTab
+                                                      ? DesignTokens.outlineVariant(root.darkTheme) : "transparent"
+                                        Accessible.name: root.tr2("Workspace tab: ", "工作分頁：") + modelData.title
+                                        Rectangle {
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.bottom: parent.bottom
+                                            anchors.leftMargin: 8
+                                            anchors.rightMargin: 8
+                                            height: 2
+                                            color: workspaceTab.index === app.activeWorkspaceTab
+                                                   ? DesignTokens.primary(root.darkTheme) : "transparent"
+                                        }
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 10
+                                            anchors.rightMargin: 4
+                                            spacing: 3
+                                            Label {
+                                                id: tabTitle
+                                                Layout.fillWidth: true
+                                                text: workspaceTab.modelData.title
+                                                elide: Text.ElideRight
+                                                color: workspaceTab.modelData.fontColor && workspaceTab.modelData.fontColor.length > 0
+                                                       ? workspaceTab.modelData.fontColor : root.secondaryTextColor
+                                                font.family: workspaceTab.modelData.fontFamily || root.font.family
+                                                font.pixelSize: workspaceTab.modelData.fontSize || 12
+                                                font.bold: !!workspaceTab.modelData.bold
+                                                font.italic: !!workspaceTab.modelData.italic
+                                                font.strikeout: !!workspaceTab.modelData.strikeout
+                                            }
+                                            WfIconButton {
+                                                glyph: "✎"
+                                                buttonSize: 28
+                                                accessibleName: root.tr2("Rename or style tab", "改名或設定分頁樣式")
+                                                toolTip: accessibleName
+                                                onClicked: tabEditor.openFor(workspaceTab.index, workspaceTab.modelData)
+                                            }
+                                            WfIconButton {
+                                                glyph: "×"
+                                                buttonSize: 28
+                                                accessibleName: root.tr2("Close tab", "關閉分頁")
+                                                toolTip: accessibleName
+                                                onClicked: app.closeWorkspaceTab(workspaceTab.index)
+                                            }
+                                        }
+                                        HoverHandler { id: tabHover }
+                                        TapHandler { onTapped: app.activateWorkspaceTab(workspaceTab.index) }
+                                    }
+                                }
+                            }
+                        }
+                        WfIconButton {
+                            glyph: "+"
+                            buttonSize: 32
+                            accessibleName: root.tr2("Open page in a tab", "在分頁開啟頁面")
+                            toolTip: accessibleName
+                            onClicked: newTabMenu.open()
+                            Menu {
+                                id: newTabMenu
+                                Instantiator {
+                                    model: root.navigationItems
+                                    delegate: MenuItem {
+                                        required property var modelData
+                                        required property int index
+                                        text: root.tr2(modelData.en, modelData.zh)
+                                        onTriggered: root.navigateToPage(index)
+                                    }
+                                    onObjectAdded: (index, object) => newTabMenu.insertItem(index, object)
+                                    onObjectRemoved: (index, object) => newTabMenu.removeItem(object)
+                                }
+                            }
+                        }
+                        WfIconButton {
+                            glyph: "⋮"
+                            buttonSize: 32
+                            accessibleName: root.tr2("Tab import and export", "分頁匯入與匯出")
+                            toolTip: accessibleName
+                            onClicked: tabTransferMenu.open()
+                            Menu {
+                                id: tabTransferMenu
+                                MenuItem { text: root.tr2("Export portable tabs…", "匯出可攜分頁…"); onTriggered: exportTabsDialog.open() }
+                                MenuItem { text: root.tr2("Import portable tabs…", "匯入可攜分頁…"); onTriggered: importTabsDialog.open() }
+                                MenuSeparator { }
+                                MenuItem { text: root.tr2("Export complete tab Git repo…", "匯出完整分頁 Git repo…"); onTriggered: exportTabRepoDialog.open() }
+                                MenuItem { text: root.tr2("Import complete tab Git repo…", "匯入完整分頁 Git repo…"); onTriggered: importTabRepoDialog.open() }
+                            }
+                        }
                     }
                 }
 
                 StackLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.margins: 22
+                    Layout.leftMargin: 28
+                    Layout.rightMargin: 28
+                    Layout.topMargin: 24
+                    Layout.bottomMargin: 24
                     currentIndex: root.currentPage
+                    // StackLayout is not a Control, so make the Material theme
+                    // boundary explicit for every plain-Item page and its
+                    // default-styled labels/controls.
+                    Material.theme: root.darkTheme ? Material.Dark : Material.Light
 
-                    DashboardPage { app: root.controller; tr: root.tr2; openPage: index => root.currentPage = index }
-                    SourcePage { app: root.controller; tr: root.tr2 }
-                    CustomizePage { app: root.controller; tr: root.tr2 }
+                    DashboardPage { app: root.controller; tr: root.tr2; dark: root.darkTheme; openPage: index => root.navigateToPage(index) }
+                    SourcePage { app: root.controller; tr: root.tr2; dark: root.darkTheme }
+                    CustomizePage {
+                        app: root.controller
+                        tr: root.tr2
+                        dark: root.darkTheme
+                        currentSection: startupCustomizeSection
+                    }
                     GpoStudioPage {
                         app: root.controller
                         tr: root.tr2
+                        dark: root.darkTheme
                         active: root.currentPage === 3
                     }
-                    UnattendedStudioPage { app: root.controller; tr: root.tr2 }
-                    PackageStudioPage { app: root.controller; tr: root.tr2 }
-                    WinForgeBridgePage { app: root.controller; tr: root.tr2 }
-                    VmLabPage { app: root.controller; tr: root.tr2 }
-                    PlanPage { app: root.controller; tr: root.tr2 }
-                    HistoryPage { app: root.controller; tr: root.tr2 }
-                    SettingsPage { app: root.controller; tr: root.tr2 }
+                    UnattendedStudioPage { app: root.controller; tr: root.tr2; dark: root.darkTheme }
+                    PackageStudioPage { app: root.controller; tr: root.tr2; dark: root.darkTheme }
+                    WinForgeBridgePage { app: root.controller; tr: root.tr2; dark: root.darkTheme }
+                    VmLabPage { app: root.controller; tr: root.tr2; dark: root.darkTheme }
+                    PlanPage { app: root.controller; tr: root.tr2; dark: root.darkTheme }
+                    HistoryPage { app: root.controller; tr: root.tr2; dark: root.darkTheme }
+                    SettingsPage { app: root.controller; tr: root.tr2; dark: root.darkTheme }
                     TerminalPage {
                         app: root.controller
                         terminal: terminalSession
                         tr: root.tr2
+                        dark: root.darkTheme
                     }
                 }
             }
@@ -435,6 +784,175 @@ ApplicationWindow {
         }
     }
 
+    ProjectStartPage {
+        id: projectStart
+        visible: !app.projectLoaded
+        z: 1000
+        width: root.width / root.uiScale
+        height: root.height / root.uiScale
+        transformOrigin: Item.TopLeft
+        scale: root.uiScale
+        leftPadding: 28
+        rightPadding: 28
+        topPadding: 28
+        bottomPadding: 28
+        dark: root.darkTheme
+        tr: root.tr2
+        recentProjects: projectStartCapture ? [] : app.recentProjects
+        onCreateRequested: newProjectSheet.open()
+        onOpenRequested: openProjectSheet.open()
+        onImportRequested: {
+            openProjectSheet.open()
+            importProjectFileDialog.open()
+        }
+        onRecentRequested: function(path) {
+            if (app.openProject(path))
+                root.syncActiveWorkspaceTab()
+        }
+        onRemoveRecentRequested: function(path) { app.removeRecentProject(path) }
+        onClearRecentRequested: app.clearRecentProjects()
+    }
+
+    Popup {
+        id: tabEditor
+        property int editIndex: -1
+        function openFor(index, data) {
+            editIndex = index
+            tabName.text = data.title || ""
+            var family = data.fontFamily || ""
+            var familyIndex = fontFamily.model.indexOf(family)
+            fontFamily.currentIndex = familyIndex
+            if (familyIndex < 0)
+                fontFamily.editText = family
+            fontSize.value = data.fontSize || 13
+            fontColor.text = data.fontColor || ""
+            fontBold.checked = !!data.bold
+            fontItalic.checked = !!data.italic
+            fontStrikeout.checked = !!data.strikeout
+            open()
+        }
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(560, root.width - 32)
+        modal: true
+        dim: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+        padding: 22
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.darkTheme)
+            border.color: DesignTokens.outlineVariant(root.darkTheme)
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label { text: root.tr2("Rename and style tab", "改名及設定分頁樣式"); font.pixelSize: 22; font.bold: true }
+            TextField { id: tabName; Layout.fillWidth: true; placeholderText: root.tr2("Tab name", "分頁名稱"); maximumLength: 120 }
+            GridLayout {
+                Layout.fillWidth: true
+                columns: width > 460 ? 2 : 1
+                columnSpacing: 10; rowSpacing: 10
+                ComboBox {
+                    id: fontFamily
+                    Layout.fillWidth: true
+                    editable: true
+                    model: ["", "Segoe UI", "Arial", "Calibri", "Consolas", "Courier New", "Georgia", "Times New Roman", "Verdana"]
+                    displayText: editText.length > 0 ? editText : root.tr2("System font", "系統字型")
+                    Accessible.name: root.tr2("Font family", "字型")
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: root.tr2("Size", "大小") }
+                    SpinBox { id: fontSize; Layout.fillWidth: true; from: 8; to: 48; editable: true }
+                }
+                TextField {
+                    id: fontColor
+                    Layout.fillWidth: true
+                    placeholderText: root.tr2("Font color, e.g. #2F6FED", "字色，例如 #2F6FED")
+                    maximumLength: 9
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    CheckBox { id: fontBold; text: root.tr2("Bold", "粗體") }
+                    CheckBox { id: fontItalic; text: root.tr2("Italic", "斜體") }
+                    CheckBox { id: fontStrikeout; text: root.tr2("Strikeout", "刪除線") }
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 46
+                radius: 10
+                color: DesignTokens.surfaceContainer(root.darkTheme)
+                Label {
+                    anchors.centerIn: parent
+                    width: parent.width - 20
+                    text: tabName.text.length > 0 ? tabName.text : root.tr2("Tab preview", "分頁預覽")
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    color: fontColor.text.length > 0 ? fontColor.text : root.secondaryTextColor
+                    font.family: fontFamily.editText.length > 0 ? fontFamily.editText : root.font.family
+                    font.pixelSize: fontSize.value
+                    font.bold: fontBold.checked
+                    font.italic: fontItalic.checked
+                    font.strikeout: fontStrikeout.checked
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Button { text: "←"; enabled: tabEditor.editIndex > 0; Accessible.name: root.tr2("Move tab left", "分頁左移"); onClicked: { app.moveWorkspaceTab(tabEditor.editIndex, tabEditor.editIndex - 1); tabEditor.editIndex-- } }
+                Button { text: "→"; enabled: tabEditor.editIndex >= 0 && tabEditor.editIndex < app.workspaceTabs.length - 1; Accessible.name: root.tr2("Move tab right", "分頁右移"); onClicked: { app.moveWorkspaceTab(tabEditor.editIndex, tabEditor.editIndex + 1); tabEditor.editIndex++ } }
+                Item { Layout.fillWidth: true }
+                Button { text: root.tr2("Cancel", "取消"); onClicked: tabEditor.close() }
+                Button {
+                    text: root.tr2("Save", "儲存")
+                    highlighted: true
+                    enabled: tabName.text.trim().length > 0
+                    onClicked: {
+                        if (app.updateWorkspaceTab(tabEditor.editIndex, {
+                            title: tabName.text.trim(),
+                            fontFamily: fontFamily.editText.trim(),
+                            fontSize: fontSize.value,
+                            fontColor: fontColor.text.trim(),
+                            bold: fontBold.checked,
+                            italic: fontItalic.checked,
+                            strikeout: fontStrikeout.checked
+                        })) tabEditor.close()
+                    }
+                }
+            }
+        }
+    }
+
+    FileDialog {
+        id: exportTabsDialog
+        title: root.tr2("Export portable tabs", "匯出可攜分頁")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "wftabs"
+        nameFilters: [root.tr2("WimForge tabs (*.wftabs)", "WimForge 分頁 (*.wftabs)"), root.tr2("All files (*)", "所有檔案 (*)")]
+        onAccepted: app.exportWorkspaceTabs(app.pathFromUrl(selectedFile))
+    }
+    FileDialog {
+        id: importTabsDialog
+        title: root.tr2("Import portable tabs", "匯入可攜分頁")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [root.tr2("WimForge tabs (*.wftabs)", "WimForge 分頁 (*.wftabs)"), root.tr2("All files (*)", "所有檔案 (*)")]
+        onAccepted: app.importWorkspaceTabs(app.pathFromUrl(selectedFile))
+    }
+    FileDialog {
+        id: exportTabRepoDialog
+        title: root.tr2("Export complete tab Git repository", "匯出完整分頁 Git 儲存庫")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "wftabrepo"
+        nameFilters: [root.tr2("WimForge tab repository (*.wftabrepo)", "WimForge 分頁儲存庫 (*.wftabrepo)"), root.tr2("All files (*)", "所有檔案 (*)")]
+        onAccepted: app.exportWorkspaceTabRepository(app.pathFromUrl(selectedFile))
+    }
+    FileDialog {
+        id: importTabRepoDialog
+        title: root.tr2("Import complete tab Git repository", "匯入完整分頁 Git 儲存庫")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [root.tr2("WimForge tab repository (*.wftabrepo)", "WimForge 分頁儲存庫 (*.wftabrepo)"), root.tr2("All files (*)", "所有檔案 (*)")]
+        onAccepted: app.importWorkspaceTabRepository(app.pathFromUrl(selectedFile))
+    }
+
     Popup {
         id: newProjectSheet
         readonly property string heading: root.tr2("Create a Git-backed project", "開個有 Git 保護嘅工程")
@@ -447,7 +965,12 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
         padding: 24
         onOpened: projectName.forceActiveFocus()
-        background: Rectangle { radius: 24; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.accent; border.width: 1 }
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.darkTheme)
+            border.color: DesignTokens.outlineVariant(root.darkTheme)
+            border.width: 1
+        }
 
         contentItem: ScrollView {
             id: newProjectScroll
@@ -463,7 +986,11 @@ ApplicationWindow {
                 Label { Layout.fillWidth: true; text: newProjectSheet.heading; font.pixelSize: 22; font.weight: Font.Bold; wrapMode: Text.Wrap }
                 Label { Layout.fillWidth: true; text: root.tr2("The folder becomes its own local repository. Every edit is committed automatically.", "呢個資料夾會變成獨立本機 Git 倉，每次改動都自動 commit。唔怕手快快。"); wrapMode: Text.Wrap }
                 TextField { id: projectName; Layout.fillWidth: true; Accessible.name: placeholderText; placeholderText: root.tr2("Project name", "工程名"); text: "Windows 11 Custom" }
-                TextField { id: projectRoot; Layout.fillWidth: true; Accessible.name: placeholderText; placeholderText: root.tr2("Project folder", "工程資料夾"); text: app.defaultProjectPath }
+                RowLayout {
+                    Layout.fillWidth: true
+                    TextField { id: projectRoot; Layout.fillWidth: true; Accessible.name: placeholderText; placeholderText: root.tr2("Project folder", "工程資料夾"); text: app.defaultProjectPath }
+                    Button { text: root.tr2("Browse…", "瀏覽…"); onClicked: newProjectFolderDialog.open() }
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
@@ -474,13 +1001,19 @@ ApplicationWindow {
                         enabled: projectName.text.trim().length > 0 && projectRoot.text.trim().length > 0
                         onClicked: {
                             if (app.createProject(projectRoot.text.trim(), projectName.text.trim())) {
-                                newProjectSheet.close(); root.currentPage = 1
+                                newProjectSheet.close(); root.navigateToPage(1)
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    FolderDialog {
+        id: newProjectFolderDialog
+        title: root.tr2("Choose the new project folder", "揀新工程資料夾")
+        onAccepted: projectRoot.text = app.pathFromUrl(selectedFolder)
     }
 
     Popup {
@@ -493,7 +1026,12 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
         padding: 24
         onOpened: openPath.forceActiveFocus()
-        background: Rectangle { radius: 24; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.accent; border.width: 1 }
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.darkTheme)
+            border.color: DesignTokens.outlineVariant(root.darkTheme)
+            border.width: 1
+        }
 
         contentItem: ScrollView {
             id: openProjectScroll
@@ -507,9 +1045,19 @@ ApplicationWindow {
                 width: openProjectSheet.availableWidth
                 spacing: 12
                 Label { Layout.fillWidth: true; text: openProjectSheet.heading; font.pixelSize: 22; font.weight: Font.Bold; wrapMode: Text.Wrap }
-                Label { Layout.fillWidth: true; text: root.tr2("Paste a project folder, complete .wimforge save bundle, or legacy .json config path. No blocking file dialog required.", "貼工程資料夾、完整 .wimforge 儲存 bundle，或者舊式 .json 設定路徑；唔使畀檔案對話框阻住。"); wrapMode: Text.Wrap }
-                TextField { id: openPath; Layout.fillWidth: true; Accessible.name: placeholderText; placeholderText: root.tr2("Project folder or config file", "工程資料夾或者設定檔") }
-                TextField { id: importDestination; Layout.fillWidth: true; Accessible.name: placeholderText; visible: openPath.text.toLowerCase().endsWith(".json") || openPath.text.toLowerCase().endsWith(".wimforge"); placeholderText: root.tr2("Destination folder for imported project", "匯入工程目的資料夾"); text: app.defaultProjectPath }
+                Label { Layout.fillWidth: true; text: root.tr2("Choose a project folder, complete .wimforge save bundle, or legacy .json config. Paths can still be pasted for automation.", "揀工程資料夾、完整 .wimforge 儲存 bundle，或者舊式 .json 設定；自動化時亦可以貼路徑。"); wrapMode: Text.Wrap }
+                RowLayout {
+                    Layout.fillWidth: true
+                    TextField { id: openPath; Layout.fillWidth: true; Accessible.name: placeholderText; placeholderText: root.tr2("Project folder or config file", "工程資料夾或者設定檔") }
+                    Button { text: root.tr2("Project folder…", "工程資料夾…"); onClicked: openProjectFolderDialog.open() }
+                    Button { text: root.tr2("Import file…", "匯入檔案…"); onClicked: importProjectFileDialog.open() }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: openPath.text.toLowerCase().endsWith(".json") || openPath.text.toLowerCase().endsWith(".wimforge")
+                    TextField { id: importDestination; Layout.fillWidth: true; Accessible.name: placeholderText; placeholderText: root.tr2("Destination folder for imported project", "匯入工程目的資料夾"); text: app.defaultProjectPath }
+                    Button { text: root.tr2("Browse…", "瀏覽…"); onClicked: importDestinationFolderDialog.open() }
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
@@ -522,12 +1070,30 @@ ApplicationWindow {
                             var ok = openPath.text.toLowerCase().endsWith(".json") || openPath.text.toLowerCase().endsWith(".wimforge")
                                    ? app.importProject(openPath.text.trim(), importDestination.text.trim())
                                    : app.openProject(openPath.text.trim())
-                            if (ok) { openProjectSheet.close(); root.currentPage = 0 }
+                            if (ok) { openProjectSheet.close(); root.syncActiveWorkspaceTab() }
                         }
                     }
                 }
             }
         }
+    }
+
+    FolderDialog {
+        id: openProjectFolderDialog
+        title: root.tr2("Choose a WimForge project folder", "揀 WimForge 工程資料夾")
+        onAccepted: openPath.text = app.pathFromUrl(selectedFolder)
+    }
+    FileDialog {
+        id: importProjectFileDialog
+        title: root.tr2("Choose a project export", "揀工程匯出檔")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [root.tr2("WimForge projects (*.wimforge *.json)", "WimForge 工程 (*.wimforge *.json)"), root.tr2("All files (*)", "所有檔案 (*)")]
+        onAccepted: openPath.text = app.pathFromUrl(selectedFile)
+    }
+    FolderDialog {
+        id: importDestinationFolderDialog
+        title: root.tr2("Choose the project import destination", "揀工程匯入目的地")
+        onAccepted: importDestination.text = app.pathFromUrl(selectedFolder)
     }
 
     Popup {
@@ -539,7 +1105,13 @@ ApplicationWindow {
         modal: true; dim: true; focus: true
         closePolicy: Popup.CloseOnEscape
         padding: 24
-        background: Rectangle { radius: 24; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: destructiveBadge.visible ? root.errorColor : Material.accent; border.width: 2 }
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.darkTheme)
+            border.color: destructiveBadge.visible
+                          ? root.errorColor : DesignTokens.outlineVariant(root.darkTheme)
+            border.width: destructiveBadge.visible ? 2 : 1
+        }
 
         contentItem: ScrollView {
             id: runScroll
@@ -576,6 +1148,8 @@ ApplicationWindow {
         id: exportSheet
         property string heading
         property string placeholder
+        property var nameFilters: [root.tr2("All files (*)", "所有檔案 (*)")]
+        property string defaultSuffix: ""
         property var acceptAction: function(path) { return false }
         anchors.centerIn: Overlay.overlay
         width: Math.min(600, root.width - 32)
@@ -584,7 +1158,12 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
         padding: 24
         onOpened: exportPathField.forceActiveFocus()
-        background: Rectangle { radius: 24; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.accent; border.width: 1 }
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.darkTheme)
+            border.color: DesignTokens.outlineVariant(root.darkTheme)
+            border.width: 1
+        }
 
         contentItem: ScrollView {
             id: exportScroll
@@ -598,7 +1177,11 @@ ApplicationWindow {
                 width: exportSheet.availableWidth
                 spacing: 12
                 Label { Layout.fillWidth: true; text: exportSheet.heading; font.pixelSize: 22; font.weight: Font.Bold; wrapMode: Text.Wrap }
-                TextField { id: exportPathField; Layout.fillWidth: true; Accessible.name: exportSheet.placeholder; placeholderText: exportSheet.placeholder }
+                RowLayout {
+                    Layout.fillWidth: true
+                    TextField { id: exportPathField; Layout.fillWidth: true; Accessible.name: exportSheet.placeholder; placeholderText: exportSheet.placeholder }
+                    Button { text: root.tr2("Browse…", "瀏覽…"); onClicked: exportFileDialog.open() }
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
@@ -607,18 +1190,30 @@ ApplicationWindow {
                 }
             }
         }
+        FileDialog {
+            id: exportFileDialog
+            title: exportSheet.heading
+            fileMode: FileDialog.SaveFile
+            nameFilters: exportSheet.nameFilters
+            defaultSuffix: exportSheet.defaultSuffix
+            onAccepted: exportPathField.text = app.pathFromUrl(selectedFile)
+        }
     }
 
     PathExportSheet {
         id: exportProjectSheet
         heading: root.tr2("Export complete project + Git histories", "匯出完整工程同所有 Git 歷史")
         placeholder: "D:\\profiles\\windows-build.wimforge"
+        nameFilters: [root.tr2("WimForge project bundle (*.wimforge)", "WimForge 工程 bundle (*.wimforge)"), root.tr2("JSON configuration (*.json)", "JSON 設定 (*.json)")]
+        defaultSuffix: "wimforge"
         acceptAction: path => app.exportProject(path)
     }
     PathExportSheet {
         id: exportScriptSheet
         heading: root.tr2("Export PowerShell build script", "匯出 PowerShell 建置 script")
         placeholder: "D:\\profiles\\build-image.ps1"
+        nameFilters: [root.tr2("PowerShell scripts (*.ps1)", "PowerShell script (*.ps1)")]
+        defaultSuffix: "ps1"
         acceptAction: path => app.exportScript(path)
     }
 
@@ -631,7 +1226,12 @@ ApplicationWindow {
         modal: true; dim: true; focus: true
         closePolicy: Popup.CloseOnEscape
         padding: 24
-        background: Rectangle { radius: 24; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: root.warningColor; border.width: 2 }
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.darkTheme)
+            border.color: root.warningColor
+            border.width: 2
+        }
 
         contentItem: ScrollView {
             id: recoveryScroll
@@ -644,16 +1244,16 @@ ApplicationWindow {
                 id: recoveryContent
                 width: recoverySheet.availableWidth
                 spacing: 12
-                Label { Layout.fillWidth: true; text: "🛟  " + recoverySheet.heading; font.pixelSize: 22; font.weight: Font.Bold; wrapMode: Text.Wrap }
+                Label { Layout.fillWidth: true; text: recoverySheet.heading; font.pixelSize: 22; font.weight: Font.Bold; wrapMode: Text.Wrap }
                 Label { Layout.fillWidth: true; text: app.recoverySummary; wrapMode: Text.Wrap }
                 GridLayout {
                     Layout.fillWidth: true
                     columns: width >= 620 && app.languageMode !== 2 ? 4 : 1
                     rowSpacing: 6
                     columnSpacing: 6
-                    Button { Layout.fillWidth: true; text: "▶  " + root.buttonText(root.tr2("Rebuild & review plan", "重排同檢查計劃")); onClicked: { recoverySheet.close(); app.resumeRecovery() } }
-                    Button { Layout.fillWidth: true; text: "↶  " + root.tr2("Undo latest config", "Undo 最新設定"); onClicked: { recoverySheet.close(); app.rollbackRecovery() } }
-                    Button { Layout.fillWidth: true; text: "⏏  " + root.tr2("Safe unmount", "安全卸載"); onClicked: { recoverySheet.close(); app.safeUnmountRecovery() } }
+                    Button { Layout.fillWidth: true; text: root.tr2("Rebuild & review plan", "重排同檢查計劃"); onClicked: { recoverySheet.close(); app.resumeRecovery() } }
+                    Button { Layout.fillWidth: true; text: root.tr2("Undo latest config", "Undo 最新設定"); onClicked: { recoverySheet.close(); app.rollbackRecovery() } }
+                    Button { Layout.fillWidth: true; text: root.tr2("Safe unmount", "安全卸載"); onClicked: { recoverySheet.close(); app.safeUnmountRecovery() } }
                     Button { Layout.fillWidth: true; text: root.tr2("Later", "遲啲先"); flat: true; onClicked: recoverySheet.close() }
                 }
             }

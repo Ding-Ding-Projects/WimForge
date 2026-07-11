@@ -230,9 +230,29 @@ void chainMediaWrite(QList<ServicingOperation> &operations,
 
 QStringList powershellArguments(const QString &script)
 {
+    const QString hardenedPrelude = QStringLiteral(
+        "$ErrorActionPreference='Stop'; "
+        "$wimforgeSystem32=[Environment]::SystemDirectory; "
+        "$wimforgePowerShell=[IO.Path]::Combine($wimforgeSystem32,'WindowsPowerShell','v1.0'); "
+        "$env:PATH=$wimforgeSystem32+';'+$wimforgePowerShell; "
+        "$env:PSModulePath=[IO.Path]::Combine($wimforgePowerShell,'Modules'); "
+        "$wimforgeManagementModule=[IO.Path]::Combine($env:PSModulePath,'Microsoft.PowerShell.Management','Microsoft.PowerShell.Management.psd1'); "
+        "$wimforgeUtilityModule=[IO.Path]::Combine($env:PSModulePath,'Microsoft.PowerShell.Utility','Microsoft.PowerShell.Utility.psd1'); "
+        "Microsoft.PowerShell.Core\\Import-Module -Name $wimforgeManagementModule -Force -ErrorAction Stop; "
+        "Microsoft.PowerShell.Core\\Import-Module -Name $wimforgeUtilityModule -Force -ErrorAction Stop; "
+        "$PSModuleAutoLoadingPreference='None'; "
+        "$wimforgeRobocopy=[IO.Path]::Combine($wimforgeSystem32,'robocopy.exe'); ");
     return {QStringLiteral("-NoLogo"), QStringLiteral("-NoProfile"),
             QStringLiteral("-NonInteractive"), QStringLiteral("-ExecutionPolicy"),
-            QStringLiteral("Bypass"), QStringLiteral("-Command"), script};
+            QStringLiteral("Bypass"), QStringLiteral("-Command"),
+            hardenedPrelude + script};
+}
+
+QString storageModuleImportScript()
+{
+    return QStringLiteral(
+        "$wimforgeStorageModule=[IO.Path]::Combine($env:PSModulePath,'Storage','Storage.psd1'); "
+        "Microsoft.PowerShell.Core\\Import-Module -Name $wimforgeStorageModule -Force -ErrorAction Stop; ");
 }
 
 QString swapPartialScript()
@@ -300,7 +320,7 @@ QString atomicDirectoryCloneScript(const QString &source, const QString &destina
         "$partial=$destination+'.wimforge-partial'; $backup=$destination+'.wimforge-backup'; "
         "if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }; "
         "New-Item -ItemType Directory -Force -Path $partial | Out-Null; "
-        "& robocopy.exe $source $partial /E /COPY:DAT /DCOPY:DAT /R:2 /W:1 /XJ /NFL /NDL /NP; "
+        "& $wimforgeRobocopy $source $partial /E /COPY:DAT /DCOPY:DAT /R:2 /W:1 /XJ /NFL /NDL /NP; "
         "$copyCode=$LASTEXITCODE; if ($copyCode -gt 7) { throw ('robocopy failed: '+$copyCode) }; ");
     script += swapPartialScript();
     return script;
@@ -308,9 +328,10 @@ QString atomicDirectoryCloneScript(const QString &source, const QString &destina
 
 QString isoExtractScript(const QString &sourceIso, const QString &destination)
 {
-    QString script = QStringLiteral("$ErrorActionPreference='Stop'; $source=%1; $destination=%2; ")
-                         .arg(ServicingPlan::quotePowerShellLiteral(sourceIso),
-                              ServicingPlan::quotePowerShellLiteral(destination));
+    QString script = storageModuleImportScript();
+    script += QStringLiteral("$source=%1; $destination=%2; ")
+                  .arg(ServicingPlan::quotePowerShellLiteral(sourceIso),
+                       ServicingPlan::quotePowerShellLiteral(destination));
     script += QStringLiteral(
         "if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw ('Missing ISO: '+$source) }; "
         "$parent=Split-Path -Parent $destination; New-Item -ItemType Directory -Force -Path $parent | Out-Null; "
@@ -318,13 +339,19 @@ QString isoExtractScript(const QString &sourceIso, const QString &destination)
         "if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }; "
         "New-Item -ItemType Directory -Force -Path $partial | Out-Null; $mounted=$false; "
         "try { "
-        "$disk=Mount-DiskImage -ImagePath $source -PassThru -ErrorAction Stop; $mounted=$true; "
-        "$volume=$disk | Get-Volume | Where-Object DriveLetter | Select-Object -First 1; "
+        "$disk=Storage\\Mount-DiskImage -ImagePath $source -Access ReadOnly -PassThru -ErrorAction Stop; $mounted=$true; "
+        "$volume=$disk | Storage\\Get-Volume -ErrorAction Stop | Where-Object DriveLetter | Select-Object -First 1; "
         "if ($null -eq $volume) { throw 'Mounted ISO has no readable volume' }; "
         "$mediaRoot=($volume.DriveLetter+':\\'); "
-        "& robocopy.exe $mediaRoot $partial /E /COPY:DAT /DCOPY:DAT /R:2 /W:1 /XJ /NFL /NDL /NP; "
+        "& $wimforgeRobocopy $mediaRoot $partial /E /COPY:DAT /DCOPY:DAT /R:2 /W:1 /XJ /NFL /NDL /NP; "
         "$copyCode=$LASTEXITCODE; if ($copyCode -gt 7) { throw ('robocopy failed: '+$copyCode) } "
-        "} finally { if ($mounted) { Dismount-DiskImage -ImagePath $source -ErrorAction SilentlyContinue } }; ");
+        "} finally { if ($mounted) { "
+        "Storage\\Dismount-DiskImage -ImagePath $source -ErrorAction Stop | Out-Null; "
+        "$detachDeadline=[DateTime]::UtcNow.AddSeconds(10); do { "
+        "Microsoft.PowerShell.Utility\\Start-Sleep -Milliseconds 200; "
+        "$stillAttached=(Storage\\Get-DiskImage -ImagePath $source -ErrorAction Stop).Attached "
+        "} while ($stillAttached -and [DateTime]::UtcNow -lt $detachDeadline); "
+        "if ($stillAttached) { throw 'Windows did not confirm that the ISO was detached' } } }; ");
     script += swapPartialScript();
     return script;
 }
@@ -1045,6 +1072,8 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
     const QString workingRoot = extraString(
         project, QStringLiteral("workingRoot"),
         QDir(project.projectDirectory).filePath(QStringLiteral(".wimforge/work")));
+    const QString configuredRelative = extraString(
+        project, QStringLiteral("imageRelativePath"));
     const QString workspace = extraString(
         project, QStringLiteral("mediaWorkspace"),
         QDir(workingRoot).filePath(QStringLiteral("media")));
@@ -1064,8 +1093,12 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
     } else if (!online && !QFileInfo::exists(project.sourcePath)) {
         result.errors.append(QStringLiteral("Source does not exist: %1").arg(project.sourcePath));
     }
-    if (!online && (project.imagePath.trimmed().isEmpty()
-                    || !QFileInfo(project.imagePath).isAbsolute())) {
+    const QFileInfo configuredSource(project.sourcePath);
+    const bool sourceMayContainRelativeImage = configuredSource.isDir()
+        || configuredSource.suffix().compare(QStringLiteral("iso"), Qt::CaseInsensitive) == 0;
+    if (!online && (!sourceMayContainRelativeImage || configuredRelative.isEmpty())
+        && (project.imagePath.trimmed().isEmpty()
+            || !QFileInfo(project.imagePath).isAbsolute())) {
         result.errors.append(QStringLiteral("Choose an absolute WIM/ESD/SWM image path."));
     }
     if (!online && (project.mountPath.trimmed().isEmpty()
@@ -1114,7 +1147,6 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         result.errors.append(QStringLiteral("ISO creation requires an offline ISO or media-folder source."));
 
     QString imageRelativePath;
-    const QString configuredRelative = extraString(project, QStringLiteral("imageRelativePath"));
     if (mediaSource) {
         if (!configuredRelative.isEmpty()) {
             imageRelativePath = safeRelative(configuredRelative);
@@ -1131,8 +1163,21 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         }
     }
 
-    const QString imageSuffix = QFileInfo(project.imagePath).suffix().toLower();
-    const bool splitInput = imageSuffix == QStringLiteral("swm") || sourceKind == SourceKind::SwmFile;
+    // ISO inspection deliberately persists only the stable media-relative image
+    // path.  Derive the effective container type from that path when there is no
+    // external image so ESD/SWM media is converted before DISM tries to mount it.
+    const QString imageDescriptor = project.imagePath.trimmed().isEmpty()
+        ? configuredRelative : project.imagePath;
+    const QString imageSuffix = QFileInfo(imageDescriptor).suffix().toLower();
+    const bool splitInput = imageSuffix == QStringLiteral("swm")
+        || sourceKind == SourceKind::SwmFile;
+    const bool esdInput = imageSuffix == QStringLiteral("esd")
+        || sourceKind == SourceKind::EsdFile;
+    const bool convertedInput = splitInput || esdInput;
+    if (!online && convertedInput && !project.cloneSource) {
+        result.errors.append(QStringLiteral(
+            "ESD and SWM inputs must be cloned and converted to a serviceable WIM."));
+    }
     const bool imageIsIncludedInMedia = sourceKind == SourceKind::MediaDirectory
         && isAncestorOrSame(project.sourcePath, project.imagePath);
     const bool imageExistsOutsideMedia = QFileInfo::exists(project.imagePath)
@@ -1150,7 +1195,7 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             result.workingImagePath = project.imagePath;
             result.warnings.append(QStringLiteral(
                 "Explicit in-place servicing is enabled; the source image can be changed."));
-        } else if (splitInput) {
+        } else if (convertedInput) {
             result.workingImagePath = extraString(
                 project, QStringLiteral("workingImagePath"),
                 QDir(workingRoot).filePath(QStringLiteral("images/install-working.wim")));
@@ -1368,7 +1413,7 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         mediaPreparation = lastMediaWrite;
     }
 
-    if (!online && project.cloneSource && !splitInput) {
+    if (!online && project.cloneSource && !convertedInput) {
         bool needsImageCopy = !mediaSource || imageExistsOutsideMedia;
         if (needsImageCopy) {
             ServicingOperation prepare = operation(
@@ -1397,17 +1442,21 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         }
     }
 
-    if (!online && project.cloneSource && splitInput) {
-        const QString splitSource = mediaSource
+    const bool inputWasConverted = !online && project.cloneSource && convertedInput;
+    if (inputWasConverted) {
+        const QString conversionSource = mediaSource && !imageExistsOutsideMedia
             ? QDir(workspace).filePath(imageRelativePath) : project.imagePath;
-        const QFileInfo splitInfo(splitSource);
-        const QString splitWildcard = QDir(splitInfo.absolutePath()).filePath(
-            splitInfo.completeBaseName() + QStringLiteral("*.swm"));
+        const QFileInfo conversionInfo(conversionSource);
+        const QString splitWildcard = QDir(conversionInfo.absolutePath()).filePath(
+            conversionInfo.completeBaseName() + QStringLiteral("*.swm"));
         const QString partial = partialOutputPath(result.workingImagePath);
 
         ServicingOperation clear = operation(
             sequence, QStringLiteral("image"), OperationKind::PrepareWorkspace,
-            QStringLiteral("Prepare split-image conversion"), QStringLiteral("準備分割映像轉換"),
+            splitInput ? QStringLiteral("Prepare split-image conversion")
+                       : QStringLiteral("Prepare ESD-to-WIM conversion"),
+            splitInput ? QStringLiteral("準備分割映像轉換")
+                       : QStringLiteral("準備 ESD 至 WIM 轉換"),
             QStringLiteral("Clear only the project-owned partial WIM left by a prior interrupted run."),
             QStringLiteral("只清理上次中斷留低、屬於工程嘅 WIM 暫存檔。"),
             QStringLiteral("powershell.exe"), powershellArguments(prepareOutputScript(partial, false)), false);
@@ -1417,22 +1466,37 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
                                      {QStringLiteral("destination"), partial}};
         result.operations.append(std::move(clear));
 
+        QStringList conversionArguments{
+            QStringLiteral("/English"), QStringLiteral("/Export-Image"),
+            QStringLiteral("/SourceImageFile:%1").arg(conversionSource),
+        };
+        if (splitInput)
+            conversionArguments.append(QStringLiteral("/SWMFile:%1").arg(splitWildcard));
+        conversionArguments.append({
+            QStringLiteral("/SourceIndex:%1").arg(project.selectedImageIndex),
+            QStringLiteral("/DestinationImageFile:%1").arg(partial),
+            QStringLiteral("/Compress:max"), QStringLiteral("/CheckIntegrity"),
+        });
+
         ServicingOperation convert = operation(
             sequence, QStringLiteral("image"), OperationKind::PrepareWorkspace,
-            QStringLiteral("Convert split SWM set to working WIM"), QStringLiteral("將 SWM 分卷轉成工作 WIM"),
-            QStringLiteral("Export the selected index from every matching SWM part into a serviceable WIM."),
-            QStringLiteral("由所有相符 SWM 分卷匯出已揀索引，變成可維護 WIM。"),
-            QStringLiteral("dism.exe"),
-            {QStringLiteral("/English"), QStringLiteral("/Export-Image"),
-             QStringLiteral("/SourceImageFile:%1").arg(splitSource),
-             QStringLiteral("/SWMFile:%1").arg(splitWildcard),
-             QStringLiteral("/SourceIndex:%1").arg(project.selectedImageIndex),
-             QStringLiteral("/DestinationImageFile:%1").arg(partial),
-             QStringLiteral("/Compress:max"), QStringLiteral("/CheckIntegrity")}, true);
+            splitInput ? QStringLiteral("Convert split SWM set to working WIM")
+                       : QStringLiteral("Convert ESD edition to working WIM"),
+            splitInput ? QStringLiteral("將 SWM 分卷轉成工作 WIM")
+                       : QStringLiteral("將 ESD 版本轉成工作 WIM"),
+            splitInput
+                ? QStringLiteral("Export the selected index from every matching SWM part into a serviceable WIM.")
+                : QStringLiteral("Export the selected ESD index into a serviceable project-owned WIM."),
+            splitInput
+                ? QStringLiteral("由所有相符 SWM 分卷匯出已揀索引，變成可維護 WIM。")
+                : QStringLiteral("由 ESD 匯出已揀索引，變成工程專用可維護 WIM。"),
+            QStringLiteral("dism.exe"), conversionArguments, true);
         addDependency(convert, result.operations.constLast().id);
         convert.metadata = QJsonObject{{QStringLiteral("writeScope"), QStringLiteral("image")},
-                                       {QStringLiteral("source"), splitSource},
+                                       {QStringLiteral("source"), conversionSource},
                                        {QStringLiteral("destination"), partial},
+                                       {QStringLiteral("sourceFormat"), splitInput
+                                            ? QStringLiteral("swm") : QStringLiteral("esd")},
                                        {QStringLiteral("sourceImmutable"), true}};
         result.operations.append(std::move(convert));
 
@@ -1451,6 +1515,7 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         imagePreparation = result.operations.constLast().id;
     }
 
+    const int workingImageIndex = inputWasConverted ? 1 : project.selectedImageIndex;
     if (!online) {
         ServicingOperation inspect = operation(
             sequence, QStringLiteral("inspect"), OperationKind::Inspect,
@@ -1474,7 +1539,7 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             QStringLiteral("dism.exe"),
             {QStringLiteral("/English"), QStringLiteral("/Mount-Image"),
              QStringLiteral("/ImageFile:%1").arg(result.workingImagePath),
-             QStringLiteral("/Index:%1").arg(splitInput ? 1 : project.selectedImageIndex),
+             QStringLiteral("/Index:%1").arg(workingImageIndex),
              QStringLiteral("/MountDir:%1").arg(project.mountPath)}, true);
         if (project.options.mountReadOnly)
             mount.arguments.append(QStringLiteral("/ReadOnly"));
@@ -1963,7 +2028,7 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             QStringLiteral("dism.exe"),
             {QStringLiteral("/English"), QStringLiteral("/Export-Image"),
              QStringLiteral("/SourceImageFile:%1").arg(result.workingImagePath),
-             QStringLiteral("/SourceIndex:%1").arg(splitInput ? 1 : project.selectedImageIndex),
+             QStringLiteral("/SourceIndex:%1").arg(workingImageIndex),
              QStringLiteral("/DestinationImageFile:%1").arg(partial),
              QStringLiteral("/Compress:%1").arg(compression), QStringLiteral("/CheckIntegrity")}, true);
         addDependency(exportImage, result.operations.constLast().id);
@@ -1999,6 +2064,8 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
             QStringLiteral("為所有分卷建立工程專用暫存資料夾。"),
             QStringLiteral("powershell.exe"), powershellArguments(prepareOutputScript(temporary, true)), false);
         addDependency(clear, dependency);
+        if (mediaWrite)
+            addDependency(clear, lastMediaWrite);
         result.operations.append(std::move(clear));
 
         const int splitSize = qBound(
@@ -2056,7 +2123,7 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
                 QStringLiteral("分割前將已提交工作版本轉成 WIM。"), QStringLiteral("dism.exe"),
                 {QStringLiteral("/English"), QStringLiteral("/Export-Image"),
                  QStringLiteral("/SourceImageFile:%1").arg(result.workingImagePath),
-                 QStringLiteral("/SourceIndex:%1").arg(splitInput ? 1 : project.selectedImageIndex),
+                 QStringLiteral("/SourceIndex:%1").arg(workingImageIndex),
                  QStringLiteral("/DestinationImageFile:%1").arg(partial),
                  QStringLiteral("/Compress:max"), QStringLiteral("/CheckIntegrity")}, true);
             addDependency(convert, result.operations.constLast().id);
@@ -2075,12 +2142,60 @@ ServicingPlanResult ServicingPlan::build(const ProjectConfig &project)
         lastOutputWrite = appendSplit(sourceForSplit, project.outputPath, dependency, false);
     }
 
-    if (!online && !discard && splitInput && mediaSource && format == QStringLiteral("iso")) {
+    const bool creatingIso = format == QStringLiteral("iso") || project.options.createIso;
+    if (!online && !discard && esdInput && mediaSource && creatingIso) {
+        const QString destinationEsd = QDir(workspace).filePath(imageRelativePath);
+        const QString partial = partialOutputPath(destinationEsd);
+        ServicingOperation clear = operation(
+            sequence, QStringLiteral("media-image"), OperationKind::PrepareWorkspace,
+            QStringLiteral("Prepare ESD media replacement"), QStringLiteral("準備 ESD 媒體替換"),
+            QStringLiteral("Clear only the project-owned partial ESD left by a prior interrupted export."),
+            QStringLiteral("只清理上次中斷留低、屬於工程嘅 ESD 暫存檔。"),
+            QStringLiteral("powershell.exe"),
+            powershellArguments(prepareOutputScript(partial, false)), false);
+        addDependency(clear, lastImageWrite);
+        clear.metadata = QJsonObject{{QStringLiteral("writeScope"), QStringLiteral("media")},
+                                     {QStringLiteral("destination"), partial}};
+        chainMediaWrite(result.operations, std::move(clear), lastMediaWrite);
+
+        ServicingOperation exportEsd = operation(
+            sequence, QStringLiteral("media-image"), OperationKind::Export,
+            QStringLiteral("Export serviced edition back to install.esd"),
+            QStringLiteral("將已維護版本匯出返 install.esd"),
+            QStringLiteral("Rebuild the ISO media's recovery-compressed ESD from the serviceable working WIM."),
+            QStringLiteral("由可維護工作 WIM 重建 ISO 媒體嘅 recovery 壓縮 ESD。"),
+            QStringLiteral("dism.exe"),
+            {QStringLiteral("/English"), QStringLiteral("/Export-Image"),
+             QStringLiteral("/SourceImageFile:%1").arg(result.workingImagePath),
+             QStringLiteral("/SourceIndex:%1").arg(workingImageIndex),
+             QStringLiteral("/DestinationImageFile:%1").arg(partial),
+             QStringLiteral("/Compress:recovery"), QStringLiteral("/CheckIntegrity")}, true);
+        exportEsd.metadata = QJsonObject{{QStringLiteral("writeScope"), QStringLiteral("media")},
+                                         {QStringLiteral("source"), result.workingImagePath},
+                                         {QStringLiteral("destination"), partial},
+                                         {QStringLiteral("destinationFormat"), QStringLiteral("esd")}};
+        chainMediaWrite(result.operations, std::move(exportEsd), lastMediaWrite);
+
+        ServicingOperation publishEsd = operation(
+            sequence, QStringLiteral("media-image"), OperationKind::Export,
+            QStringLiteral("Publish rebuilt install.esd atomically"),
+            QStringLiteral("原子發佈重建 install.esd"),
+            QStringLiteral("Replace the media ESD only after DISM completes the checked export."),
+            QStringLiteral("DISM 完成並檢查匯出後，先替換媒體 ESD。"),
+            QStringLiteral("powershell.exe"),
+            powershellArguments(atomicMoveScript(partial, destinationEsd)), false, true);
+        publishEsd.metadata = QJsonObject{{QStringLiteral("writeScope"), QStringLiteral("media")},
+                                          {QStringLiteral("destination"), destinationEsd},
+                                          {QStringLiteral("crashSafe"), true}};
+        chainMediaWrite(result.operations, std::move(publishEsd), lastMediaWrite);
+    }
+
+    if (!online && !discard && splitInput && mediaSource && creatingIso) {
         const QString destinationSplit = QDir(workspace).filePath(imageRelativePath);
         lastMediaWrite = appendSplit(result.workingImagePath, destinationSplit, lastImageWrite, true);
     }
 
-    if (!online && !discard && (format == QStringLiteral("iso") || project.options.createIso)) {
+    if (!online && !discard && creatingIso) {
         const QString isoOutput = format == QStringLiteral("iso") ? project.outputPath
             : extraString(project, QStringLiteral("isoOutputPath"));
         if (isoOutput.trimmed().isEmpty() || !QFileInfo(isoOutput).isAbsolute()) {
@@ -2189,11 +2304,80 @@ bool ServicingPlan::exportPowerShell(const ProjectConfig &project,
     script += QStringLiteral("# Direct executable/argument invocation; review before running as Administrator.\r\n");
     script += QStringLiteral("[CmdletBinding()] param([switch]$WhatIfPlan)\r\n");
     script += QStringLiteral("$ErrorActionPreference = 'Stop'\r\n");
-    script += QStringLiteral("$ProgressPreference = 'Continue'\r\n\r\n");
+    script += QStringLiteral("$ProgressPreference = 'Continue'\r\n");
+    script += QStringLiteral(R"PS($wimforgeSystem32 = [Environment]::SystemDirectory
+$wimforgePowerShell = [IO.Path]::Combine($wimforgeSystem32, 'WindowsPowerShell', 'v1.0')
+foreach ($keyObject in @([Environment]::GetEnvironmentVariables().Keys)) {
+  $key = [string]$keyObject
+  $upper = $key.ToUpperInvariant()
+  if ($upper.StartsWith('COR_') -or $upper.StartsWith('COMPLUS_') -or $upper.StartsWith('DOTNET_')) {
+    [Environment]::SetEnvironmentVariable($key, $null, [EnvironmentVariableTarget]::Process)
+  }
+}
+$env:PATH = $wimforgeSystem32 + ';' + $wimforgePowerShell
+$env:PSModulePath = [IO.Path]::Combine($wimforgePowerShell, 'Modules')
+$wimforgeManagementModule = [IO.Path]::Combine($env:PSModulePath, 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Management.psd1')
+$wimforgeUtilityModule = [IO.Path]::Combine($env:PSModulePath, 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Utility.psd1')
+Microsoft.PowerShell.Core\Import-Module -Name $wimforgeManagementModule -Force -ErrorAction Stop
+Microsoft.PowerShell.Core\Import-Module -Name $wimforgeUtilityModule -Force -ErrorAction Stop
+$PSModuleAutoLoadingPreference = 'None'
+
+function Test-WimForgeProtectedFile([string]$Path, [string]$Root) {
+  if ([String]::IsNullOrWhiteSpace($Path) -or [String]::IsNullOrWhiteSpace($Root)) { return $false }
+  $full = [IO.Path]::GetFullPath($Path)
+  $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd([char]'\', [char]'/')
+  if (-not $full.StartsWith($rootFull + '\', [StringComparison]::OrdinalIgnoreCase)) { return $false }
+  if (-not [IO.File]::Exists($full)) { return $false }
+  $cursor = $full
+  while ($true) {
+    if (([IO.File]::GetAttributes($cursor) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+    if ($cursor.Equals($rootFull, [StringComparison]::OrdinalIgnoreCase)) { break }
+    $parent = [IO.Directory]::GetParent($cursor)
+    if ($null -eq $parent) { return $false }
+    $cursor = $parent.FullName
+  }
+  return $true
+}
+
+function Resolve-WimForgeExecutable([string]$Exe) {
+  if ([IO.Path]::IsPathRooted($Exe)) {
+    $absolute = [IO.Path]::GetFullPath($Exe)
+    if (-not [IO.File]::Exists($absolute)) { throw "Reviewed executable does not exist: $absolute" }
+    return $absolute
+  }
+  if ([String]::IsNullOrWhiteSpace($Exe) -or $Exe.IndexOfAny([char[]]@('\','/')) -ge 0) {
+    throw "Relative executable paths are forbidden: $Exe"
+  }
+  $name = $Exe.ToLowerInvariant()
+  if (-not $name.EndsWith('.exe')) { $name += '.exe' }
+  if ($name -eq 'powershell.exe') {
+    return [IO.Path]::Combine($wimforgePowerShell, 'powershell.exe')
+  }
+  if ($name -in @('dism.exe','reg.exe','robocopy.exe')) {
+    return [IO.Path]::Combine($wimforgeSystem32, $name)
+  }
+  if ($name -eq 'oscdimg.exe') {
+    $relative = [IO.Path]::Combine('Windows Kits','10','Assessment and Deployment Kit','Deployment Tools','amd64','Oscdimg','oscdimg.exe')
+    $roots = @(
+      [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86),
+      [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
+    )
+    foreach ($root in $roots) {
+      if ([String]::IsNullOrWhiteSpace($root)) { continue }
+      $candidate = [IO.Path]::Combine($root, $relative)
+      if (Test-WimForgeProtectedFile $candidate $root) { return [IO.Path]::GetFullPath($candidate) }
+    }
+    throw 'Oscdimg was not found in the protected Windows ADK amd64 deployment-tools location.'
+  }
+  throw "Untrusted relative executable in servicing plan: $Exe"
+}
+
+)PS");
     script += QStringLiteral("function Invoke-WimForgeStep([string]$Id,[string]$Exe,[string[]]$Args) {\r\n");
     script += QStringLiteral("  Write-Host ('[{0}] {1} {2}' -f $Id,$Exe,($Args -join ' ')) -ForegroundColor Cyan\r\n");
+    script += QStringLiteral("  $resolvedExe = Resolve-WimForgeExecutable $Exe\r\n");
     script += QStringLiteral("  if ($WhatIfPlan) { return }\r\n");
-    script += QStringLiteral("  & $Exe @Args\r\n");
+    script += QStringLiteral("  & $resolvedExe @Args\r\n");
     script += QStringLiteral("  if ($LASTEXITCODE -ne 0) { throw \"Step $Id failed with exit code $LASTEXITCODE\" }\r\n");
     script += QStringLiteral("}\r\n\r\n");
 

@@ -5,16 +5,16 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-Pane {
+WfCard {
     id: root
     property bool opened: false
     property var entries: []
     property int unreadCount: 0
     property bool motionEnabled: true
-    readonly property color secondaryTextColor: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
-    readonly property color errorColor: Material.theme === Material.Dark ? "#FFB4AB" : "#BA1A1A"
-    readonly property color warningColor: Material.theme === Material.Dark ? "#FFB95C" : "#744B00"
-    readonly property color successColor: Material.theme === Material.Dark ? "#8BD7A6" : "#386A20"
+    readonly property color secondaryTextColor: DesignTokens.onSurfaceVariant(dark)
+    readonly property color errorColor: DesignTokens.error(dark)
+    readonly property color warningColor: DesignTokens.tertiary(dark)
+    readonly property color successColor: DesignTokens.success(dark)
     signal closeRequested()
     signal markReadRequested(string id)
     signal markUnreadRequested(string id)
@@ -30,18 +30,19 @@ Pane {
     height: parent.height - 92
     z: 900
     padding: 0
+    radius: DesignTokens.radiusPill
+    surfaceLevel: "low"
+    outlineColor: DesignTokens.outline(dark)
     Accessible.name: unreadCount > 0
                      ? qsTr("Notification center, %1 unread").arg(unreadCount)
                      : qsTr("Notification center, no unread notifications")
 
-    Behavior on x { NumberAnimation { duration: root.motionEnabled ? 240 : 0; easing.type: Easing.OutCubic } }
-
-    background: Rectangle {
-        radius: 24
-        color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"
-        border.width: 1
-        border.color: Material.theme === Material.Dark ? "#49454F" : "#CAC4D0"
-        layer.enabled: true
+    Behavior on x {
+        NumberAnimation {
+            duration: DesignTokens.motionDuration(DesignTokens.motionMedium,
+                                                  root.motionEnabled)
+            easing.type: Easing.OutCubic
+        }
     }
 
     ColumnLayout {
@@ -50,34 +51,37 @@ Pane {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: 18
+            Layout.margins: DesignTokens.spacing16
             Label {
                 text: qsTr("Notification center")
-                font.pixelSize: 21
+                color: DesignTokens.onSurface(root.dark)
+                font.family: DesignTokens.fontDisplay
+                font.pixelSize: 20
                 font.weight: Font.Bold
             }
-            Rectangle {
+            WfStatusChip {
                 visible: root.unreadCount > 0
-                implicitWidth: Math.max(26, countText.implicitWidth + 12)
-                implicitHeight: 24
-                radius: 12
-                color: Material.accent
-                Label { id: countText; anchors.centerIn: parent; text: root.unreadCount; color: "white"; font.bold: true; Accessible.ignored: true }
+                text: String(root.unreadCount)
+                tone: "primary"
+                uppercase: false
+                dark: root.dark
             }
             Item { Layout.fillWidth: true }
-            ToolButton {
-                text: "↶"
-                Accessible.name: qsTr("Undo latest notification action")
+            WfIconButton {
+                glyph: "↶"
+                accessibleName: qsTr("Undo latest notification action")
+                toolTip: accessibleName
+                dark: root.dark
+                motionEnabled: root.motionEnabled
                 onClicked: root.undoRequested()
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
             }
-            ToolButton {
-                text: "×"
-                Accessible.name: qsTr("Close notification center")
+            WfIconButton {
+                glyph: "×"
+                accessibleName: qsTr("Close notification center")
+                toolTip: accessibleName
+                dark: root.dark
+                motionEnabled: root.motionEnabled
                 onClicked: root.closeRequested()
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
             }
         }
 
@@ -88,14 +92,15 @@ Pane {
             Layout.fillWidth: true
             text: qsTr("Every read, dismiss, restore and delete is committed to a separate local Git repository.")
             wrapMode: Text.Wrap
-            color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+            color: root.secondaryTextColor
+            font.family: DesignTokens.fontBody
             font.pixelSize: 12
         }
 
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 1
-            color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC"
+            color: DesignTokens.outlineVariant(root.dark)
         }
 
         ListView {
@@ -103,19 +108,27 @@ Pane {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: 8
-            topMargin: 12
-            bottomMargin: 14
-            leftMargin: 12
-            rightMargin: 12
+            spacing: DesignTokens.spacing8
+            topMargin: DesignTokens.spacing12
+            bottomMargin: DesignTokens.spacing12
+            leftMargin: DesignTokens.spacing12
+            rightMargin: DesignTokens.spacing12
             model: root.entries
 
-            delegate: Pane {
+            delegate: WfCard {
                 id: notificationCard
                 required property var modelData
                 width: list.width - list.leftMargin - list.rightMargin
-                padding: 14
+                padding: DesignTokens.spacing12
                 opacity: modelData.dismissed ? 0.58 : 1
+                dark: root.dark
+                radius: DesignTokens.radiusCard
+                surfaceLevel: modelData.read ? "container" : "high"
+                fillColor: modelData.read
+                           ? DesignTokens.surfaceContainer(dark)
+                           : DesignTokens.primaryContainer(dark)
+                outlined: !modelData.read
+                outlineColor: DesignTokens.primary(dark)
                 readonly property string severityLabel: modelData.kind === "error" ? qsTr("Error")
                                                        : modelData.kind === "warning" ? qsTr("Warning")
                                                        : modelData.kind === "success" ? qsTr("Success")
@@ -126,21 +139,12 @@ Pane {
                 readonly property color severityColor: modelData.kind === "error" ? root.errorColor
                                                        : modelData.kind === "warning" ? root.warningColor
                                                        : modelData.kind === "success" ? root.successColor
-                                                       : Material.accent
+                                                       : DesignTokens.secondary(root.dark)
                 Accessible.name: severityLabel + ", " + stateLabel + ": " + modelData.title + ". " + modelData.message
-
-                background: Rectangle {
-                    radius: 16
-                    color: modelData.read
-                           ? (Material.theme === Material.Dark ? "#2B292F" : "#F7F2FA")
-                           : (Material.theme === Material.Dark ? "#332D41" : "#F1EAFE")
-                    border.color: modelData.read ? "transparent" : Material.accent
-                    border.width: modelData.read ? 0 : 1
-                }
 
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 7
+                    spacing: DesignTokens.spacing8
                     RowLayout {
                         Layout.fillWidth: true
                         Rectangle {
@@ -152,63 +156,83 @@ Pane {
                         }
                         Label {
                             text: modelData.title
+                            color: DesignTokens.onSurface(notificationCard.dark)
+                            font.family: DesignTokens.fontBody
                             font.weight: Font.DemiBold
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                         }
                         Label {
                             text: modelData.timestamp
+                            font.family: DesignTokens.fontMono
                             font.pixelSize: 11
-                            color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                            color: root.secondaryTextColor
                         }
                     }
                     Label {
                         text: modelData.message
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
-                        color: Material.theme === Material.Dark ? "#E6E0E9" : "#49454F"
+                        color: DesignTokens.onSurfaceVariant(notificationCard.dark)
+                        font.family: DesignTokens.fontBody
                     }
-                    Label {
-                        Layout.fillWidth: true
+                    WfStatusChip {
                         text: notificationCard.severityLabel + "  ·  " + notificationCard.stateLabel
-                        color: notificationCard.severityColor
-                        font.pixelSize: 11
-                        font.weight: Font.DemiBold
+                        tone: modelData.kind === "warning" ? "warning"
+                              : modelData.kind === "success" ? "success"
+                              : modelData.kind === "error" ? "error" : "info"
+                        uppercase: false
+                        dark: notificationCard.dark
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        Button {
+                        WfButton {
                             visible: !modelData.read
                             text: qsTr("Mark read")
-                            flat: true
+                            variant: "text"
+                            compact: true
+                            dark: notificationCard.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: root.markReadRequested(modelData.id)
                         }
-                        Button {
+                        WfButton {
                             visible: modelData.read && !modelData.deleted
                             text: qsTr("Mark unread")
-                            flat: true
+                            variant: "text"
+                            compact: true
+                            dark: notificationCard.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: root.markUnreadRequested(modelData.id)
                         }
-                        Button {
+                        WfButton {
                             visible: !modelData.dismissed
                             text: qsTr("Dismiss")
-                            flat: true
+                            variant: "text"
+                            compact: true
+                            dark: notificationCard.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: root.dismissRequested(modelData.id)
                         }
-                        Button {
+                        WfButton {
                             visible: modelData.dismissed || modelData.deleted
                             text: qsTr("Restore")
-                            flat: true
+                            variant: "tonal"
+                            compact: true
+                            dark: notificationCard.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: root.restoreRequested(modelData.id)
                         }
                         Item { Layout.fillWidth: true }
-                        ToolButton {
+                        WfIconButton {
                             visible: !modelData.deleted
-                            text: "⌫"
-                            Accessible.name: qsTr("Soft-delete notification; recoverable in Git")
+                            glyph: "⌫"
+                            variant: "destructive"
+                            accessibleName: qsTr("Soft-delete notification; recoverable in Git")
+                            toolTip: accessibleName
+                            buttonSize: 34
+                            dark: notificationCard.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: root.deleteRequested(modelData.id)
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
                         }
                     }
                 }
@@ -218,7 +242,8 @@ Pane {
                 anchors.centerIn: parent
                 visible: list.count === 0
                 text: qsTr("No notifications yet")
-                color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                color: root.secondaryTextColor
+                font.family: DesignTokens.fontBody
             }
         }
     }

@@ -22,6 +22,8 @@ The navigation rail remains available throughout the desktop workflow. At narrow
 
 The project summary at the bottom of the rail shows the active project, Git status, and job progress. Informational sheets, snackbars, the notification drawer, and contextual history are in-app surfaces rather than native blocking dialogs.
 
+The tab strip below the header works like a browser: navigation opens or activates a project-local page tab, and each tab can be moved, closed, renamed, or given its own font family, size, color, bold, italic, and strikeout styling. The tab menu imports or exports portable definitions and complete Git-backed tab repositories. See [Workspace Tabs](Workspace-Tabs).
+
 ## The twelve pages
 
 | Route | What to do there | Detailed guide |
@@ -47,6 +49,9 @@ The project summary at the bottom of the rail shows the active project, Git stat
 | `Ctrl+Shift+Z` | Open the active-page/global contextual history manager |
 | Right-click outside a text editor | Open that contextual manager at the pointer |
 | `Ctrl+Enter` | Request confirmation for the current reviewed plan |
+| `Ctrl+W` | Close the active workspace tab |
+| `Ctrl+Tab` | Activate the next workspace tab |
+| `Ctrl+Shift+Tab` | Activate the previous workspace tab |
 
 Undo appends compensating history; it does not rewrite the past or reverse external bytes already committed by DISM or an installer. See [History Time Machine](History-Time-Machine) and [Safety and Recovery](Safety-and-Recovery).
 
@@ -62,6 +67,10 @@ Undo appends compensating history; it does not rewrite the past or reverse exter
 8. Open **Embedded terminal** and read its elevation/bounds notice. Start a session only if you intend to run an administrator command.
 
 The current checked-in image gallery is on [Screenshots](Screenshots).
+
+## 香港粵語導覽
+
+開 app 先會見到工程起始頁，可以建立、開啟、匯入或繼續最近工程。入到工程後，左邊 rail 有十二個功能頁；上面分頁列好似 browser 咁，可以開啟、排位、關閉、改名同改字體樣式。`Ctrl+W` 關而家呢個分頁，`Ctrl+Tab` / `Ctrl+Shift+Tab` 前後切換；工程內 `.wimforge/tabs/.git` 會記錄每次變更。所有確認、通知、復原同 history 都係 app 內非封鎖畫面，唔會將整個 job queue 卡死。
 
 ---
 

@@ -99,7 +99,7 @@ Windows Setup processes settings in phases. A component setting is legal only in
 | `generalize` | Runs with Sysprep generalization to remove machine-specific state so an image can be reused. | 封裝前清走每部機獨有資料，唔好影印埋身份證。 |
 | `specialize` | Applies machine-specific configuration after the image is associated with the target computer. | 呢部機正式「認頭」；固定電腦名通常放呢度。 |
 | `auditSystem` | Applies system-context audit-mode settings before audit-mode user logon. | Audit mode 系統層先做。 |
-| `auditUser` | Applies user-context settings after audit-mode logon. | Audit mode 登入後再做使用者層設定。 |
+| `auditUser` | Applies user-context settings after audit-mode logon. | Audit mode 登入後再做用戶層設定。 |
 | `oobeSystem` | Applies settings before and during OOBE/Windows Welcome, including supported OOBE and first-logon configuration. | 交機前最後一關；OOBE 同首次登入相關設定喺呢度。 |
 
 Microsoft's [Answer Files Overview](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/wsim/answer-files-overview) lists the same seven passes and explains that a setting may be valid in one or more of them.

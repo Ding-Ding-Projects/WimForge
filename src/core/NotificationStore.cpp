@@ -33,6 +33,21 @@ QString timestamp(const QDateTime &value)
     return value.isValid() ? value.toUTC().toString(Qt::ISODateWithMs) : QString();
 }
 
+QString notificationActionCantonese(const QString &action)
+{
+    if (action == QStringLiteral("read"))
+        return QStringLiteral("標示做已讀");
+    if (action == QStringLiteral("unread"))
+        return QStringLiteral("標示做未讀");
+    if (action == QStringLiteral("dismiss"))
+        return QStringLiteral("收起");
+    if (action == QStringLiteral("restore"))
+        return QStringLiteral("還原");
+    if (action == QStringLiteral("delete"))
+        return QStringLiteral("刪除");
+    return QStringLiteral("更新");
+}
+
 QDateTime parseTimestamp(const QJsonObject &object,
                          const QString &key,
                          QStringList *errors,
@@ -321,10 +336,10 @@ bool NotificationStore::initialize(QString *error) const
         return false;
     }
     if (commits.isEmpty()) {
-        if (!git.commit(QStringLiteral("Initialize notification center"), error))
+        if (!git.commit(QStringLiteral("Initialize notification center / 初始化通知中心"), error))
             return false;
     } else if (created) {
-        if (!git.commit(QStringLiteral("Repair notification center state files"), error))
+        if (!git.commit(QStringLiteral("Repair notification center state files / 修復通知中心狀態檔案"), error))
             return false;
     }
 
@@ -395,7 +410,9 @@ QString NotificationStore::addNotification(const QString &title,
 
     GitHistory git(m_storeDirectory,
                    {QString::fromLatin1(StateFileName), QString::fromLatin1(EventFileName)});
-    if (!git.commit(QStringLiteral("notifications: new %1").arg(notification.id), &actionError)) {
+    if (!git.commit(QStringLiteral("notifications: new %1 / 通知：新增 %1")
+                        .arg(notification.id),
+                    &actionError)) {
         writeBytes(stateFilePath(), previousState, nullptr);
         writeBytes(eventFilePath(), previousEvents, nullptr);
         setError(error, QStringLiteral("Notification was not recorded because its history commit failed: %1")
@@ -476,7 +493,9 @@ bool NotificationStore::mutate(const QString &id,
 
     GitHistory git(m_storeDirectory,
                    {QString::fromLatin1(StateFileName), QString::fromLatin1(EventFileName)});
-    if (!git.commit(QStringLiteral("notifications: %1 %2").arg(action, id), &actionError)) {
+    const QString commitMessage = QStringLiteral("notifications: %1 %2 / 通知：%3 %2")
+                                      .arg(action, id, notificationActionCantonese(action));
+    if (!git.commit(commitMessage, &actionError)) {
         writeBytes(stateFilePath(), previousState, nullptr);
         writeBytes(eventFilePath(), previousEvents, nullptr);
         setError(error, QStringLiteral("Notification action was rolled back because its history commit failed: %1")

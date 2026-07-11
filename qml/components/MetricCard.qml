@@ -3,60 +3,68 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-Pane {
+WfCard {
     id: root
     property string eyebrow: ""
     property string value: ""
     property string detail: ""
     property color accent: Material.accent
     property string glyph: "●"
-    readonly property color effectiveAccent: Material.theme === Material.Dark ? Qt.lighter(accent, 1.65) : accent
+    readonly property color effectiveAccent: dark ? Qt.lighter(accent, 1.55) : accent
 
     implicitWidth: 230
-    implicitHeight: 142
-    padding: 18
+    implicitHeight: 140
+    padding: DesignTokens.spacing16
+    surfaceLevel: "lowest"
+    radius: DesignTokens.radiusCard
     Accessible.name: eyebrow + ": " + value + ". " + detail
-
-    background: Rectangle {
-        radius: 18
-        color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"
-        border.color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC"
-        border.width: 1
-    }
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 6
+        spacing: DesignTokens.spacing4
 
         RowLayout {
             Layout.fillWidth: true
             Label {
                 text: root.eyebrow
-                color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
-                font.pixelSize: 12
+                color: DesignTokens.onSurfaceVariant(root.dark)
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 11
                 font.weight: Font.DemiBold
+                font.letterSpacing: 0.8
+                font.capitalization: Font.AllUppercase
                 Layout.fillWidth: true
                 elide: Text.ElideRight
             }
             Item { Layout.fillWidth: true }
             Rectangle {
-                Layout.preferredWidth: 30
-                Layout.preferredHeight: 30
-                radius: 10
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                radius: DesignTokens.radiusControl
                 color: Qt.rgba(root.effectiveAccent.r, root.effectiveAccent.g, root.effectiveAccent.b, 0.16)
-                Label { anchors.centerIn: parent; text: root.glyph; color: root.effectiveAccent; font.pixelSize: 14; Accessible.ignored: true }
+                Label {
+                    anchors.centerIn: parent
+                    text: root.glyph
+                    color: root.effectiveAccent
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 14
+                    Accessible.ignored: true
+                }
             }
         }
         Label {
             text: root.value
-            font.pixelSize: 26
+            color: DesignTokens.onSurface(root.dark)
+            font.family: DesignTokens.fontDisplay
+            font.pixelSize: 28
             font.weight: Font.Bold
             elide: Text.ElideRight
             Layout.fillWidth: true
         }
         Label {
             text: root.detail
-            color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+            color: DesignTokens.onSurfaceVariant(root.dark)
+            font.family: DesignTokens.fontBody
             font.pixelSize: 12
             elide: Text.ElideRight
             Layout.fillWidth: true

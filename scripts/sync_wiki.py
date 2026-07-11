@@ -97,7 +97,10 @@ def parse_args() -> argparse.Namespace:
         default=os.environ.get("GITHUB_REPOSITORY", "codingmachineedge/WimForge"),
     )
     parser.add_argument("--token-env", default="GITHUB_TOKEN")
-    parser.add_argument("--commit-message", default="docs: synchronize the WimForge wiki")
+    parser.add_argument(
+        "--commit-message",
+        default="docs: synchronize the WimForge wiki / 文件：同步 WimForge Wiki",
+    )
     return parser.parse_args()
 
 

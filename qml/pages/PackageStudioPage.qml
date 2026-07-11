@@ -2,78 +2,213 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
+import "../components"
 
 Item {
     id: root
     required property var app
     required property var tr
 
+    required property bool dark
+    Material.theme: dark ? Material.Dark : Material.Light
+    readonly property bool compact: width < 820
+    readonly property color surfaceLowest: DesignTokens.surfaceLowest(root.dark)
+    readonly property color surfaceLow: DesignTokens.surfaceLow(root.dark)
+    readonly property color surface: DesignTokens.surface(root.dark)
+    readonly property color surfaceForeground: DesignTokens.onSurface(root.dark)
+    readonly property color surfaceVariantForeground: DesignTokens.onSurfaceVariant(root.dark)
+    readonly property color outlineVariant: DesignTokens.outlineVariant(root.dark)
+    readonly property color primary: DesignTokens.primary(root.dark)
+    readonly property color primaryContainer: DesignTokens.primaryContainer(root.dark)
+    readonly property color primaryContainerForeground: DesignTokens.onPrimaryContainer(root.dark)
+    readonly property color successContainer: DesignTokens.successContainer(root.dark)
+    readonly property color successContainerForeground: DesignTokens.onSuccessContainer(root.dark)
+    readonly property color warningContainer: DesignTokens.tertiaryContainer(root.dark)
+    readonly property color warningContainerForeground: DesignTokens.onTertiaryContainer(root.dark)
+    readonly property color errorContainer: DesignTokens.errorContainer(root.dark)
+    readonly property color errorContainerForeground: DesignTokens.onErrorContainer(root.dark)
+    readonly property var filteredPackageCatalog: {
+        const source = root.app.packageCatalog
+        const query = packageSearch.text.trim().toLowerCase()
+        if (query.length === 0)
+            return source
+
+        const filtered = []
+        for (let index = 0; index < source.length; ++index) {
+            const entry = source[index]
+            const searchableText = String(entry.name || "") + " "
+                + String(entry.identifier || "") + " "
+                + String(entry.provider || "")
+            if (searchableText.toLowerCase().indexOf(query) >= 0)
+                filtered.push(entry)
+        }
+        return filtered
+    }
+
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: 14
 
-        GridLayout {
+        RowLayout {
             Layout.fillWidth: true
-            columns: root.width >= 660 ? 2 : 1
-            columnSpacing: 12
-            rowSpacing: 10
+            spacing: 16
+
             ColumnLayout {
                 Layout.fillWidth: true
-                Label { Layout.fillWidth: true; text: root.tr("Package Manager Studio", "套件管理工房"); font.pixelSize: 30; font.weight: Font.Bold; wrapMode: Text.Wrap }
+                spacing: 3
+                Label {
+                    Layout.fillWidth: true
+                    text: root.tr("Package Manager Studio", "套件管理工房")
+                    color: root.surfaceForeground
+                    font.family: DesignTokens.fontDisplay
+                    font.pixelSize: 26
+                    font.weight: Font.Bold
+                    wrapMode: Text.Wrap
+                }
                 Label {
                     Layout.fillWidth: true
                     text: root.tr("Choose software for the finished ISO. Dependencies, offline payloads, signatures, retries and crash-resume state stay explicit.",
                                   "揀完成 ISO 要裝咩軟件；依賴、離線 payload、簽署、重試同斷電續跑狀態全部寫清楚。")
-                    wrapMode: Text.Wrap; color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                    color: root.surfaceVariantForeground
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 13
+                    wrapMode: Text.Wrap
                 }
             }
-            Pane {
-                Layout.alignment: root.width >= 660 ? Qt.AlignRight | Qt.AlignVCenter : Qt.AlignLeft
-                padding: 12
-                background: Rectangle { radius: 18; color: Material.theme === Material.Dark ? "#4A4458" : "#E8DEF8" }
-                ColumnLayout {
-                    Label { text: app.selectedPackageCount; font.pixelSize: 26; font.bold: true; Layout.alignment: Qt.AlignHCenter }
-                    Label { text: root.tr("selected", "已揀"); font.pixelSize: 10; Layout.alignment: Qt.AlignHCenter }
-                }
+
+            WfStatusChip {
+                dark: root.dark
+                tone: "primary"
+                compact: false
+                uppercase: false
+                showDot: false
+                text: root.app.selectedPackageCount + " " + root.tr("selected", "已揀")
             }
         }
 
-        Pane {
+        WfCard {
             Layout.fillWidth: true
+            dark: root.dark
+            outlined: true
+            surfaceLevel: "low"
             padding: 12
-            background: Rectangle { radius: 18; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC" }
             GridLayout {
                 anchors.fill: parent
-                columns: root.width >= 820 ? 3 : 1
+                columns: root.compact ? 1 : 3
                 columnSpacing: 8
                 rowSpacing: 8
-                TextField { id: packageSearch; Layout.fillWidth: true; placeholderText: root.tr("Search software, provider, package ID…", "搜尋軟件、provider、套件 ID…") }
-                Button { Layout.fillWidth: root.width < 820; text: "✦  " + root.tr("Full AI Development ISO", "完整 AI 開發 ISO"); highlighted: true; onClicked: app.loadAiDevelopmentPackageTemplate() }
-                Button { Layout.fillWidth: root.width < 820; text: "▣  " + root.tr("Stage into ISO", "放入 ISO"); enabled: app.projectLoaded && app.selectedPackageCount > 0; onClicked: app.stagePackageProfile() }
+
+                TextField {
+                    id: packageSearch
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 38
+                    placeholderText: root.tr("Search software, provider, package ID…", "搜尋軟件、provider、套件 ID…")
+                    selectByMouse: true
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 13
+                }
+                WfButton {
+                    Layout.fillWidth: root.compact
+                    dark: root.dark
+                    variant: "filled"
+                    text: root.tr("Full AI Development ISO", "完整 AI 開發 ISO")
+                    onClicked: root.app.loadAiDevelopmentPackageTemplate()
+                }
+                WfButton {
+                    Layout.fillWidth: root.compact
+                    dark: root.dark
+                    variant: "tonal"
+                    text: root.tr("Stage into ISO", "放入 ISO")
+                    enabled: root.app.projectLoaded && root.app.selectedPackageCount > 0
+                    onClicked: root.app.stagePackageProfile()
+                }
             }
         }
 
-        Pane {
+        WfCard {
             Layout.fillWidth: true
-            padding: 10
-            background: Rectangle { radius: 16; color: app.openCodeReady ? (Material.theme === Material.Dark ? "#17351F" : "#EAF8E6") : app.openCodeState === "failed" ? (Material.theme === Material.Dark ? "#4A1519" : "#FFDAD6") : (Material.theme === Material.Dark ? "#3A2E00" : "#FFF4D6") }
-            GridLayout {
+            dark: root.dark
+            outlined: true
+            fillColor: root.app.openCodeReady ? root.successContainer
+                     : root.app.openCodeState === "failed" ? root.errorContainer
+                     : root.warningContainer
+            outlineColor: root.app.openCodeReady ? root.successContainerForeground
+                        : root.app.openCodeState === "failed" ? root.errorContainerForeground
+                        : root.warningContainerForeground
+            padding: 11
+            RowLayout {
                 anchors.fill: parent
-                columns: root.width >= 900 ? 5 : 1
-                columnSpacing: 8
-                rowSpacing: 6
-                Label { text: app.openCodeReady ? "✓" : app.openCodeState === "failed" ? "!" : "⬇"; font.pixelSize: 20; Accessible.name: app.openCodeState }
-                Label { text: app.openCodeState.toUpperCase(); font.bold: true; font.pixelSize: 10 }
-                Label { Layout.fillWidth: true; text: app.openCodeStatus; wrapMode: Text.Wrap }
+                spacing: 10
+                Rectangle {
+                    Layout.preferredWidth: 8
+                    Layout.preferredHeight: 8
+                    radius: 4
+                    color: root.app.openCodeReady ? root.successContainerForeground
+                          : root.app.openCodeState === "failed" ? root.errorContainerForeground
+                          : root.warningContainerForeground
+                }
+                Label {
+                    text: root.app.openCodeState === "absent" ? root.tr("ABSENT", "未有")
+                        : root.app.openCodeState === "installing" ? root.tr("INSTALLING", "安裝緊")
+                        : root.app.openCodeState === "verifying" ? root.tr("VERIFYING", "驗證緊")
+                        : root.app.openCodeState === "ready" ? root.tr("READY", "準備好")
+                        : root.tr("FAILED", "失敗")
+                    color: root.app.openCodeReady ? root.successContainerForeground
+                          : root.app.openCodeState === "failed" ? root.errorContainerForeground
+                          : root.warningContainerForeground
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 10
+                    font.weight: Font.Bold
+                    font.letterSpacing: 1
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: root.app.openCodeStatus
+                    color: root.app.openCodeReady ? root.successContainerForeground
+                          : root.app.openCodeState === "failed" ? root.errorContainerForeground
+                          : root.warningContainerForeground
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                }
                 BusyIndicator {
-                    visible: app.openCodeBusy
+                    visible: root.app.openCodeBusy
                     running: visible
-                    implicitWidth: 28
-                    implicitHeight: 28
+                    implicitWidth: 26
+                    implicitHeight: 26
                     Accessible.name: root.tr("OpenCode installation in progress", "OpenCode 安裝進行中")
                 }
-                Button { visible: !app.openCodeReady; Layout.fillWidth: root.width < 900; enabled: app.openCodeCanRetry && !app.openCodeBusy; text: app.openCodeState === "failed" ? root.tr("Retry setup", "再試設定") : root.tr("Install now", "而家安裝"); onClicked: app.ensureOpenCode() }
+                WfButton {
+                    visible: !root.app.openCodeReady
+                    dark: root.dark
+                    variant: "outlined"
+                    enabled: root.app.openCodeCanRetry && !root.app.openCodeBusy
+                    text: root.app.openCodeState === "failed"
+                          ? root.tr("Retry approved setup", "再試已批准設定")
+                          : root.tr("Verify / install now", "而家驗證／安裝")
+                    onClicked: root.app.ensureOpenCode()
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            Label {
+                text: root.tr("Package catalog", "套件目錄")
+                color: root.surfaceForeground
+                font.family: DesignTokens.fontDisplay
+                font.pixelSize: 15
+                font.weight: Font.Bold
+            }
+            Item { Layout.fillWidth: true }
+            Label {
+                text: root.app.packageCatalog.length + " " + root.tr("available", "可用")
+                color: root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 11
             }
         }
 
@@ -81,66 +216,157 @@ Item {
             id: packageList
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 160
             clip: true
             spacing: 8
-            model: app.packageCatalog
-            delegate: Pane {
+            boundsBehavior: Flickable.StopAtBounds
+            model: root.filteredPackageCatalog
+
+            delegate: WfCard {
                 id: packageCard
                 required property var modelData
-                readonly property bool matches: packageSearch.text.trim().length === 0
-                    || (modelData.name + " " + modelData.identifier + " " + modelData.provider).toLowerCase().indexOf(packageSearch.text.toLowerCase()) >= 0
                 width: packageList.width
-                height: matches ? implicitHeight : 0
-                visible: matches
-                padding: 14
-                background: Rectangle { radius: 17; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: modelData.enabled ? Material.accent : (Material.theme === Material.Dark ? "#49454F" : "#E7E0EC"); border.width: modelData.enabled ? 2 : 1 }
+                height: Math.max(78, implicitHeight)
+                dark: root.dark
+                outlined: true
+                surfaceLevel: "lowest"
+                outlineColor: packageCard.modelData.enabled ? root.primary : root.outlineVariant
+                padding: 12
+
                 RowLayout {
                     anchors.fill: parent
+                    spacing: 12
                     Switch {
                         checked: packageCard.modelData.enabled
                         Accessible.name: root.tr("Include %1", "包括 %1").arg(packageCard.modelData.name)
-                        onClicked: app.setPackageEnabled(packageCard.modelData.id, checked)
+                        onClicked: root.app.setPackageEnabled(packageCard.modelData.id, checked)
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
-                        GridLayout {
+                        spacing: 3
+                        RowLayout {
                             Layout.fillWidth: true
-                            columns: packageList.width >= 680 ? 2 : 1
-                            Label { Layout.fillWidth: true; text: packageCard.modelData.name; font.pixelSize: 17; font.weight: Font.DemiBold; wrapMode: Text.Wrap }
-                            Label { Layout.alignment: packageList.width >= 680 ? Qt.AlignRight : Qt.AlignLeft; text: packageCard.modelData.version; wrapMode: Text.Wrap }
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: childrenRect.height
                             spacing: 8
-                            Label { text: packageCard.modelData.provider; color: Material.accent; font.pixelSize: 11 }
                             Label {
-                                visible: packageCard.modelData.optional
-                                text: root.tr("Optional payload", "可選 payload")
-                                color: Material.theme === Material.Dark ? "#FFD18B" : "#8B5000"
-                                font.pixelSize: 10
+                                Layout.fillWidth: true
+                                text: packageCard.modelData.name
+                                color: root.surfaceForeground
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 14
+                                font.weight: Font.Bold
+                                wrapMode: Text.Wrap
+                            }
+                            Label {
+                                text: packageCard.modelData.version
+                                color: root.surfaceVariantForeground
+                                font.family: DesignTokens.fontMono
+                                font.pixelSize: 11
                             }
                         }
-                        Label { Layout.fillWidth: true; text: packageCard.modelData.description; wrapMode: Text.Wrap; color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71" }
-                        Label { Layout.fillWidth: true; text: packageCard.modelData.identifier; font.family: "Cascadia Mono"; font.pixelSize: 10; color: Material.accent; elide: Text.ElideMiddle }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Label {
+                                text: packageCard.modelData.provider
+                                color: root.primary
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                            }
+                            Rectangle {
+                                visible: packageCard.modelData.optional
+                                Layout.preferredWidth: optionalLabel.implicitWidth + 16
+                                Layout.preferredHeight: 22
+                                radius: 11
+                                color: root.warningContainer
+                                Label {
+                                    id: optionalLabel
+                                    anchors.centerIn: parent
+                                    text: root.tr("OPTIONAL", "可選")
+                                    color: root.warningContainerForeground
+                                    font.pixelSize: 9
+                                    font.weight: Font.Bold
+                                    font.letterSpacing: 0.8
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: packageCard.modelData.description
+                                color: root.surfaceVariantForeground
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 12
+                                elide: Text.ElideRight
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: packageCard.modelData.identifier
+                            color: root.surfaceVariantForeground
+                            font.family: DesignTokens.fontMono
+                            font.pixelSize: 10
+                            elide: Text.ElideMiddle
+                        }
                     }
                 }
             }
+
+            Label {
+                anchors.centerIn: parent
+                width: Math.min(implicitWidth, parent.width - DesignTokens.spacing24)
+                visible: packageList.count === 0
+                text: packageSearch.text.trim().length > 0
+                      ? root.tr("No packages match this search.", "冇套件符合呢個搜尋。")
+                      : root.tr("No packages are available in the catalog.", "套件目錄暫時冇可用套件。")
+                color: root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 13
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+            }
         }
 
-        Pane {
+        WfCard {
             Layout.fillWidth: true
+            dark: root.dark
+            outlined: true
+            surfaceLevel: "low"
             padding: 10
-            background: Rectangle { radius: 14; color: Material.theme === Material.Dark ? "#211F26" : "#F7F2FA" }
             GridLayout {
                 anchors.fill: parent
                 columns: root.width >= 780 ? 4 : 1
                 columnSpacing: 8
                 rowSpacing: 8
-                Label { text: "↕  " + root.tr("Profile file", "設定檔") }
-                TextField { id: profilePath; Layout.fillWidth: true; placeholderText: "D:\\profiles\\software.json" }
-                Button { Layout.fillWidth: root.width < 780; text: root.tr("Import", "匯入"); enabled: profilePath.text.trim().length > 0; onClicked: app.importPackageProfile(profilePath.text) }
-                Button { Layout.fillWidth: root.width < 780; text: root.tr("Export", "匯出"); enabled: profilePath.text.trim().length > 0; onClicked: app.exportPackageProfile(profilePath.text) }
+                Label {
+                    text: root.tr("Profile file", "設定檔")
+                    color: root.surfaceForeground
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                }
+                TextField {
+                    id: profilePath
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 38
+                    placeholderText: "D:\\profiles\\software.json"
+                    font.family: DesignTokens.fontMono
+                    font.pixelSize: 11
+                    selectByMouse: true
+                }
+                WfButton {
+                    Layout.fillWidth: root.width < 780
+                    dark: root.dark
+                    variant: "outlined"
+                    text: root.tr("Import", "匯入")
+                    enabled: profilePath.text.trim().length > 0
+                    onClicked: root.app.importPackageProfile(profilePath.text)
+                }
+                WfButton {
+                    Layout.fillWidth: root.width < 780
+                    dark: root.dark
+                    variant: "outlined"
+                    text: root.tr("Export", "匯出")
+                    enabled: profilePath.text.trim().length > 0
+                    onClicked: root.app.exportPackageProfile(profilePath.text)
+                }
             }
         }
     }

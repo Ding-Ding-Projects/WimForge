@@ -1,5 +1,6 @@
 #include "JobEngine.h"
 #include "ProcessLaunch.h"
+#include "StructuredLogger.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -110,6 +111,13 @@ JobEngine::JobEngine(QObject *parent) : QObject(parent) {}
 
 JobEngine::~JobEngine()
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Debug, QStringLiteral("jobs"),
+        QStringLiteral("engine.destroying"),
+        QStringLiteral("Job engine is shutting down. / 工作引擎而家關閉。"),
+        QJsonObject{{QStringLiteral("running"), m_running},
+                    {QStringLiteral("activeProcesses"), m_active.size()},
+                    {QStringLiteral("runId"), m_runId}});
     cancel();
     for (const ActiveProcess &active : std::as_const(m_active))
         if (active.process)
@@ -196,29 +204,42 @@ bool JobEngine::start(const ProjectConfig &project,
                       int maximumParallel,
                       QString *error)
 {
-    if (m_running) {
-        setError(error, QStringLiteral("A servicing run is already active."));
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("jobs"),
+        QStringLiteral("run.start_requested"),
+        QStringLiteral("A servicing run was requested. / 已經要求執行維護工作。"),
+        QJsonObject{{QStringLiteral("projectDirectoryPresent"),
+                     !project.projectDirectory.isEmpty()},
+                    {QStringLiteral("operationCount"), operations.size()},
+                    {QStringLiteral("maximumParallel"), maximumParallel}});
+    const auto reject = [error, &operations](const QString &message) {
+        setError(error, message);
+        StructuredLogger::instance().log(
+            LogSeverity::Warning, QStringLiteral("jobs"),
+            QStringLiteral("run.rejected"),
+            QStringLiteral("The servicing run was rejected; diagnostic contents were omitted from logging. / 維護工作要求被拒絕；記錄已經省略診斷內容。"),
+            QJsonObject{{QStringLiteral("operationCount"), operations.size()},
+                        {QStringLiteral("diagnosticPresent"), !message.isEmpty()}});
         return false;
+    };
+    if (m_running) {
+        return reject(QStringLiteral("A servicing run is already active."));
     }
     if (operations.isEmpty()) {
-        setError(error, QStringLiteral("The servicing plan is empty."));
-        return false;
+        return reject(QStringLiteral("The servicing plan is empty."));
     }
     const ProjectValidation validation = project.validateForExecution();
     if (!validation.ok()) {
-        setError(error, validation.message());
-        return false;
+        return reject(validation.message());
     }
     const QString graphError = operationGraphError(operations);
     if (!graphError.isEmpty()) {
-        setError(error, graphError);
-        return false;
+        return reject(graphError);
     }
     if (std::any_of(operations.cbegin(), operations.cend(), [](const ServicingOperation &item) {
             return item.requiresAdministrator;
         }) && !isAdministrator()) {
-        setError(error, QStringLiteral("This plan contains Administrator operations. Relaunch WimForge as Administrator before running it."));
-        return false;
+        return reject(QStringLiteral("This plan contains Administrator operations. Relaunch WimForge as Administrator before running it."));
     }
 
     m_project = project;
@@ -239,17 +260,23 @@ bool JobEngine::start(const ProjectConfig &project,
 
     if (!QDir().mkpath(stateDirectory())) {
         m_running = false;
-        setError(error, QStringLiteral("Could not create the crash-recovery state folder."));
-        return false;
+        return reject(QStringLiteral("Could not create the crash-recovery state folder."));
     }
     QString journalError;
     if (!writeJournal(&journalError)) {
         m_running = false;
-        setError(error, journalError);
-        return false;
+        return reject(journalError);
     }
     setError(error, {});
     emit stateChanged();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("jobs"),
+        QStringLiteral("run.started"),
+        QStringLiteral("Servicing run entered the scheduler. / 維護工作已經進入排程器。"),
+        QJsonObject{{QStringLiteral("runId"), m_runId},
+                    {QStringLiteral("operationCount"), m_operations.size()},
+                    {QStringLiteral("maximumParallel"), m_maximumParallel},
+                    {QStringLiteral("recoveryJournalEnabled"), true}});
     QTimer::singleShot(0, this, &JobEngine::schedule);
     return true;
 }
@@ -258,6 +285,12 @@ void JobEngine::cancel()
 {
     if (!m_running || m_cancelling)
         return;
+    StructuredLogger::instance().log(
+        LogSeverity::Warning, QStringLiteral("jobs"),
+        QStringLiteral("run.cancel_requested"),
+        QStringLiteral("Safe cancellation was requested. / 已經要求安全取消。"),
+        QJsonObject{{QStringLiteral("runId"), m_runId},
+                    {QStringLiteral("activeProcesses"), m_active.size()}});
     m_cancelling = true;
     m_statusText = QStringLiteral("Cancelling safely");
     for (ServicingOperation &operation : m_operations)
@@ -348,6 +381,17 @@ void JobEngine::schedule()
             if (operation.state == OperationState::Queued && dependenciesDone(operation)
                 && dependencyFailed(operation)) {
                 operation.state = OperationState::Blocked;
+                StructuredLogger::instance().log(
+                    LogSeverity::Warning, QStringLiteral("jobs"),
+                    QStringLiteral("operation.blocked"),
+                    QStringLiteral("Operation blocked because a dependency failed or was cancelled. / 因為相依操作失敗或取消，呢個操作已經被封鎖。"),
+                    QJsonObject{{QStringLiteral("runId"), m_runId},
+                                {QStringLiteral("operationIndex"),
+                                 static_cast<int>(index)},
+                                {QStringLiteral("operationKind"),
+                                 ServicingPlan::operationKindName(operation.kind)},
+                                {QStringLiteral("dependencyCount"),
+                                 operation.dependsOn.size()}});
                 changed = true;
                 blockedOperation = true;
                 emit operationChanged(static_cast<int>(index), ServicingPlan::operationStateName(operation.state),
@@ -420,31 +464,84 @@ void JobEngine::schedule()
 void JobEngine::launch(int index)
 {
     ServicingOperation &operation = m_operations[index];
+    const QString launchProgram = resolveExecutableForLaunch(operation.executable);
     operation.state = OperationState::Running;
     m_statusText = operation.titleEn;
 
     const QString logDirectory = QDir(stateDirectory()).filePath(QStringLiteral("logs/%1").arg(m_runId));
     QDir().mkpath(logDirectory);
     const QString logPath = QDir(logDirectory).filePath(operation.id + QStringLiteral(".log"));
-    const QString header = QStringLiteral("[%1] %2\n$ %3\n\n")
-                               .arg(nowIso(), operation.titleEn, operation.previewCommand());
+    const QString header = QStringLiteral(
+        "[%1] Servicing child process starting / 維護子程序而家啟動\n"
+        "operation-index: %2\noperation-kind: %3\nargument-count: %4\n"
+        "command-omitted: true\n\n")
+                               .arg(nowIso())
+                               .arg(index)
+                               .arg(ServicingPlan::operationKindName(operation.kind))
+                               .arg(operation.arguments.size());
     appendLog(logPath, header.toUtf8());
+
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("process"),
+        QStringLiteral("operation.process_starting"),
+        QStringLiteral("Starting a servicing child process. / 維護子程序而家啟動。"),
+        QJsonObject{{QStringLiteral("runId"), m_runId},
+                    {QStringLiteral("operationIndex"), index},
+                    {QStringLiteral("operationKind"),
+                     ServicingPlan::operationKindName(operation.kind)},
+                    {QStringLiteral("argumentCount"), operation.arguments.size()},
+                    {QStringLiteral("workingDirectoryProvided"),
+                     !operation.workingDirectory.isEmpty()},
+                    {QStringLiteral("executableResolved"),
+                     !launchProgram.isEmpty()},
+                    {QStringLiteral("executableResolutionChanged"),
+                     launchProgram != operation.executable},
+                    {QStringLiteral("requiresAdministrator"),
+                     operation.requiresAdministrator},
+                    {QStringLiteral("destructive"), operation.destructive},
+                    {QStringLiteral("writesMountedImage"),
+                     operation.writesMountedImage}});
 
     auto *process = new QProcess(this);
     configureProcessWithoutConsole(*process);
-    process->setProgram(operation.executable);
+    process->setProgram(launchProgram);
     process->setArguments(operation.arguments);
     process->setProcessChannelMode(QProcess::MergedChannels);
+    if (operation.executable.compare(QStringLiteral("powershell.exe"),
+                                     Qt::CaseInsensitive) == 0) {
+        process->setProcessEnvironment(sanitizedPowerShellEnvironment());
+    }
     if (!operation.workingDirectory.isEmpty())
         process->setWorkingDirectory(operation.workingDirectory);
     m_active.append(ActiveProcess{index, process, logPath});
 
     connect(process, &QProcess::readyReadStandardOutput, this, [this, process, index, logPath] {
         const QByteArray bytes = process->readAllStandardOutput();
-        appendLog(logPath, bytes);
-        emit outputReceived(index, QString::fromLocal8Bit(bytes));
+        appendLog(logPath,
+                  QStringLiteral("[%1] output-bytes: %2; contents-omitted: true / 輸出 byte：%2；內容已經省略：true\n")
+                      .arg(nowIso())
+                      .arg(bytes.size())
+                      .toUtf8());
+        const QString output = QString::fromLocal8Bit(bytes);
+        StructuredLogger::instance().log(
+            LogSeverity::Debug, QStringLiteral("process"),
+            QStringLiteral("operation.output"),
+            QStringLiteral("Servicing child process produced output; contents were omitted from logging. / 維護子程序有輸出；記錄已經省略內容。"),
+            QJsonObject{{QStringLiteral("runId"), m_runId},
+                        {QStringLiteral("operationIndex"), index},
+                        {QStringLiteral("bytes"), bytes.size()}});
+        emit outputReceived(index, output);
     });
     connect(process, &QProcess::errorOccurred, this, [this, process, index](QProcess::ProcessError processError) {
+        StructuredLogger::instance().log(
+            LogSeverity::Error, QStringLiteral("process"),
+            QStringLiteral("operation.process_error"),
+            QStringLiteral("The servicing child process reported an error; diagnostic contents were omitted from logging. / 維護子程序報告錯誤；記錄已經省略診斷內容。"),
+            QJsonObject{{QStringLiteral("runId"), m_runId},
+                        {QStringLiteral("operationIndex"), index},
+                        {QStringLiteral("errorStringPresent"),
+                         !process->errorString().isEmpty()},
+                        {QStringLiteral("processError"), static_cast<int>(processError)}});
         if (processError == QProcess::FailedToStart)
             finishOperation(index, false, process->errorString());
     });
@@ -452,9 +549,29 @@ void JobEngine::launch(int index)
             [this, process, index, logPath](int exitCode, QProcess::ExitStatus exitStatus) {
         const QByteArray trailing = process->readAllStandardOutput();
         if (!trailing.isEmpty()) {
-            appendLog(logPath, trailing);
+            appendLog(logPath,
+                      QStringLiteral("[%1] trailing-output-bytes: %2; contents-omitted: true / 尾段輸出 byte：%2；內容已經省略：true\n")
+                          .arg(nowIso())
+                          .arg(trailing.size())
+                          .toUtf8());
             emit outputReceived(index, QString::fromLocal8Bit(trailing));
         }
+        appendLog(logPath,
+                  QStringLiteral("[%1] exit-code: %2; exit-status: %3\n")
+                      .arg(nowIso())
+                      .arg(exitCode)
+                      .arg(static_cast<int>(exitStatus))
+                      .toUtf8());
+        StructuredLogger::instance().log(
+            exitStatus == QProcess::NormalExit && exitCode == 0
+                ? LogSeverity::Info : LogSeverity::Error,
+            QStringLiteral("process"),
+            QStringLiteral("operation.process_finished"),
+            QStringLiteral("Servicing child process finished. / 維護子程序已經完成。"),
+            QJsonObject{{QStringLiteral("runId"), m_runId},
+                        {QStringLiteral("operationIndex"), index},
+                        {QStringLiteral("exitCode"), exitCode},
+                        {QStringLiteral("exitStatus"), static_cast<int>(exitStatus)}});
         finishOperation(index, exitStatus == QProcess::NormalExit && exitCode == 0,
                         QStringLiteral("exit code %1").arg(exitCode));
     });
@@ -474,6 +591,20 @@ void JobEngine::finishOperation(int index, bool success, const QString &detail)
         return;
     operation.state = m_cancelling ? OperationState::Cancelled
                     : success ? OperationState::Succeeded : OperationState::Failed;
+
+    StructuredLogger::instance().log(
+        success ? LogSeverity::Info : LogSeverity::Error,
+        QStringLiteral("jobs"), QStringLiteral("operation.finished"),
+        success
+            ? QStringLiteral("The servicing operation completed. / 維護操作已經完成。")
+            : QStringLiteral("The servicing operation did not complete successfully; diagnostic contents were omitted from logging. / 維護操作未能成功完成；記錄已經省略診斷內容。"),
+        QJsonObject{{QStringLiteral("runId"), m_runId},
+                    {QStringLiteral("operationIndex"), index},
+                    {QStringLiteral("operationKind"),
+                     ServicingPlan::operationKindName(operation.kind)},
+                    {QStringLiteral("diagnosticPresent"), !detail.isEmpty()},
+                    {QStringLiteral("state"),
+                     ServicingPlan::operationStateName(operation.state)}});
 
     for (qsizetype activeIndex = m_active.size() - 1; activeIndex >= 0; --activeIndex) {
         if (m_active.at(activeIndex).index != index)
@@ -496,6 +627,18 @@ void JobEngine::finishRun(bool success, const QString &message)
         return;
     m_running = false;
     m_statusText = message;
+    StructuredLogger::instance().log(
+        success ? LogSeverity::Info : LogSeverity::Error,
+        QStringLiteral("jobs"), QStringLiteral("run.finished"),
+        success
+            ? QStringLiteral("The servicing run completed. / 維護工作已經完成。")
+            : QStringLiteral("The servicing run stopped without success. / 維護工作未成功完成就停止咗。"),
+        QJsonObject{{QStringLiteral("runId"), m_runId},
+                    {QStringLiteral("success"), success},
+                    {QStringLiteral("cancelled"), m_cancelling},
+                    {QStringLiteral("summaryPresent"), !message.isEmpty()},
+                    {QStringLiteral("completedOperations"), completedCount()},
+                    {QStringLiteral("operationCount"), m_operations.size()}});
     writeJournal(nullptr);
     // Rewrite the final status after writeJournal's running/cancelling value.
     QFile file(journalPath());
@@ -534,7 +677,8 @@ bool JobEngine::writeJournal(QString *error) const
             {QStringLiteral("kind"), ServicingPlan::operationKindName(operation.kind)},
             {QStringLiteral("title"), operation.titleEn},
             {QStringLiteral("state"), ServicingPlan::operationStateName(operation.state)},
-            {QStringLiteral("command"), operation.previewCommand()},
+            {QStringLiteral("argumentCount"), operation.arguments.size()},
+            {QStringLiteral("commandOmitted"), true},
             {QStringLiteral("destructive"), operation.destructive},
             {QStringLiteral("checkpointBefore"), operation.checkpointBefore},
             {QStringLiteral("dependsOn"), QJsonArray::fromStringList(operation.dependsOn)},
@@ -583,9 +727,13 @@ bool JobEngine::writeJournal(QString *error) const
 
 void JobEngine::appendLog(const QString &path, const QByteArray &bytes) const
 {
+    QString decoded = QString::fromUtf8(bytes);
+    if (decoded.contains(QChar::ReplacementCharacter))
+        decoded = QString::fromLocal8Bit(bytes);
+    const QByteArray safeBytes = StructuredLogger::redactText(decoded).toUtf8();
     QFile file(path);
     if (file.open(QIODevice::WriteOnly | QIODevice::Append)) {
-        file.write(bytes);
+        file.write(safeBytes);
         file.flush();
     }
 }

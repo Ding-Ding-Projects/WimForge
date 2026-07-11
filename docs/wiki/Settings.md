@@ -58,6 +58,18 @@ Settings displays the active notification repository path and can create a test 
 
 See [Notification Center](Notification-Center) for lifecycle details and [Architecture and Data Layout](Architecture-and-Data-Layout) for storage boundaries.
 
+## Diagnostics and logging
+
+WimForge writes structured JSON Lines diagnostics to the application-local `logs/wimforge.jsonl` file. Settings shows the exact active path and can open either the current file or its folder. Records include a UTC timestamp, sequence, session, severity, category, event, process/thread identity, source location, message, and structured data.
+
+Logging covers GUI and CLI startup/shutdown, Qt messages, controller mutations and outcomes, notifications, source inspection, host-driver export, servicing activity, scheduler state, every Job Engine child-process launch, redacted arguments and output, errors, completion, cancellation, and dependency blocks. The active file rotates at 5 MiB and retains five archives.
+
+Secret-like JSON keys and textual password, bearer-token, API-key, credential, cookie, product-key, URL-password, GitHub-token, and OpenAI-key patterns are replaced with `[REDACTED]`, including separate sensitive command-line option values. Redaction is defense in depth, not permission to put secrets in project names, paths, scripts, or third-party output. Review diagnostic files before sharing them.
+
+## 香港粵語重點
+
+Settings 可以揀 English、香港粵語或雙語，同時控制 theme、density、motion、concurrency 同 safety 選項。Diagnostics 會顯示而家個 `wimforge.jsonl` 路徑，可以開 log 或所在資料夾；紀錄包括 GUI/CLI 開關、project mutation、source inspection、驅動匯出、scheduler 同每個子程式嘅生命週期/輸出。Logger 會遮蔽常見 secret pattern，但呢個只係防線；分享前仍然要自己逐行檢查，唔好將密碼放入路徑、工程名或第三方輸出。
+
 ---
 
 [← Project Bundles](Project-Bundles) · [Troubleshooting →](Troubleshooting)

@@ -30,6 +30,8 @@ The command shown in the UI is a review preview. The underlying operation retain
 | `src/core/ProjectConfig.*` | Versioned `project.json`, validation, canonical save, project Git history |
 | `src/core/ServicingPlan.*` | Dependency graph, path/workspace safety, command previews, script export |
 | `src/core/JobEngine.*` | Dependency-aware scheduling, child processes, cancellation, logs, and journal |
+| `src/core/StructuredLogger.*` | Redacted JSONL application/session, controller, Qt, and process diagnostics |
+| `src/core/WorkspaceTabs.*` | Browser-style tab state, styling, dedicated Git history, and portable exports |
 | `src/core/ActionHistory.*` | Append-only contextual actions and guarded compensation/redo |
 | `src/core/NotificationStore.*` | Notification state/events in a separate Git repository |
 | `src/core/ProjectBundle.*` | Complete `.wimforge` export/import |
@@ -51,6 +53,9 @@ A project begins with a small set of files and grows only as features are used. 
 │   ├── action-history.lock
 │   ├── job-journal.json
 │   ├── logs/<run-id>/
+│   ├── tabs/
+│   │   ├── tabs.json
+│   │   └── .git/
 │   ├── work/
 │   ├── generated/
 │   │   ├── unattended/autounattend.xml
@@ -71,20 +76,22 @@ The planner normally uses `.wimforge/work` for project-owned image/media workspa
 Qt chooses the platform-specific application-local data and settings locations. WimForge uses them for:
 
 - a `notification-center` directory containing `notifications.json`, `events.jsonl`, and its own `.git` repository;
+- a rotating `logs/wimforge.jsonl` diagnostic stream plus five bounded archives;
 - a recovery root exposed to the desktop; and
 - QSettings-backed preferences such as language, theme, motion, concurrency, safety preferences, and the last project.
 
 The active job journal itself is project-local at `.wimforge/job-journal.json`. The notification-store path is visible on the Settings page and may be reconnected from a complete imported bundle.
 
-## Three histories, three meanings
+## Four histories, four meanings
 
 | History | Storage | What it proves |
 | --- | --- | --- |
 | Project commits | Project `.git` | Snapshots of successfully saved project configuration |
 | Contextual action events | `.wimforge/action-history.jsonl` plus project commits | User-intent events, target paths, compensation/redo relationships, bookmarks, and branches |
 | Notification events | Notification store `events.jsonl` plus its `.git` | Read/unread, dismiss, delete/restore, and notification undo state |
+| Workspace tabs | `.wimforge/tabs/tabs.json` plus `.wimforge/tabs/.git` | Tab open/close/order, active tab, rename, and per-tab typography changes |
 
-Undo appends a compensating action. It does not erase history or prove that external side effects were reversed. A complete [Project Bundle](Project-Bundles) carries the project and notification repositories together.
+Undo appends a compensating action. It does not erase history or prove that external side effects were reversed. A complete [Project Bundle](Project-Bundles) carries the project tree, nested workspace-tab history, and notification repository together.
 
 ## Servicing transaction boundary
 
@@ -97,7 +104,9 @@ That boundary ends at external behavior. DISM may have committed bytes, an insta
 - `project.json`: schema-versioned declarative project configuration.
 - Portable studio JSON: Package, Unattended, and WinForge editor intent.
 - Answer-file XML: Windows Setup input exported by Unattended Studio.
-- `.wimforge`: uncompressed, hash-verified complete-save container with full repository topology.
+- `.wimforge`: uncompressed, hash-verified complete-save container with full repository topology, including the nested tab repository.
+- `.wftabs`: portable mergeable tab definitions without Git objects.
+- `.wftabrepo`: one-file export of the complete dedicated tab repository.
 - Exported PowerShell: review/automation artifact generated from a plan; edited copies are outside the application's validation boundary.
 
 ## Explicitly planned or incomplete areas
@@ -114,6 +123,10 @@ The current architecture does **not** imply that these are complete:
 Track repository claims against current tests and the [NTLite Feature Comparison](NTLite-Feature-Comparison), not against planned UI labels.
 
 Implementation references: [`CMakeLists.txt`](https://github.com/codingmachineedge/WimForge/blob/main/CMakeLists.txt), [`src/AppController.h`](https://github.com/codingmachineedge/WimForge/blob/main/src/AppController.h), [`docs/servicing-plan.md`](https://github.com/codingmachineedge/WimForge/blob/main/docs/servicing-plan.md), and [`docs/context-history.md`](https://github.com/codingmachineedge/WimForge/blob/main/docs/context-history.md).
+
+## 香港粵語架構重點
+
+工程本身有頂層 Git 快照同 append-only action history；`.wimforge/tabs` 另外有一個已強化 Git 記分頁；通知中心又有自己嘅 Git；Job Engine journal 就記錄外部執行進度。四種歷史證明嘅事唔同，唔好將「撤銷設定」當成「已逆轉 DISM 寫入」。程式層 JSONL log 放喺 Qt application-local `logs`，5 MiB rotate，保留五份 archive；分享前仍然要人手檢查有冇私密資料。
 
 ---
 

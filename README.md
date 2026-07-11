@@ -29,10 +29,12 @@ The desktop interface is available in English, Hong Kong Cantonese, or a bilingu
 - History Time Machine — append-only, hash-chained action events; guarded selective undo that preserves unrelated later edits; undo-of-undo/redo; restore actions; bookmarks; lightweight history lanes; Git log inspection; and A/B diff viewing.
 - Contextual undo anywhere — `Ctrl+Z` undoes in the active context. `Ctrl+Shift+Z`, or a right-click anywhere in the desktop, opens the non-modal active-page/global mini history manager. Element-specific filtering is available in the history core and CLI, but is not wired to every desktop control in this release.
 - Git-backed notification center — a separate local repository commits new, read, unread, dismiss, restore, and tombstoned-delete events. Its own latest change can be undone.
-- Complete project saves — a `.wimforge` file contains complete project and notification repositories, including hidden `.git` object databases, refs, reflogs, configuration, and undo commits.
+- Complete project saves — a `.wimforge` file carries the project repository, its nested workspace-tab repository, and the separate notification repository. Project and notification history retain their hidden Git databases; imported tab repositories retain history while executable Git controls are neutralized before the elevated app uses them.
+- Browser-style project tabs — every page can live in a movable, closable, renameable tab with per-tab font family, size, color, bold, italic, and strikeout. A dedicated local Git repository records every tab change; portable definitions and the complete tab repository can each be exported or imported as one file.
+- Structured diagnostics — GUI and CLI sessions, project actions, source inspection, host-driver export, scheduler transitions, and Job Engine child-process lifecycle/output are written as rotating JSONL with session/sequence/thread/source metadata and recursive secret-pattern redaction; Settings opens the active log or folder.
 - Package Studio — validated profiles for WinGet, npm, pip, signed direct installers, offline payloads, and structured custom executables; dependency ordering; offline/online modes; trust checks; and a resumable first-logon installer.
 - Full AI Development template — Git/Git LFS, Node/npm, Python, .NET, Java, Go, Rust, LLVM, CMake, Ninja, Visual Studio Build Tools, VS Code, PowerShell, 7-Zip, Docker, OpenCode, Codex CLI, Claude Code, and Claude Desktop. Desktop payloads without a trustworthy package identity remain disabled slots until the ISO author supplies the official file, hash, signer, and reviewed command.
-- Automatic OpenCode setup — shortly after startup, WimForge live-verifies an existing `opencode --version`. If OpenCode is missing, setup runs asynchronously: Node.js LTS is installed through WinGet when npm is absent, followed by `npm install -g opencode-ai@latest`. WimForge reports success only after the executable is found and that live verification exits successfully with nonempty output; progress and failure stay non-modal.
+- Explicit OpenCode host setup — the elevated desktop does not discover or launch PATH/user-profile developer tools at startup. After the operator selects **Verify / install now** in Package Studio, WimForge live-verifies `opencode --version`; if approved setup is needed, it can install Node.js LTS through WinGet and then `opencode-ai@latest` through npm. Progress and failure stay non-modal, and assisted actions remain disabled until verification succeeds.
 - Group Policy Studio — reads all ADMX definitions and installed ADML languages from the selected PolicyDefinitions store, retains schema constraints and registry actions, creates schema-driven Material editors, supports text/validated-regex search, exports bilingual documentation, and can ask OpenCode to propose a search.
 - Unattended Studio — portable JSON profiles, Windows answer-file XML import/export, the seven setup passes, Full Automation and AI Development templates, Random/Fixed/Prompt/Serial computer-name modes, Microsoft-published GVLK selection with licensing warnings, and OpenCode-assisted fills that are validated before commit.
 - Docker provisioning — a non-root Linux service and one-shot renderer that maps UUID/serial/MAC inventory to a validated fixed pre-OOBE computer name, an operator profile, and typed locale/time-zone/OOBE overrides; an included fail-closed WinPE client supplies the result to `setup.exe /unattend` before installation.
@@ -45,7 +47,7 @@ The desktop interface is available in English, Hong Kong Cantonese, or a bilingu
 ## The core workflow
 
 1. Create or open a project. WimForge initializes its local Git history.
-2. Select a legally obtained Windows ISO, media folder, WIM, ESD, or SWM source. For immediate index inspection, point the Image path at `sources\install.wim`, `.esd`, or the first `.swm`; a raw ISO is mounted/copied only by the reviewed servicing plan.
+2. Use **Browse ISO / image** or **Browse media folder** to select a legally obtained Windows ISO, media folder, WIM, ESD, or SWM source. A raw ISO is mounted read-only for immediate DISM inventory, dismounted after inspection, and recorded by its stable internal `sources/install.*` path; the reviewed servicing plan later extracts it into the project-owned workspace and converts ESD/SWM input to a serviceable WIM before mounting.
 3. Configure image changes in Customize, Group Policy Studio, Unattended Studio, Package Studio, and WinForge Bridge.
 4. Open Review & Run. Inspect every executable, argument token, dependency, destructive flag, and bilingual description.
 5. Run only after validation succeeds. Keep the original source unchanged and test the output in a disposable virtual machine.
@@ -57,7 +59,7 @@ WimForge uses Windows' servicing tools rather than replacing them. DISM performs
 
 Offline projects clone by default. The selected ISO, media tree, WIM, ESD, or SWM set is read for verification and preparation while image writes target project-owned working paths. Input and staged-file hashes form gates in the operation graph. Final image, split-image, workspace, and ISO publication uses partial and backup paths so an interrupted copy is not presented as a completed output.
 
-Commands are stored as an executable plus an argument array. Package and WinForge profiles reject shell wrappers, embedded command strings, traversal, unsafe script hosts, and missing trust data where it is required. The per-user installer itself requests no administrator rights, while the installed desktop explicitly requests elevation at launch.
+Commands are stored as an executable plus an argument array. Package and WinForge profiles reject shell wrappers, embedded command strings, traversal, unsafe script hosts, and missing trust data where it is required. Windows inbox tools resolve through protected System32 paths rather than the current directory. Because the desktop always elevates, the installer requires administrator approval and installs under protected Program Files.
 
 The recovery journal detects interrupted work and preserves operation/dependency state for review. WimForge deliberately rebuilds the plan instead of blindly skipping an external step whose completion cannot be proven. Its elevated safe-unmount action runs DISM `/Unmount-Image /Discard` against the mount path captured by the interrupted journal—not a subsequently edited project path. A start or DISM failure leaves that journal untouched; success atomically closes it as recovered/discarded. Configuration undo remains separate and does not claim to reverse external side effects. Keep pristine source media, test backups, and a disposable VM.
 
@@ -72,7 +74,7 @@ WimForge has two complementary project timelines:
 
 An ordinary desktop project action stores minimal forward and inverse JSON merge patches. Undo appends a compensation event; it does not delete the original. Undoing that compensation appends another event that reapplies the original change. Selective undo uses the same model for an older effective action, applies its patch to the current project, preserves unrelated later edits, and refuses the operation if a later change touched the same target path. An explicit restore point remains available when replacing the complete project state is intentional. Bookmarks and history lanes are append-only too.
 
-The notification center has a separate Git repository because notification lifecycle changes should survive independently from the open project. A delete is a recoverable tombstone. Complete `.wimforge` exports carry both repositories.
+The notification center has a separate Git repository because notification lifecycle changes should survive independently from the open project. A delete is a recoverable tombstone. Complete `.wimforge` exports carry the project, nested workspace-tab, and notification repositories.
 
 This history covers WimForge configuration state. It does not claim to undo side effects that have already escaped the project transaction boundary. See [History Time Machine](docs/wiki/History-Time-Machine.md), [Notification Center](docs/wiki/Notification-Center.md), and [Project Bundles](docs/wiki/Project-Bundles.md).
 
@@ -126,14 +128,14 @@ CLI commands never wait for interactive terminal input. Destructive apply and so
 To run a release:
 
 - Windows 10 version 1809 or newer, or Windows 11, x64
-- Git on `PATH` for project and notification repositories
+- a trusted machine-wide Git for Windows installation under protected Program Files for the project, nested workspace-tab, and notification repositories; user-profile/PATH-only Git copies are rejected by the elevated desktop
 - DISM, included with Windows
-- administrative access when an image operation needs it
+- administrator approval at desktop launch (and when installing the protected Program Files package)
 - enough free storage for source clones, the mount, scratch data, staged payloads, and output
-- WinGet plus network access if automatic Node/OpenCode or online package installation is wanted
+- WinGet plus network access if the operator explicitly approves host Node/OpenCode setup or wants online package installation
 - Windows ADK Deployment Tools (`oscdimg`) when creating ISO output
 
-The portable zip includes deployed Qt and MSVC runtime files. Installation remains per-user; launching either installed or portable `WimForge.exe` invokes the normal Windows UAC consent flow because the application manifest requires administrator rights.
+The portable zip includes deployed Qt and MSVC runtime files. The installer requires administrator approval and places those binaries under protected Program Files; launching the desktop invokes the normal Windows UAC consent flow because its manifest requires administrator rights. A portable copy cannot protect its adjacent DLLs: extract it only into a trusted, access-controlled folder that unprivileged processes cannot modify, and never elevate a loose copy from Downloads, Temp, a shared folder, or another writable location.
 
 ## Build from source
 
@@ -156,8 +158,12 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
   -DBUILD_TESTING=ON
 cmake --build build --config Debug --parallel
 ctest --test-dir build -C Debug --output-on-failure
-.\build\Debug\WimForge.exe --demo
+$runtime = Join-Path (Resolve-Path .).Path 'build\dev-runtime'
+cmake --install build --config Debug --prefix $runtime
+& "$runtime\WimForge.exe" --demo
 ```
+
+The install step deploys the matching Qt/MSVC runtime beside the developer executable. A bare Visual Studio output such as `build\Debug\WimForge.exe` is not self-contained and will report a missing `Qt6Guid.dll` unless the matching Qt `bin` directory is already on `PATH`.
 
 Or set `QT_ROOT_DIR`, put Qt's `bin` directory on `PATH`, and use Ninja:
 
@@ -187,7 +193,7 @@ Every push to `main` (and a manual release-workflow run launched from `main`) bu
 
 | Workflow | WimForge status | Important difference |
 | --- | --- | --- |
-| Source/index inspection | Implemented for media/WIM/ESD/SWM; raw ISO is a servicing-plan source | Point inspection at the ISO's mounted/extracted `sources\install.*`; not commercial-parity inspection |
+| Source/index inspection | Implemented for ISO/media/WIM/ESD/SWM | Native source pickers; raw ISO is mounted read-only for inventory and dismounted before its stable internal image path is saved |
 | Driver, update and package integration | Implemented as reviewed DISM operations | Payload acquisition is the user's responsibility |
 | Features and capabilities | Implemented | Uses Windows identities; no curated compatibility recommendations |
 | Appx provisioning/removal | Implemented | No store browser or live application inventory equivalent |
@@ -210,7 +216,7 @@ Read the expanded [NTLite Feature Comparison](docs/wiki/NTLite-Feature-Compariso
 - Component/package names can be edition- and build-specific. A syntactically valid plan is not proof that Windows will accept every payload.
 - Unattended XML requires Windows SIM validation against the exact image and an end-to-end VM install test.
 - The history manager reverses recorded project state; it is not a filesystem snapshot engine and cannot rewind arbitrary external side effects.
-- Automatic OpenCode installation changes the host's global Node/npm tool set. It reports progress asynchronously, but managed environments should review that policy before first launch.
+- Operator-approved OpenCode host installation changes the global Node/npm tool set. Nothing is discovered or launched automatically at desktop startup; managed environments should review the action before selecting **Verify / install now**.
 - Package profiles never supply credentials or bypass vendor authentication. Optional desktop payload slots need author-supplied official installers and trust metadata.
 - The audited legacy WinForge runtime supports page deep-links only. Module/tweak replay requires a declared runtime contract.
 - `.wimforge` v1 preserves ordinary files and complete Git topology, not NTFS ACLs, alternate data streams, sparse allocation, or extended attributes.
@@ -251,6 +257,16 @@ Read the expanded [NTLite Feature Comparison](docs/wiki/NTLite-Feature-Compariso
 - AI tools: [OpenCode](https://github.com/anomalyco/opencode), [OpenAI Codex](https://github.com/openai/codex), [Codex app](https://developers.openai.com/codex/app), and [Claude Code](https://code.claude.com/docs/en/getting-started)
 - Qt: [Qt deployment for Windows](https://doc.qt.io/qt-6/windows-deployment.html)
 - Comparison context: [NTLite features](https://www.ntlite.com/features/) and [NTLite documentation](https://www.ntlite.com/docs/)
+
+## 香港粵語重點
+
+- WimForge 開啟時會先請求管理員權限；安裝版會放去受保護嘅 Program Files。可攜式版請解壓去只有你可以改嘅資料夾，唔好由 Downloads、Temp 或 shared folder 直接提權。
+- 開 app 先會見到類似 Visual Studio 嘅工程管理頁，可以建立、開啟、匯入工程，亦可以由最近清單繼續。
+- ISO、WIM、ESD、SWM 同 Windows media folder 都有 file/folder picker；原始 ISO 會唯讀掛載做 inventory，完成後會確認已 dismount。
+- Drivers 同 Updates 會顯示實際 INF、CAB、MSU 資料，亦有 Microsoft 官方 Update Catalog 入口；用邊個 payload 同適用性仍然要由映像作者核實。
+- 每個頁面都可以做 browser-style 分頁，可改名、排位、改字體/字號/顏色/粗體/斜體/刪除線。分頁會另外寫入工程內 Git，並且可以匯出 `.wftabs` 或完整 `.wftabrepo`。
+- 診斷資料會寫入會 rotate 嘅 JSONL log，秘密格式會先遮蔽；分享 log 前仍然要自己審閱一次。
+- 界面、文件、release notes 同工程內產生嘅 commit subject 以 English / 香港粵語雙語呈現。
 
 ## Contributing
 

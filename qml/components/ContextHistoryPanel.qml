@@ -19,8 +19,9 @@ Popup {
     property string branchName: "main"
     property int maximumVisibleActions: 20
     property bool motionEnabled: true
-    readonly property color secondaryTextColor: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
-    readonly property color errorColor: Material.theme === Material.Dark ? "#FFB4AB" : "#BA1A1A"
+    property bool dark: Material.theme === Material.Dark
+    readonly property color secondaryTextColor: DesignTokens.onSurfaceVariant(dark)
+    readonly property color errorColor: DesignTokens.error(dark)
 
     signal undoRequested(string eventId)
     signal redoRequested(string eventId)
@@ -49,22 +50,42 @@ Popup {
 
     enter: Transition {
         ParallelAnimation {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: root.motionEnabled ? 120 : 0 }
-            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: root.motionEnabled ? 150 : 0; easing.type: Easing.OutCubic }
+            NumberAnimation {
+                property: "opacity"
+                from: 0
+                to: 1
+                duration: DesignTokens.motionDuration(120, root.motionEnabled)
+            }
+            NumberAnimation {
+                property: "scale"
+                from: 0.96
+                to: 1
+                duration: DesignTokens.motionDuration(DesignTokens.motionShort,
+                                                      root.motionEnabled)
+                easing.type: Easing.OutCubic
+            }
         }
     }
     exit: Transition {
         ParallelAnimation {
-            NumberAnimation { property: "opacity"; to: 0; duration: root.motionEnabled ? 90 : 0 }
-            NumberAnimation { property: "scale"; to: 0.98; duration: root.motionEnabled ? 90 : 0 }
+            NumberAnimation {
+                property: "opacity"
+                to: 0
+                duration: DesignTokens.motionDuration(90, root.motionEnabled)
+            }
+            NumberAnimation {
+                property: "scale"
+                to: 0.98
+                duration: DesignTokens.motionDuration(90, root.motionEnabled)
+            }
         }
     }
 
     background: Rectangle {
-        radius: 22
-        color: root.Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"
+        radius: DesignTokens.radiusCard
+        color: DesignTokens.surfaceLow(root.dark)
         border.width: 1
-        border.color: root.Material.theme === Material.Dark ? "#49454F" : "#CAC4D0"
+        border.color: DesignTokens.outline(root.dark)
         layer.enabled: true
     }
 
@@ -74,22 +95,23 @@ Popup {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.leftMargin: 16
-            Layout.rightMargin: 8
-            Layout.topMargin: 12
-            Layout.bottomMargin: 10
-            spacing: 8
+            Layout.leftMargin: DesignTokens.spacing16
+            Layout.rightMargin: DesignTokens.spacing8
+            Layout.topMargin: DesignTokens.spacing12
+            Layout.bottomMargin: DesignTokens.spacing8
+            spacing: DesignTokens.spacing8
 
             Rectangle {
                 Layout.preferredWidth: 36
                 Layout.preferredHeight: 36
-                radius: 12
-                color: root.Material.theme === Material.Dark ? "#4A4458" : "#EADDFF"
+                radius: DesignTokens.radiusControl
+                color: DesignTokens.primaryContainer(root.dark)
                 Label {
                     anchors.centerIn: parent
                     text: "↶"
-                    font.pixelSize: 21
-                    color: root.Material.theme === Material.Dark ? "#EADDFF" : "#21005D"
+                    color: DesignTokens.onPrimaryContainer(root.dark)
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 20
                     Accessible.ignored: true
                 }
             }
@@ -99,31 +121,35 @@ Popup {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("History here")
-                    font.pixelSize: 19
+                    color: DesignTokens.onSurface(root.dark)
+                    font.family: DesignTokens.fontDisplay
+                    font.pixelSize: 18
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
                 Label {
                     Layout.fillWidth: true
                     text: root.contextTitle + "  ·  " + root.branchName
+                    font.family: DesignTokens.fontMono
                     font.pixelSize: 11
                     color: root.secondaryTextColor
                     elide: Text.ElideMiddle
                 }
             }
-            ToolButton {
-                text: "×"
-                Accessible.name: qsTr("Close contextual history")
+            WfIconButton {
+                glyph: "×"
+                accessibleName: qsTr("Close contextual history")
+                toolTip: accessibleName
+                dark: root.dark
+                motionEnabled: root.motionEnabled
                 onClicked: root.close()
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
             }
         }
 
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 1
-            color: root.Material.theme === Material.Dark ? "#49454F" : "#E7E0EC"
+            color: DesignTokens.outlineVariant(root.dark)
         }
 
         ListView {
@@ -132,17 +158,22 @@ Popup {
             Layout.fillHeight: true
             clip: true
             model: root.events
-            spacing: 7
-            topMargin: 10
-            bottomMargin: 10
-            leftMargin: 10
-            rightMargin: 10
+            spacing: DesignTokens.spacing8
+            topMargin: DesignTokens.spacing8
+            bottomMargin: DesignTokens.spacing8
+            leftMargin: DesignTokens.spacing8
+            rightMargin: DesignTokens.spacing8
 
-            delegate: Pane {
+            delegate: WfCard {
                 id: actionCard
                 required property var modelData
                 width: actionList.width - actionList.leftMargin - actionList.rightMargin
-                padding: 11
+                padding: DesignTokens.spacing12
+                dark: root.dark
+                radius: DesignTokens.radiusCard
+                surfaceLevel: effective ? "container" : "low"
+                outlined: modelData.destructive
+                outlineColor: root.errorColor
 
                 readonly property bool toggleable: modelData.type === "action"
                                                    || modelData.type === "compensation"
@@ -158,26 +189,19 @@ Popup {
                     return "✦"
                 }
 
-                background: Rectangle {
-                    radius: 15
-                    color: actionCard.effective
-                           ? (actionCard.Material.theme === Material.Dark ? "#2B292F" : "#F7F2FA")
-                           : (actionCard.Material.theme === Material.Dark ? "#252329" : "#F3EEF5")
-                    border.width: actionCard.modelData.destructive ? 1 : 0
-                    border.color: root.errorColor
-                }
-
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 6
+                    spacing: DesignTokens.spacing8
 
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
                         Label {
                             text: actionCard.eventIcon
+                            color: actionCard.modelData.destructive
+                                   ? root.errorColor : DesignTokens.primary(root.dark)
+                            font.family: DesignTokens.fontBody
                             font.pixelSize: 18
-                            color: actionCard.modelData.destructive ? root.errorColor : actionCard.Material.accent
                             Accessible.ignored: true
                         }
                         ColumnLayout {
@@ -186,6 +210,8 @@ Popup {
                             Label {
                                 Layout.fillWidth: true
                                 text: actionCard.modelData.title || qsTr("Recorded action")
+                                color: DesignTokens.onSurface(root.dark)
+                                font.family: DesignTokens.fontBody
                                 font.weight: Font.DemiBold
                                 elide: Text.ElideRight
                                 opacity: actionCard.effective ? 1 : 0.62
@@ -193,33 +219,33 @@ Popup {
                             Label {
                                 Layout.fillWidth: true
                                 text: actionCard.modelData.diffSummary || actionCard.modelData.description || qsTr("No diff summary")
+                                font.family: DesignTokens.fontBody
                                 font.pixelSize: 11
-                                color: actionCard.Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                                color: root.secondaryTextColor
                                 elide: Text.ElideRight
                             }
                         }
                         Label {
                             text: "#" + (actionCard.modelData.sequence || "")
+                            font.family: DesignTokens.fontMono
                             font.pixelSize: 10
-                            color: actionCard.Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                            color: root.secondaryTextColor
                         }
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-                        Label {
+                        WfStatusChip {
                             text: actionCard.stateLabel
-                            font.pixelSize: 11
-                            font.weight: Font.DemiBold
-                            color: root.secondaryTextColor
+                            tone: actionCard.effective ? "success" : "neutral"
+                            dark: root.dark
                         }
-                        Label {
+                        WfStatusChip {
                             visible: actionCard.modelData.destructive
                             text: qsTr("Destructive")
-                            font.pixelSize: 11
-                            font.weight: Font.Bold
-                            color: root.errorColor
+                            tone: "error"
+                            dark: root.dark
                         }
                         Item { Layout.fillWidth: true }
                     }
@@ -227,52 +253,65 @@ Popup {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 4
-                        Button {
+                        WfButton {
                             visible: actionCard.toggleable && actionCard.effective
-                            icon.name: "edit-undo"
+                            glyph: "↶"
                             text: qsTr("Undo")
-                            flat: true
+                            variant: "text"
+                            compact: true
+                            dark: root.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: root.undoRequested(actionCard.modelData.id)
                         }
-                        Button {
+                        WfButton {
                             visible: actionCard.toggleable && !actionCard.effective
-                            icon.name: "edit-redo"
+                            glyph: "↷"
                             text: qsTr("Redo")
-                            flat: true
+                            variant: "text"
+                            compact: true
+                            dark: root.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: root.redoRequested(actionCard.modelData.id)
                         }
-                        Button {
+                        WfButton {
                             visible: actionCard.modelData.type === "action"
                             text: qsTr("Restore here")
-                            flat: true
+                            variant: "tonal"
+                            compact: true
+                            dark: root.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: root.restoreRequested(actionCard.modelData.id)
                         }
                         Item { Layout.fillWidth: true }
-                        ToolButton {
-                            text: "★"
-                            Accessible.name: qsTr("Bookmark this action")
+                        WfIconButton {
+                            glyph: "★"
+                            accessibleName: qsTr("Bookmark this action")
+                            toolTip: accessibleName
+                            buttonSize: 34
+                            dark: root.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: {
                                 inlineEditor.mode = "bookmark"
                                 inlineEditor.eventId = actionCard.modelData.id
                                 inlineName.text = ""
                                 inlineEditor.visible = true
-                                inlineName.forceActiveFocus()
+                                inlineName.forceInputFocus()
                             }
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
                         }
-                        ToolButton {
-                            text: "⑂"
-                            Accessible.name: qsTr("Branch from this action")
+                        WfIconButton {
+                            glyph: "⑂"
+                            accessibleName: qsTr("Branch from this action")
+                            toolTip: accessibleName
+                            buttonSize: 34
+                            dark: root.dark
+                            motionEnabled: root.motionEnabled
                             onClicked: {
                                 inlineEditor.mode = "branch"
                                 inlineEditor.eventId = actionCard.modelData.id
                                 inlineName.text = ""
                                 inlineEditor.visible = true
-                                inlineName.forceActiveFocus()
+                                inlineName.forceInputFocus()
                             }
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
                         }
                     }
                 }
@@ -285,38 +324,43 @@ Popup {
                 text: qsTr("Nothing changed here yet. Future actions will appear without interrupting your work.")
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
-                color: root.Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                color: root.secondaryTextColor
+                font.family: DesignTokens.fontBody
             }
         }
 
-        Pane {
+        WfCard {
             id: inlineEditor
             property string mode: "bookmark"
             property string eventId: ""
             visible: false
             Layout.fillWidth: true
-            padding: 10
-
-            background: Rectangle {
-                color: inlineEditor.Material.theme === Material.Dark ? "#332D41" : "#F1EAFE"
-                border.width: 1
-                border.color: inlineEditor.Material.accent
-            }
+            padding: DesignTokens.spacing8
+            dark: root.dark
+            radius: DesignTokens.radiusControl
+            fillColor: DesignTokens.primaryContainer(root.dark)
+            outlineColor: DesignTokens.primary(root.dark)
 
             RowLayout {
                 anchors.fill: parent
                 Label { text: inlineEditor.mode === "branch" ? "⑂" : "★"; Accessible.ignored: true }
-                TextField {
+                WfField {
                     id: inlineName
                     Layout.fillWidth: true
                     placeholderText: inlineEditor.mode === "branch"
                                      ? qsTr("New branch name") : qsTr("Bookmark name")
                     maximumLength: 80
                     onAccepted: saveInlineButton.clicked()
+                    dark: root.dark
+                    motionEnabled: root.motionEnabled
                 }
-                Button {
+                WfButton {
                     id: saveInlineButton
                     text: qsTr("Save")
+                    variant: "filled"
+                    compact: true
+                    dark: root.dark
+                    motionEnabled: root.motionEnabled
                     enabled: inlineName.text.trim().length > 0
                     onClicked: {
                         if (inlineEditor.mode === "branch")
@@ -326,12 +370,14 @@ Popup {
                         inlineEditor.visible = false
                     }
                 }
-                ToolButton {
-                    text: "×"
-                    Accessible.name: qsTr("Cancel naming")
+                WfIconButton {
+                    glyph: "×"
+                    accessibleName: qsTr("Cancel naming")
+                    toolTip: accessibleName
+                    buttonSize: 34
+                    dark: root.dark
+                    motionEnabled: root.motionEnabled
                     onClicked: inlineEditor.visible = false
-                    ToolTip.visible: hovered
-                    ToolTip.text: Accessible.name
                 }
             }
         }
@@ -344,8 +390,9 @@ Popup {
             Layout.bottomMargin: 10
             text: qsTr("Undo is recorded as a new action, so undoing an undo safely redoes it.")
             wrapMode: Text.Wrap
+            font.family: DesignTokens.fontBody
             font.pixelSize: 10
-            color: root.Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+            color: root.secondaryTextColor
         }
     }
 }

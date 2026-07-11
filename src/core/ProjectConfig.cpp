@@ -450,6 +450,16 @@ ProjectValidation ProjectConfig::validate() const
         result.errors.append(QStringLiteral("Auto-export needs a destination path."));
     validateDraftPath(&result.errors, QStringLiteral("Auto-export"), autoExportPath);
 
+    const QJsonValue imageRelativeValue = options.extra.value(QStringLiteral("imageRelativePath"));
+    if (!imageRelativeValue.isUndefined()) {
+        if (!imageRelativeValue.isString()) {
+            result.errors.append(QStringLiteral("imageRelativePath must be a string."));
+        } else if (unsafeRelativePath(imageRelativeValue.toString())) {
+            result.errors.append(QStringLiteral(
+                "imageRelativePath must identify a safe relative file inside installation media."));
+        }
+    }
+
     return result;
 }
 
@@ -458,7 +468,14 @@ ProjectValidation ProjectConfig::validateForExecution() const
     ProjectValidation result = validate();
 
     validatePath(&result.errors, QStringLiteral("Source"), sourcePath, true);
-    validatePath(&result.errors, QStringLiteral("Image"), imagePath, true, PathKind::File);
+    const QString imageRelativePath = options.extra.value(
+        QStringLiteral("imageRelativePath")).toString().trimmed();
+    const QFileInfo sourceInfo(sourcePath);
+    const bool isoContainedImage = sourceInfo.isFile()
+        && sourceInfo.suffix().compare(QStringLiteral("iso"), Qt::CaseInsensitive) == 0
+        && !imageRelativePath.isEmpty() && !unsafeRelativePath(imageRelativePath);
+    if (!isoContainedImage)
+        validatePath(&result.errors, QStringLiteral("Image"), imagePath, true, PathKind::File);
     validatePath(&result.errors, QStringLiteral("Mount"), mountPath, false, PathKind::Directory);
     validatePath(&result.errors, QStringLiteral("Output"), outputPath, false);
     validatePathList(&result.errors, QStringLiteral("Driver"), drivers, PathKind::Any, true);
@@ -960,8 +977,10 @@ bool ProjectConfig::save(QString *error, const QString &commitMessage) const
         return false;
 
     const QString message = commitMessage.trimmed().isEmpty()
-        ? QStringLiteral("%1 project: %2").arg(existed ? QStringLiteral("Save") : QStringLiteral("Create"),
-                                               projectName)
+        ? QStringLiteral("%1 project: %2 / %3工程：%2")
+              .arg(existed ? QStringLiteral("Save") : QStringLiteral("Create"),
+                   projectName,
+                   existed ? QStringLiteral("儲存") : QStringLiteral("建立"))
         : commitMessage;
     QString gitError;
     if (!localHistory.commit(message, &gitError)) {
@@ -991,7 +1010,7 @@ bool ProjectConfig::exportJson(const QString &destinationFile, QString *error) c
 
     if (QFileInfo(destinationFile).absoluteFilePath()
         == QFileInfo(projectFilePath()).absoluteFilePath()) {
-        return save(error, QStringLiteral("Export project JSON"));
+        return save(error, QStringLiteral("Export project JSON / 匯出工程 JSON"));
     }
 
     const ProjectValidation validation = validate();
@@ -1015,7 +1034,7 @@ std::optional<ProjectConfig> ProjectConfig::importJson(const QString &sourceFile
     if (!config)
         return std::nullopt;
 
-    if (!config->save(error, QStringLiteral("Import project JSON")))
+    if (!config->save(error, QStringLiteral("Import project JSON / 匯入工程 JSON")))
         return std::nullopt;
     return config;
 }

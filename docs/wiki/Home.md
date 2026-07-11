@@ -38,11 +38,11 @@ WimForge is an independent alternative to NTLite, not an NTLite product. It is e
 
 ## The application model
 
-A project is a normal directory with a versioned `project.json`, supporting profiles, a `.wimforge` working area, and its own `.git` directory. Output-affecting UI mutations are first saved as project commits, then appended as action-history events and commits. If that secondary history append fails, WimForge preserves the already-safe project commit and creates a persistent warning. The notification center uses another local Git repository so notification state survives independently from whichever project is open.
+A project is a normal directory with a versioned `project.json`, supporting profiles, a `.wimforge` working area, its own `.git` directory, and a nested hardened Git repository for workspace tabs. Output-affecting UI mutations are first saved as project commits, then appended as action-history events and commits. If that secondary history append fails, WimForge preserves the already-safe project commit and creates a persistent warning. The notification center uses another local Git repository so notification state survives independently from whichever project is open.
 
 The image pipeline is an explicit dependency graph. It verifies inputs, clones the source into project-owned work paths, performs ordered writes, validates and unmounts, then publishes output atomically. The original source is not the default write target.
 
-Package, GPO, unattended, and WinForge configuration feeds that same project and history model. A complete `.wimforge` export packages the project and notification repositories, including their hidden Git object databases and undo commits.
+Package, GPO, unattended, and WinForge configuration feeds that same project and history model. A complete `.wimforge` export packages the project (including nested workspace-tab history) and notification repository, including their hidden Git object databases and undo commits.
 
 ## Interface promises
 
@@ -60,6 +60,10 @@ Package, GPO, unattended, and WinForge configuration feeds that same project and
 WimForge history reverses recorded configuration state. Selective desktop undo guarded-applies a minimal merge patch, preserving unrelated later edits and rejecting same-path conflicts. It cannot rewind bytes after DISM commits an external image, uninstall arbitrary host software, revoke a leaked credential, or reverse an action outside its transaction boundary. Keep pristine media, validate answer files against the exact target, and boot-test output in a disposable virtual machine.
 
 Microsoft's [DISM overview](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/what-is-dism?view=windows-11) and [answer-files overview](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/wsim/answer-files-overview) are the authoritative starting points for the Windows technologies WimForge orchestrates.
+
+## 香港粵語簡介
+
+WimForge 係獨立開源 Windows 映像工具，唔係 NTLite 產品。佢將 ISO/WIM 來源、DISM 操作、GPO、無人值守安裝、packages、VM 驗證同 Git-backed 歷史擺落同一個工程。原始 media 預設唔寫，所有可執行動作都應該在 Review & Run 先對指令同風險。Git undo 只會補償工程設定，唔會講大話話可以收返已經寫出去嘅 DISM 作用；正式用前仍然要 Windows SIM、乾淨 VM 同真實環境驗證。
 
 ---
 

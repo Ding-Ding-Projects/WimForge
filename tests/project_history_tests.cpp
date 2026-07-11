@@ -1,9 +1,12 @@
 #include "core/ProjectConfig.h"
+#include "core/ProcessLaunch.h"
 
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QTextStream>
 
@@ -40,6 +43,38 @@ QString makeFile(const QString &path, const QByteArray &contents = QByteArray("t
     if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size())
         return {};
     return QFileInfo(file).absoluteFilePath();
+}
+
+bool makeExecutableFile(const QString &path, const QByteArray &contents)
+{
+    if (makeFile(path, contents).isEmpty())
+        return false;
+    QFileDevice::Permissions permissions = QFile::permissions(path);
+    permissions |= QFileDevice::ExeOwner | QFileDevice::ExeUser
+        | QFileDevice::ExeGroup | QFileDevice::ExeOther;
+    return QFile::setPermissions(path, permissions);
+}
+
+bool runFixtureGit(const QString &repositoryPath,
+                   const QStringList &arguments,
+                   QString *detail = nullptr)
+{
+    QProcess process;
+    configureProcessWithoutConsole(process);
+    process.setWorkingDirectory(repositoryPath);
+    process.start(resolveExecutableForLaunch(QStringLiteral("git")), arguments,
+                  QIODevice::ReadOnly);
+    if (!process.waitForStarted(10'000) || !process.waitForFinished(30'000)
+        || process.exitCode() != 0) {
+        if (detail) {
+            const QString stderrText = QString::fromUtf8(process.readAllStandardError()).trimmed();
+            *detail = stderrText.isEmpty() ? process.errorString() : stderrText;
+        }
+        return false;
+    }
+    if (detail)
+        detail->clear();
+    return true;
 }
 
 ProjectConfig sampleProject(const QString &root)
@@ -120,6 +155,13 @@ ProjectConfig sampleProject(const QString &root)
     project.options.maximumParallelOperations = 4;
     project.options.splitSizeMb = 2048;
     project.options.extra.insert(QStringLiteral("futureOption"), QStringLiteral("preserved"));
+    project.options.extra.insert(QStringLiteral("imageInventory"), QJsonObject{
+        {QStringLiteral("editions"), QJsonArray{
+             QStringLiteral("Index 1 — Windows 11 Pro"),
+             QStringLiteral("Index 2 — Windows 11 Enterprise")}},
+        {QStringLiteral("summaryEn"), QStringLiteral("2 editions · install.wim")},
+        {QStringLiteral("summaryZh"), QStringLiteral("2 個版本 · install.wim")},
+    });
     project.customize.disableTelemetry = true;
     project.customize.disableRecall = true;
     project.settings.insert(QStringLiteral("language"), QStringLiteral("en-CA"));
@@ -226,6 +268,14 @@ int main(int argc, char **argv)
         test.check(loaded->options.extra.value(QStringLiteral("futureOption")).toString()
                        == QStringLiteral("preserved"),
                    QStringLiteral("unknown operation options round-trip"));
+        const QJsonObject imageInventory = loaded->options.extra
+            .value(QStringLiteral("imageInventory")).toObject();
+        test.check(imageInventory.value(QStringLiteral("editions")).toArray().size() == 2
+                       && imageInventory.value(QStringLiteral("summaryEn")).toString()
+                              == QStringLiteral("2 editions · install.wim")
+                       && imageInventory.value(QStringLiteral("summaryZh")).toString()
+                              == QStringLiteral("2 個版本 · install.wim"),
+                   QStringLiteral("inspected edition names and bilingual image summary round-trip in project options"));
     }
 
     project.featuresToEnable.append(QStringLiteral("Microsoft-Hyper-V-All"));
@@ -289,6 +339,178 @@ int main(int argc, char **argv)
         test.check(imported->revertLatest(&error),
                    QStringLiteral("no-op revert can itself be reverted: %1").arg(error));
     }
+
+    ProjectConfig controlledGit;
+    controlledGit.projectDirectory = QDir(temporary.path())
+                                         .filePath(QStringLiteral("projects/controlled-git"));
+    controlledGit.projectName = QStringLiteral("Controlled Git execution");
+    test.check(controlledGit.save(&error),
+               QStringLiteral("Git-control fixture has initial history: %1").arg(error));
+    const QString controlledGitDirectory = QDir(controlledGit.projectDirectory)
+                                               .filePath(QStringLiteral(".git"));
+    const QString hookMarker = QDir(controlledGit.projectDirectory)
+                                   .filePath(QStringLiteral("hook-ran"));
+    const QString fsmonitorMarker = QDir(controlledGit.projectDirectory)
+                                        .filePath(QStringLiteral("fsmonitor-ran"));
+    test.check(makeExecutableFile(
+                   QDir(controlledGitDirectory)
+                       .filePath(QStringLiteral("evil-hooks/post-commit")),
+                   QByteArray("#!/bin/sh\nprintf invoked > hook-ran\n"))
+                   && makeExecutableFile(
+                       QDir(controlledGitDirectory).filePath(QStringLiteral("evil-fsmonitor")),
+                       QByteArray("#!/bin/sh\nprintf invoked > fsmonitor-ran\nprintf '0\\n'\n")),
+               QStringLiteral("malicious hook and fsmonitor fixtures are executable"));
+    QString fixtureError;
+    test.check(runFixtureGit(controlledGit.projectDirectory,
+                             {QStringLiteral("config"), QStringLiteral("--local"),
+                              QStringLiteral("core.hooksPath"),
+                              QStringLiteral(".git/evil-hooks")},
+                             &fixtureError)
+                   && runFixtureGit(controlledGit.projectDirectory,
+                                    {QStringLiteral("config"), QStringLiteral("--local"),
+                                     QStringLiteral("core.fsmonitor"),
+                                     QStringLiteral(".git/evil-fsmonitor")},
+                                    &fixtureError),
+               QStringLiteral("malicious local Git controls are configured: %1").arg(fixtureError));
+    controlledGit.description = QStringLiteral("Save with hostile local Git controls");
+    const QString hostileIndex = QDir(controlledGit.projectDirectory)
+                                      .filePath(QStringLiteral("hostile-index"));
+    const bool hadGitIndexFile = qEnvironmentVariableIsSet("GIT_INDEX_FILE");
+    const QByteArray previousGitIndexFile = qgetenv("GIT_INDEX_FILE");
+    qputenv("GIT_INDEX_FILE", QFile::encodeName(hostileIndex));
+    const bool controlledSave = controlledGit.save(&error);
+    if (hadGitIndexFile)
+        qputenv("GIT_INDEX_FILE", previousGitIndexFile);
+    else
+        qunsetenv("GIT_INDEX_FILE");
+    test.check(controlledSave,
+               QStringLiteral("save ignores repository-local hooks and fsmonitor: %1").arg(error));
+    test.check(!QFileInfo::exists(hookMarker) && !QFileInfo::exists(fsmonitorMarker)
+                   && !QFileInfo::exists(hostileIndex),
+               QStringLiteral("repository-local executables and inherited Git index controls never run"));
+
+    const QString mergeMarker = QDir(controlledGit.projectDirectory)
+                                    .filePath(QStringLiteral("merge-ran"));
+    test.check(makeExecutableFile(
+                   QDir(controlledGit.projectDirectory).filePath(QStringLiteral("merge-evil")),
+                   QByteArray("#!/bin/sh\nprintf invoked > merge-ran\nexit 1\n"))
+                   && !makeFile(QDir(controlledGit.projectDirectory)
+                                    .filePath(QStringLiteral(".gitattributes")),
+                                QByteArray("project.json merge=evil\n")).isEmpty()
+                   && runFixtureGit(controlledGit.projectDirectory,
+                                    {QStringLiteral("config"), QStringLiteral("--local"),
+                                     QStringLiteral("merge.evil.driver"),
+                                     QStringLiteral("./merge-evil %O %A %B %L %P")},
+                                    &fixtureError),
+               QStringLiteral("malicious merge-driver fixture is configured: %1").arg(fixtureError));
+    QString hostileRevertError;
+    test.check(!controlledGit.revertLatest(&hostileRevertError)
+                   && hostileRevertError.contains(QStringLiteral("merge"), Qt::CaseInsensitive)
+                   && !QFileInfo::exists(mergeMarker),
+               QStringLiteral("revert rejects executable merge attributes before running them: %1")
+                   .arg(hostileRevertError));
+
+    ProjectConfig filteredGit;
+    filteredGit.projectDirectory = QDir(temporary.path())
+                                       .filePath(QStringLiteral("projects/filtered-git"));
+    filteredGit.projectName = QStringLiteral("Filtered Git execution");
+    test.check(filteredGit.save(&error),
+               QStringLiteral("filter fixture has initial history: %1").arg(error));
+    const QString filterMarker = QDir(filteredGit.projectDirectory)
+                                     .filePath(QStringLiteral("filter-ran"));
+    test.check(makeExecutableFile(
+                   QDir(filteredGit.projectDirectory).filePath(QStringLiteral("filter-evil")),
+                   QByteArray("#!/bin/sh\ncat\nprintf invoked > filter-ran\n"))
+                   && !makeFile(QDir(filteredGit.projectDirectory)
+                                    .filePath(QStringLiteral(".gitattributes")),
+                                QByteArray("project.json filter=evil\n")).isEmpty()
+                   && runFixtureGit(filteredGit.projectDirectory,
+                                    {QStringLiteral("config"), QStringLiteral("--local"),
+                                     QStringLiteral("filter.evil.clean"),
+                                     QStringLiteral("./filter-evil")},
+                                    &fixtureError)
+                   && runFixtureGit(filteredGit.projectDirectory,
+                                    {QStringLiteral("config"), QStringLiteral("--local"),
+                                     QStringLiteral("filter.evil.required"),
+                                     QStringLiteral("true")},
+                                    &fixtureError),
+               QStringLiteral("malicious repository-local clean filter is configured: %1")
+                   .arg(fixtureError));
+    filteredGit.description = QStringLiteral("This save must reject the clean filter");
+    QString filterError;
+    test.check(!filteredGit.save(&filterError)
+                   && filterError.contains(QStringLiteral("filter"), Qt::CaseInsensitive)
+                   && !QFileInfo::exists(filterMarker),
+               QStringLiteral("root .gitattributes filter is rejected without execution: %1")
+                   .arg(filterError));
+
+    ProjectConfig sharedRepository;
+    sharedRepository.projectDirectory = QDir(temporary.path())
+                                            .filePath(QStringLiteral("projects/shared-repository"));
+    sharedRepository.projectName = QStringLiteral("Shared repository state");
+    test.check(sharedRepository.save(&error),
+               QStringLiteral("shared-repository fixture has initial history: %1").arg(error));
+    const QString supportRelativePath = QStringLiteral(".wimforge/support-state.json");
+    const QString supportPath = QDir(sharedRepository.projectDirectory)
+                                    .filePath(supportRelativePath);
+    const QByteArray supportContents("{\"support\":true}\n");
+    test.check(!makeFile(supportPath, supportContents).isEmpty()
+                   && runFixtureGit(sharedRepository.projectDirectory,
+                                    {QStringLiteral("add"), QStringLiteral("--"),
+                                     supportRelativePath},
+                                    &fixtureError)
+                   && runFixtureGit(sharedRepository.projectDirectory,
+                                    {QStringLiteral("commit"), QStringLiteral("--no-verify"),
+                                     QStringLiteral("-m"),
+                                     QStringLiteral("Add independent support state")},
+                                    &fixtureError),
+               QStringLiteral("independent support state is committed: %1").arg(fixtureError));
+    sharedRepository.description = QStringLiteral("Project-only state change");
+    test.check(sharedRepository.save(&error),
+               QStringLiteral("project commit preserves independent support state: %1").arg(error));
+    test.check(QFileInfo::exists(supportPath)
+                   && runFixtureGit(sharedRepository.projectDirectory,
+                                    {QStringLiteral("ls-files"), QStringLiteral("--error-unmatch"),
+                                     QStringLiteral("--"), supportRelativePath},
+                                    &fixtureError),
+               QStringLiteral("support state remains tracked after a narrow project commit: %1")
+                   .arg(fixtureError));
+    test.check(sharedRepository.revertLatest(&error),
+               QStringLiteral("narrow project commit can be reverted in a shared repository: %1")
+                   .arg(error));
+    test.check(QFileInfo::exists(supportPath)
+                   && runFixtureGit(sharedRepository.projectDirectory,
+                                    {QStringLiteral("ls-files"), QStringLiteral("--error-unmatch"),
+                                     QStringLiteral("--"), supportRelativePath},
+                                    &fixtureError),
+               QStringLiteral("support state survives project revert and remains tracked: %1")
+                   .arg(fixtureError));
+
+    ProjectConfig constrainedTree;
+    constrainedTree.projectDirectory = QDir(temporary.path())
+                                          .filePath(QStringLiteral("projects/constrained-tree"));
+    constrainedTree.projectName = QStringLiteral("Constrained history tree");
+    test.check(constrainedTree.save(&error),
+               QStringLiteral("constrained-tree fixture has initial history: %1").arg(error));
+    constrainedTree.description = QStringLiteral("Second constrained state");
+    test.check(constrainedTree.save(&error),
+               QStringLiteral("constrained-tree fixture has two saves: %1").arg(error));
+    test.check(!makeFile(QDir(constrainedTree.projectDirectory)
+                             .filePath(QStringLiteral("unexpected.txt"))).isEmpty()
+                   && runFixtureGit(constrainedTree.projectDirectory,
+                                    {QStringLiteral("add"), QStringLiteral("--"),
+                                     QStringLiteral("unexpected.txt")},
+                                    &fixtureError)
+                   && runFixtureGit(constrainedTree.projectDirectory,
+                                    {QStringLiteral("commit"), QStringLiteral("--no-verify"),
+                                     QStringLiteral("-m"), QStringLiteral("Inject extra tree path")},
+                                    &fixtureError),
+               QStringLiteral("unexpected committed tree path is injected: %1").arg(fixtureError));
+    QString treeError;
+    test.check(!constrainedTree.revertLatest(&treeError)
+                   && treeError.contains(QStringLiteral("unexpected"), Qt::CaseInsensitive),
+               QStringLiteral("revert rejects commits outside its narrow state-file set: %1")
+                   .arg(treeError));
 
     ProjectConfig invalid = project;
     invalid.projectDirectory = QStringLiteral("relative/project");

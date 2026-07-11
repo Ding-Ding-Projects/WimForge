@@ -99,9 +99,14 @@ int main(int argc, char **argv)
                QStringLiteral("action history initializes the project's local Git repository"));
     test.check(gitCommitCount(projectDirectory) == 1,
                QStringLiteral("one action creates exactly one Git commit"));
+    QList<GitCommit> actionCommits = GitHistory(projectDirectory).history(1, &error);
+    test.check(error.isEmpty() && actionCommits.size() == 1
+                   && actionCommits.first().subject
+                          == QStringLiteral("History #1: Select Windows edition / 歷程 #1：記錄咗呢個動作"),
+               QStringLiteral("an English-only action receives a natural Cantonese commit half"));
 
     ActionDraft outputAction;
-    outputAction.title = QStringLiteral("Choose ISO output");
+    outputAction.title = QStringLiteral("Choose ISO output / 揀 ISO 輸出");
     outputAction.icon = QStringLiteral("album");
     outputAction.contextKey = QStringLiteral("output");
     outputAction.elementId = QStringLiteral("format");
@@ -114,6 +119,11 @@ int main(int argc, char **argv)
                QStringLiteral("independent second action is recorded: %1").arg(error));
     test.check(gitCommitCount(projectDirectory) == 2,
                QStringLiteral("every ordinary action is a separate Git commit"));
+    actionCommits = GitHistory(projectDirectory).history(1, &error);
+    test.check(error.isEmpty() && actionCommits.size() == 1
+                   && actionCommits.first().subject
+                          == QStringLiteral("History #2: Choose ISO output / 歷程 #2：揀 ISO 輸出"),
+               QStringLiteral("a bilingual action is split into exactly two commit halves"));
 
     const QList<ActionEvent> editionEvents =
         history.recentForElement(QStringLiteral("source"), QStringLiteral("edition-index"), 20, &error);

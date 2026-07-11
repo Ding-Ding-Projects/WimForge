@@ -22,17 +22,18 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
   -DBUILD_TESTING=ON
 cmake --build build --config Debug --parallel
 ctest --test-dir build -C Debug --output-on-failure
+$runtime = Join-Path (Resolve-Path .).Path 'build\dev-runtime'
+cmake --install build --config Debug --prefix $runtime
 ```
 
 Run a safe populated demo:
 
 ```powershell
-$env:PATH = 'C:\Qt\6.8.3\msvc2022_64\bin;' + $env:PATH
-.\build\Debug\WimForge.exe --demo --language bilingual --page overview
-.\build\Debug\WimForgeCli.exe --json package template ai-development
+& "$runtime\WimForge.exe" --demo --language bilingual --page overview
+& "$runtime\WimForgeCli.exe" --json package template ai-development
 ```
 
-The demo's `--page` option is useful for visual QA of individual studios. Use only IDs compiled into the build.
+The absolute install prefix is required by Qt's deploy script and produces a self-contained developer runtime. Launching the naked Visual Studio output without either this install step or the matching Qt `bin` directory on `PATH` can fail with a missing `Qt6Guid.dll`. The demo's `--page` option is useful for visual QA of individual studios. Use only IDs compiled into the build.
 
 ## Configure with Ninja
 
@@ -168,6 +169,10 @@ The first result should be `0`; the release should be final/non-prerelease with 
 Executables and installers are not currently code-signed. GitHub provides release-asset SHA-256 digests and the workflow verifies uploaded digests, but publisher identity through Authenticode remains a future hardening step. Test both installer and portable package in a clean Windows VM before broad use.
 
 Read [`docs/release-design.md`](https://github.com/codingmachineedge/WimForge/blob/main/docs/release-design.md) for the pipeline contract. Primary references: [Qt Windows deployment](https://doc.qt.io/qt-6/windows-deployment.html), [`install-qt-action`](https://github.com/jurplel/install-qt-action), and [`gh release create`](https://cli.github.com/manual/gh_release_create).
+
+## 香港粵語建置提示
+
+Visual Studio 直接產生嘅 `build\Debug\WimForge.exe` 唔係自我完備版；要先 `cmake --install` 去絕對 `dev-runtime` 路徑，Qt/MSVC runtime 先會對齊，否則可能出現少 `Qt6Guid.dll`。正常 release 會 build、跑全部 tests、編 installer、驗便攜 ZIP，再先上載去 draft release 做 hash/asset/commit 合約檢查。公開版現時未簽名，請在乾淨 VM 測 installer 同 portable，並核對 GitHub SHA-256。
 
 ---
 

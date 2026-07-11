@@ -487,11 +487,20 @@ bool ActionHistory::append(ActionEvent event, ActionEvent *createdEvent, QString
         return false;
 
     GitHistory git(m_projectDirectory, {QString::fromLatin1(RelativeJournalPath)});
-    const QString commitMessage = QStringLiteral("History #%1: %2")
+    const QString commitTitle = event.title.isEmpty()
+        ? actionEventTypeName(event.type) : event.title;
+    QString commitTitleEn = commitTitle;
+    QString commitTitleZh = QStringLiteral("記錄咗呢個動作");
+    const qsizetype bilingualSeparator = commitTitle.indexOf(QStringLiteral(" / "));
+    if (bilingualSeparator > 0
+        && bilingualSeparator + 3 < commitTitle.size()) {
+        commitTitleEn = commitTitle.left(bilingualSeparator).trimmed();
+        commitTitleZh = commitTitle.mid(bilingualSeparator + 3).trimmed();
+    }
+    const QString commitMessage = QStringLiteral("History #%1: %2 / 歷程 #%1：%3")
                                       .arg(event.sequence)
-                                      .arg(event.title.isEmpty()
-                                               ? actionEventTypeName(event.type)
-                                               : event.title);
+                                      .arg(commitTitleEn)
+                                      .arg(commitTitleZh);
     QString commitError;
     if (!git.commit(commitMessage, &commitError)) {
         QSaveFile rollback(path);
@@ -590,11 +599,22 @@ bool ActionHistory::toggle(const QString &eventOrActionId,
     const ActionEvent &tail = *chain.last();
     ActionEvent compensation;
     compensation.type = ActionEventType::Compensation;
-    compensation.title = QStringLiteral("%1 %2")
-                             .arg(operation == QStringLiteral("redo") ? QStringLiteral("Redo")
-                                                                     : QStringLiteral("Undo"),
-                                  root.title);
-    compensation.description = QStringLiteral("Compensates history event #%1.").arg(tail.sequence);
+    const bool redo = operation == QStringLiteral("redo");
+    QString rootTitleEn = root.title;
+    QString rootTitleZh = QStringLiteral("嗰個動作");
+    const qsizetype rootTitleSeparator = root.title.indexOf(QStringLiteral(" / "));
+    if (rootTitleSeparator > 0
+        && rootTitleSeparator + 3 < root.title.size()) {
+        rootTitleEn = root.title.left(rootTitleSeparator).trimmed();
+        rootTitleZh = root.title.mid(rootTitleSeparator + 3).trimmed();
+    }
+    compensation.title = QStringLiteral("%1 %2 / %3 %4")
+                             .arg(redo ? QStringLiteral("Redo") : QStringLiteral("Undo"),
+                                  rootTitleEn,
+                                  redo ? QStringLiteral("重做") : QStringLiteral("復原"),
+                                  rootTitleZh);
+    compensation.description = QStringLiteral(
+        "Compensates history event #%1. / 補償歷程事件 #%1。").arg(tail.sequence);
     compensation.icon = operation;
     compensation.contextKey = root.contextKey;
     compensation.elementId = root.elementId;
@@ -689,7 +709,7 @@ bool ActionHistory::createBookmark(const QString &name,
 
     ActionEvent bookmark;
     bookmark.type = ActionEventType::Bookmark;
-    bookmark.title = QStringLiteral("Bookmark: %1").arg(cleanName);
+    bookmark.title = QStringLiteral("Bookmark: %1 / 書籤：%1").arg(cleanName);
     bookmark.icon = QStringLiteral("bookmark");
     bookmark.contextKey = target ? target->contextKey : QStringLiteral("project");
     bookmark.elementId = target ? target->elementId : QStringLiteral("root");
@@ -734,7 +754,7 @@ bool ActionHistory::createBranch(const QString &name,
 
     ActionEvent branch;
     branch.type = ActionEventType::Branch;
-    branch.title = QStringLiteral("Create branch %1").arg(cleanName);
+    branch.title = QStringLiteral("Create branch %1 / 建立分支 %1").arg(cleanName);
     branch.icon = QStringLiteral("fork_right");
     branch.contextKey = target ? target->contextKey : QStringLiteral("project");
     branch.elementId = target ? target->elementId : QStringLiteral("root");
@@ -761,7 +781,7 @@ bool ActionHistory::switchBranch(const QString &name,
 
     ActionEvent branch;
     branch.type = ActionEventType::Branch;
-    branch.title = QStringLiteral("Switch to branch %1").arg(cleanName);
+    branch.title = QStringLiteral("Switch to branch %1 / 切換去分支 %1").arg(cleanName);
     branch.icon = QStringLiteral("fork_right");
     branch.contextKey = QStringLiteral("history");
     branch.elementId = QStringLiteral("branch-selector");

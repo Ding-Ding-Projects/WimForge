@@ -1,4 +1,5 @@
 #include "core/ServicingPlan.h"
+#include "core/ProcessLaunch.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -113,12 +114,16 @@ bool isAncestor(const ServicingPlanResult &plan, const QString &ancestor, const 
     return false;
 }
 
-bool runOperation(const ServicingOperation &operation, QString *detail = nullptr)
+bool runOperation(const ServicingOperation &operation,
+                  QString *detail = nullptr,
+                  const QProcessEnvironment *environment = nullptr)
 {
     QProcess process;
-    process.setProgram(operation.executable);
+    process.setProgram(resolveExecutableForLaunch(operation.executable));
     process.setArguments(operation.arguments);
     process.setProcessChannelMode(QProcess::MergedChannels);
+    if (environment)
+        process.setProcessEnvironment(*environment);
     process.start();
     if (!process.waitForStarted(10'000) || !process.waitForFinished(60'000)) {
         if (detail)
@@ -158,10 +163,29 @@ void testIsoFolder(TestRun &test, const QString &root)
             && operation.writesMediaWorkspace
             && operation.metadata.value(QStringLiteral("sourceImmutable")).toBool();
     });
+    const QString cloneScript = mediaClone ? mediaClone->arguments.constLast() : QString();
     test.check(mediaClone && mediaClone->executable == QStringLiteral("powershell.exe")
-                   && mediaClone->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("robocopy.exe"))
+                   && cloneScript.contains(QStringLiteral("$wimforgeRobocopy"))
+                   && cloneScript.contains(QStringLiteral("[Environment]::SystemDirectory"))
+                   && cloneScript.contains(QStringLiteral("$env:PSModulePath"))
+                   && !cloneScript.contains(QStringLiteral("& robocopy.exe"))
                    && mediaClone->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("/XJ")),
-               QStringLiteral("media folder is recursively cloned without following junctions"));
+                QStringLiteral("media folder is recursively cloned without following junctions"));
+    if (mediaClone) {
+        const QString hostileBin = QDir(root).filePath(QStringLiteral("hostile-bin"));
+        makeFile(QDir(hostileBin).filePath(QStringLiteral("robocopy.exe")),
+                 QByteArray("not a trusted executable"));
+        QProcessEnvironment hostile = QProcessEnvironment::systemEnvironment();
+        hostile.insert(QStringLiteral("PATH"), hostileBin);
+        hostile.insert(QStringLiteral("PSModulePath"),
+                       QDir(root).filePath(QStringLiteral("hostile-modules")));
+        QString detail;
+        test.check(runOperation(*mediaClone, &detail, &hostile)
+                       && QFileInfo::exists(QDir(plan.mediaWorkspace).filePath(
+                              QStringLiteral("sources/install.wim"))),
+                   QStringLiteral("media cloning ignores hostile PATH/PSModulePath: %1")
+                       .arg(detail));
+    }
 
     const ServicingOperation *inspect = findOperation(plan, [](const ServicingOperation &operation) {
         return operation.kind == OperationKind::Inspect;
@@ -207,15 +231,183 @@ void testIsoFile(TestRun &test, const QString &root)
             && operation.writesMediaWorkspace
             && operation.arguments.join(QLatin1Char(' ')).contains(QStringLiteral("Mount-DiskImage"));
     });
-    test.check(extract && extract->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("finally"))
-                   && extract->arguments.join(QLatin1Char(' ')).contains(QStringLiteral("Dismount-DiskImage")),
-               QStringLiteral("ISO extraction dismounts its source even when copying fails"));
+    const QString extractScript = extract ? extract->arguments.constLast() : QString();
+    test.check(extract && extractScript.contains(QStringLiteral("finally"))
+                   && extractScript.contains(QStringLiteral("Microsoft.PowerShell.Core\\Import-Module"))
+                   && extractScript.contains(QStringLiteral("Storage\\Mount-DiskImage"))
+                   && extractScript.contains(QStringLiteral("Storage\\Dismount-DiskImage"))
+                   && extractScript.contains(QStringLiteral("Storage\\Get-DiskImage"))
+                   && extractScript.contains(QStringLiteral("$wimforgeRobocopy"))
+                   && !extractScript.contains(QStringLiteral("& robocopy.exe")),
+                QStringLiteral("ISO extraction pins Storage/native tools and confirms dismount"));
     const ServicingOperation *imageCopy = findOperation(plan, [&project](const ServicingOperation &operation) {
         return operation.kind == OperationKind::PrepareWorkspace
             && operation.metadata.value(QStringLiteral("source")).toString() == project.imagePath;
     });
     test.check(imageCopy && imageCopy->dependsOn.contains(extract ? extract->id : QString()),
                QStringLiteral("external image is copied into media after ISO extraction"));
+}
+
+void testIsoContainedEsd(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/windows.iso")));
+    project.imagePath.clear();
+    project.options.extra.insert(QStringLiteral("imageRelativePath"),
+                                 QStringLiteral("sources/install.esd"));
+    project.outputFormat = QStringLiteral("iso");
+    project.outputPath = QDir(project.projectDirectory)
+                             .filePath(QStringLiteral("output/windows-custom.iso"));
+
+    const ProjectValidation executionValidation = project.validateForExecution();
+    test.check(executionValidation.ok(),
+               QStringLiteral("an inspected ISO-contained image validates without a stale mounted path: %1")
+                   .arg(executionValidation.errors.join(QStringLiteral(" | "))));
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    const QString expectedMediaImage = QDir(plan.mediaWorkspace)
+                                           .filePath(QStringLiteral("sources/install.esd"));
+    const QString expectedWorking = QDir(project.projectDirectory)
+                                        .filePath(QStringLiteral(".wimforge/work/images/install-working.wim"));
+    const QString expectedPartialWorking = QDir(QFileInfo(expectedWorking).absolutePath())
+                                               .filePath(QStringLiteral(".install-working.wimforge-partial.wim"));
+    const QString expectedPartialEsd = QDir(QFileInfo(expectedMediaImage).absolutePath())
+                                           .filePath(QStringLiteral(".install.wimforge-partial.esd"));
+    test.check(plan.ok(),
+               QStringLiteral("ISO-contained ESD plan is valid: %1")
+                   .arg(plan.errors.join(QStringLiteral(" | "))));
+    test.check(QDir::cleanPath(plan.workingImagePath) == QDir::cleanPath(expectedWorking),
+               QStringLiteral("ISO-contained ESD is converted to a project-owned working WIM"));
+    const ServicingOperation *extract = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::PrepareWorkspace
+            && operation.writesMediaWorkspace
+            && operation.arguments.join(QLatin1Char(' ')).contains(QStringLiteral("Mount-DiskImage"));
+    });
+    const ServicingOperation *convert = findOperation(
+        plan, [&expectedMediaImage, &expectedPartialWorking](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::PrepareWorkspace
+                && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0
+                && hasArgument(operation, QStringLiteral("/SourceImageFile:"), expectedMediaImage)
+                && hasArgument(operation, QStringLiteral("/SourceIndex:"), QStringLiteral("2"))
+                && hasArgument(operation, QStringLiteral("/DestinationImageFile:"), expectedPartialWorking)
+                && operation.arguments.contains(QStringLiteral("/Compress:max"))
+                && !std::any_of(operation.arguments.cbegin(), operation.arguments.cend(),
+                                [](const QString &argument) {
+                                    return argument.startsWith(QStringLiteral("/SWMFile:"),
+                                                               Qt::CaseInsensitive);
+                                });
+        });
+    test.check(extract && convert && isAncestor(plan, extract->id, convert->id),
+               QStringLiteral("ESD conversion waits for ISO extraction and exports selected source index 2"));
+    const ServicingOperation *inspect = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Inspect;
+    });
+    test.check(inspect && hasArgument(*inspect, QStringLiteral("/WimFile:"), expectedWorking),
+               QStringLiteral("post-conversion inspection reads the serviceable working WIM"));
+    const ServicingOperation *mount = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Mount;
+    });
+    test.check(mount && hasArgument(*mount, QStringLiteral("/ImageFile:"), expectedWorking)
+                   && hasArgument(*mount, QStringLiteral("/Index:"), QStringLiteral("1"))
+                   && !hasArgument(*mount, QStringLiteral("/ImageFile:"), expectedMediaImage),
+               QStringLiteral("mount uses converted WIM index 1 and never attempts to mount install.esd"));
+
+    const ServicingOperation *repack = findOperation(
+        plan, [&expectedWorking, &expectedPartialEsd](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::Export
+                && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0
+                && operation.writesMediaWorkspace
+                && hasArgument(operation, QStringLiteral("/SourceImageFile:"), expectedWorking)
+                && hasArgument(operation, QStringLiteral("/SourceIndex:"), QStringLiteral("1"))
+                && hasArgument(operation, QStringLiteral("/DestinationImageFile:"), expectedPartialEsd)
+                && operation.arguments.contains(QStringLiteral("/Compress:recovery"));
+        });
+    const ServicingOperation *publishMediaImage = findOperation(
+        plan, [&expectedMediaImage](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::Export
+                && operation.writesMediaWorkspace
+                && operation.metadata.value(QStringLiteral("destination")).toString()
+                       == expectedMediaImage;
+        });
+    const ServicingOperation *iso = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::CreateIso
+            && operation.executable.compare(QStringLiteral("oscdimg.exe"), Qt::CaseInsensitive) == 0;
+    });
+    test.check(repack && publishMediaImage
+                   && isAncestor(plan, repack->id, publishMediaImage->id)
+                   && iso && isAncestor(plan, publishMediaImage->id, iso->id),
+               QStringLiteral("serviced WIM index 1 is recovery-compressed back to install.esd before ISO creation"));
+
+    ProjectConfig unsafe = project;
+    unsafe.options.extra.insert(QStringLiteral("imageRelativePath"),
+                                QStringLiteral("../outside/install.wim"));
+    test.check(!unsafe.validate().ok() && !ServicingPlan::build(unsafe).ok(),
+               QStringLiteral("unsafe ISO-relative image traversal is rejected"));
+}
+
+void testIsoContainedSwm(TestRun &test, const QString &root)
+{
+    ProjectConfig project = baseProject(root);
+    project.sourcePath = makeFile(QDir(root).filePath(QStringLiteral("input/windows.iso")));
+    project.imagePath.clear();
+    project.options.extra.insert(QStringLiteral("imageRelativePath"),
+                                 QStringLiteral("sources/install.swm"));
+    project.outputFormat = QStringLiteral("iso");
+    project.outputPath = QDir(project.projectDirectory)
+                             .filePath(QStringLiteral("output/windows-custom.iso"));
+
+    const ServicingPlanResult plan = ServicingPlan::build(project);
+    const QString expectedMediaImage = QDir(plan.mediaWorkspace)
+                                           .filePath(QStringLiteral("sources/install.swm"));
+    const QString expectedWorking = QDir(project.projectDirectory)
+                                        .filePath(QStringLiteral(".wimforge/work/images/install-working.wim"));
+    const QString expectedPartialWorking = QDir(QFileInfo(expectedWorking).absolutePath())
+                                               .filePath(QStringLiteral(".install-working.wimforge-partial.wim"));
+    const QString expectedWildcard = QDir(QFileInfo(expectedMediaImage).absolutePath())
+                                         .filePath(QStringLiteral("install*.swm"));
+    test.check(plan.ok(), QStringLiteral("ISO-contained SWM plan is valid: %1")
+                                  .arg(plan.errors.join(QStringLiteral(" | "))));
+    test.check(QDir::cleanPath(plan.workingImagePath) == QDir::cleanPath(expectedWorking),
+               QStringLiteral("imageRelativePath .swm selects the split-to-WIM preparation path"));
+    const ServicingOperation *convert = findOperation(
+        plan, [&expectedMediaImage, &expectedPartialWorking,
+               &expectedWildcard](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::PrepareWorkspace
+                && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0
+                && hasArgument(operation, QStringLiteral("/SourceImageFile:"), expectedMediaImage)
+                && hasArgument(operation, QStringLiteral("/SWMFile:"), expectedWildcard)
+                && hasArgument(operation, QStringLiteral("/SourceIndex:"), QStringLiteral("2"))
+                && hasArgument(operation, QStringLiteral("/DestinationImageFile:"), expectedPartialWorking);
+        });
+    const ServicingOperation *mount = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Mount;
+    });
+    test.check(convert && mount
+                   && hasArgument(*mount, QStringLiteral("/ImageFile:"), expectedWorking)
+                   && hasArgument(*mount, QStringLiteral("/Index:"), QStringLiteral("1")),
+               QStringLiteral("complete SWM set index 2 is converted and working WIM index 1 is mounted"));
+
+    const ServicingOperation *split = findOperation(
+        plan, [&expectedWorking](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::Split
+                && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0
+                && hasArgument(operation, QStringLiteral("/ImageFile:"), expectedWorking);
+        });
+    const ServicingOperation *publishMediaImage = findOperation(
+        plan, [&expectedMediaImage](const ServicingOperation &operation) {
+            return operation.kind == OperationKind::Split
+                && operation.writesMediaWorkspace
+                && operation.metadata.value(QStringLiteral("destination")).toString()
+                       == expectedMediaImage;
+        });
+    const ServicingOperation *iso = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::CreateIso
+            && operation.executable.compare(QStringLiteral("oscdimg.exe"), Qt::CaseInsensitive) == 0;
+    });
+    test.check(split && publishMediaImage
+                   && isAncestor(plan, split->id, publishMediaImage->id)
+                   && iso && isAncestor(plan, publishMediaImage->id, iso->id),
+               QStringLiteral("serviced WIM is split back into install*.swm before ISO creation"));
 }
 
 void testContainerSources(TestRun &test, const QString &root)
@@ -231,8 +423,21 @@ void testContainerSources(TestRun &test, const QString &root)
         test.check(plan.ok(), QStringLiteral("%1 plan is valid: %2")
                                   .arg(suffix.toUpper(), plan.errors.join(QStringLiteral(" | "))));
         test.check(plan.workingImagePath != project.imagePath
-                       && plan.workingImagePath.endsWith(QLatin1Char('.') + suffix, Qt::CaseInsensitive),
-                   QStringLiteral("%1 source is cloned to a same-format working image").arg(suffix.toUpper()));
+                       && plan.workingImagePath.endsWith(QStringLiteral(".wim"), Qt::CaseInsensitive),
+                   suffix == QStringLiteral("esd")
+                       ? QStringLiteral("ESD source is converted to a serviceable working WIM")
+                       : QStringLiteral("WIM source is cloned to a separate working WIM"));
+        const ServicingOperation *conversion = findOperation(
+            plan, [&project](const ServicingOperation &operation) {
+                return operation.kind == OperationKind::PrepareWorkspace
+                    && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0
+                    && hasArgument(operation, QStringLiteral("/SourceImageFile:"), project.imagePath);
+            });
+        test.check(suffix == QStringLiteral("esd")
+                       ? conversion && hasArgument(*conversion, QStringLiteral("/SourceIndex:"),
+                                                   QStringLiteral("2"))
+                       : conversion == nullptr,
+                   QStringLiteral("only ESD input has a selected-index conversion barrier"));
         const ServicingOperation *mount = findOperation(plan, [](const ServicingOperation &operation) {
             return operation.kind == OperationKind::Mount;
         });
@@ -240,11 +445,15 @@ void testContainerSources(TestRun &test, const QString &root)
             return operation.kind == OperationKind::Export
                 && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0;
         });
-        test.check(mount && hasArgument(*mount, QStringLiteral("/ImageFile:"), plan.workingImagePath),
-                   QStringLiteral("%1 mount uses working image").arg(suffix.toUpper()));
+        const QString expectedWorkingIndex = suffix == QStringLiteral("esd")
+            ? QStringLiteral("1") : QStringLiteral("2");
+        test.check(mount && hasArgument(*mount, QStringLiteral("/ImageFile:"), plan.workingImagePath)
+                       && hasArgument(*mount, QStringLiteral("/Index:"), expectedWorkingIndex),
+                   QStringLiteral("%1 mount uses the correct working-image index").arg(suffix.toUpper()));
         test.check(exportImage
-                       && hasArgument(*exportImage, QStringLiteral("/SourceImageFile:"), plan.workingImagePath),
-                   QStringLiteral("%1 export reads working image").arg(suffix.toUpper()));
+                       && hasArgument(*exportImage, QStringLiteral("/SourceImageFile:"), plan.workingImagePath)
+                       && hasArgument(*exportImage, QStringLiteral("/SourceIndex:"), expectedWorkingIndex),
+                   QStringLiteral("%1 output export reads the correct working-image index").arg(suffix.toUpper()));
     }
 }
 
@@ -268,12 +477,19 @@ void testSplitSource(TestRun &test, const QString &root)
             && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0
             && hasArgument(operation, QStringLiteral("/SourceImageFile:"), project.imagePath);
     });
-    test.check(convert && std::any_of(convert->arguments.cbegin(), convert->arguments.cend(),
-                                      [](const QString &argument) {
-                                          return argument.startsWith(QStringLiteral("/SWMFile:"))
-                                              && argument.contains(QStringLiteral("*.swm"));
-                                      }),
+    test.check(convert && hasArgument(*convert, QStringLiteral("/SourceIndex:"), QStringLiteral("2"))
+                   && std::any_of(convert->arguments.cbegin(), convert->arguments.cend(),
+                                  [](const QString &argument) {
+                                      return argument.startsWith(QStringLiteral("/SWMFile:"))
+                                          && argument.contains(QStringLiteral("*.swm"));
+                                  }),
                QStringLiteral("SWM preparation reads the complete split set"));
+    const ServicingOperation *mount = findOperation(plan, [](const ServicingOperation &operation) {
+        return operation.kind == OperationKind::Mount;
+    });
+    test.check(mount && hasArgument(*mount, QStringLiteral("/ImageFile:"), plan.workingImagePath)
+                   && hasArgument(*mount, QStringLiteral("/Index:"), QStringLiteral("1")),
+               QStringLiteral("converted SWM working WIM is mounted at its sole index 1"));
     const ServicingOperation *split = findOperation(plan, [](const ServicingOperation &operation) {
         return operation.kind == OperationKind::Split
             && operation.executable.compare(QStringLiteral("dism.exe"), Qt::CaseInsensitive) == 0;
@@ -473,8 +689,31 @@ void testQuotingAndExport(TestRun &test, const QString &root)
     // The already-safe embedded PowerShell program is itself emitted as a
     // single-quoted argument, so its apostrophes are escaped a second time.
     test.check(opened && contents.contains("O''''Brien")
-                   && contents.contains("Invoke-WimForgeStep"),
-               QStringLiteral("export uses literal argument arrays rather than a concatenated command line"));
+                   && contents.contains("Invoke-WimForgeStep")
+                   && contents.contains("Resolve-WimForgeExecutable")
+                   && contents.contains("[Environment]::SystemDirectory")
+                   && contents.contains("ProgramFilesX86")
+                   && contents.contains("Assessment and Deployment Kit")
+                   && contents.contains("& $resolvedExe @Args")
+                   && !contents.contains("& $Exe @Args"),
+                QStringLiteral("export uses literal argument arrays rather than a concatenated command line"));
+    if (opened) {
+        QProcess exported;
+        exported.setProgram(resolveExecutableForLaunch(QStringLiteral("powershell.exe")));
+        exported.setArguments({QStringLiteral("-NoLogo"), QStringLiteral("-NoProfile"),
+                               QStringLiteral("-NonInteractive"), QStringLiteral("-File"),
+                               scriptPath, QStringLiteral("-WhatIfPlan")});
+        exported.setProcessEnvironment(sanitizedPowerShellEnvironment());
+        exported.setProcessChannelMode(QProcess::MergedChannels);
+        exported.start();
+        const bool started = exported.waitForStarted(10'000);
+        const bool finished = started && exported.waitForFinished(60'000);
+        const QString output = QString::fromLocal8Bit(exported.readAll());
+        test.check(started && finished && exported.exitStatus() == QProcess::NormalExit
+                       && exported.exitCode() == 0,
+                   QStringLiteral("exported hardened plan parses and resolves trusted tools: %1")
+                       .arg(output));
+    }
 
     ServicingOperation publish;
     publish.id = QStringLiteral("publish");
@@ -517,7 +756,10 @@ void testQuotingAndExport(TestRun &test, const QString &root)
     const qsizetype preparePosition = orderedContents.indexOf("Invoke-WimForgeStep 'prepare'");
     const qsizetype publishPosition = orderedContents.indexOf("Invoke-WimForgeStep 'publish'");
     test.check(orderedOpened && preparePosition >= 0 && publishPosition > preparePosition,
-               QStringLiteral("export stable-topologically orders dependencies before consumers"));
+                QStringLiteral("export stable-topologically orders dependencies before consumers"));
+    test.check(orderedContents.contains("throw \"Untrusted relative executable in servicing plan: $Exe\"")
+                   && orderedContents.contains("Relative executable paths are forbidden"),
+               QStringLiteral("exported runner rejects unknown or path-bearing relative executables"));
     test.check(!orderedContents.contains("Invoke-WimForgeStep 'optional'")
                    && !orderedContents.contains("Optional sentinel"),
                QStringLiteral("export omits an intentionally skipped operation"));
@@ -815,6 +1057,8 @@ int main(int argc, char **argv)
 
     testIsoFolder(test, QDir(temporary.path()).filePath(QStringLiteral("iso-folder")));
     testIsoFile(test, QDir(temporary.path()).filePath(QStringLiteral("iso-file")));
+    testIsoContainedEsd(test, QDir(temporary.path()).filePath(QStringLiteral("iso-contained-esd")));
+    testIsoContainedSwm(test, QDir(temporary.path()).filePath(QStringLiteral("iso-contained-swm")));
     testContainerSources(test, QDir(temporary.path()).filePath(QStringLiteral("containers")));
     testSplitSource(test, QDir(temporary.path()).filePath(QStringLiteral("split")));
     testStagingAndHashGate(test, QDir(temporary.path()).filePath(QStringLiteral("staging")));

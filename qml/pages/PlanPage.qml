@@ -1,15 +1,27 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
+import "../components"
 
 Item {
     id: root
-    property var app
-    property var tr: function(en, zh) { return en }
+
+    required property var app
+    required property var tr
+
+    required property bool dark
+    Material.theme: dark ? Material.Dark : Material.Light
     readonly property bool compact: width < 760
-    readonly property color errorText: Material.theme === Material.Dark ? "#FFB4AB" : "#BA1A1A"
-    readonly property color warningText: Material.theme === Material.Dark ? "#FFD18B" : "#8B5000"
-    readonly property color successFill: Material.theme === Material.Dark ? "#4F7A49" : "#2E7D32"
+    readonly property color surfaceForeground: DesignTokens.onSurface(root.dark)
+    readonly property color surfaceVariantForeground: DesignTokens.onSurfaceVariant(root.dark)
+    readonly property color outlineVariant: DesignTokens.outlineVariant(root.dark)
+    readonly property color primary: DesignTokens.primary(root.dark)
+    readonly property color success: DesignTokens.success(root.dark)
+    readonly property color warning: DesignTokens.tertiary(root.dark)
+    readonly property color error: DesignTokens.error(root.dark)
 
     function statusText(status) {
         if (status === "running") return root.tr("Running", "執行中")
@@ -21,179 +33,343 @@ Item {
         return root.tr("Queued", "排隊中")
     }
 
-    function statusGlyph(status, index) {
-        if (status === "running") return "▶"
-        if (status === "done") return "✓"
-        if (status === "failed") return "!"
-        if (status === "skipped") return "–"
-        if (status === "blocked") return "⊘"
-        if (status === "cancelled") return "×"
-        return String(index + 1)
+    function statusTone(status) {
+        if (status === "running") return "info"
+        if (status === "done") return "success"
+        if (status === "failed" || status === "blocked") return "error"
+        if (status === "cancelled" || status === "skipped") return "warning"
+        return "neutral"
     }
 
-    function detailLabel(en, zh, value) {
-        return root.tr(en, zh) + ": " + value
+    function statusGlyph(status, index) {
+        if (status === "running") return "RUN"
+        if (status === "done") return "OK"
+        if (status === "failed") return "ERR"
+        if (status === "skipped") return "SKIP"
+        if (status === "blocked") return "BLOCK"
+        if (status === "cancelled") return "STOP"
+        return String(index + 1)
     }
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 14
+        spacing: DesignTokens.spacing12
 
-        GridLayout {
+        WfPageHeader {
             Layout.fillWidth: true
-            columns: root.width >= 760 ? 3 : 1
-            columnSpacing: 8
-            rowSpacing: 8
-            ColumnLayout {
-                Layout.fillWidth: true
-                Label { Layout.fillWidth: true; text: root.tr("Review & run", "檢查同開工"); font.pixelSize: 30; font.weight: Font.Bold; wrapMode: Text.Wrap }
-                Label {
-                    Layout.fillWidth: true
-                    text: root.tr("Exact commands, dependencies, checkpoints and risk flags—nothing hidden behind a magical button.",
-                                  "指令、依賴、檢查點同風險全部攤開畀你睇，冇粒神秘掣撳落去先知出事。")
-                    wrapMode: Text.Wrap
-                    color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
-                }
+            dark: root.dark
+            eyebrow: root.tr("Servicing plan", "維護計劃")
+            title: root.tr("Review & run", "檢查同開工")
+            description: root.tr("Inspect exact commands, dependencies, checkpoints and risk before any change reaches the image.",
+                                 "任何改動落到映像之前，先檢查實際指令、依賴、檢查點同風險。")
+
+            WfButton {
+                dark: root.dark
+                variant: "outlined"
+                glyph: "↻"
+                text: root.tr("Rebuild plan", "重排計劃")
+                onClicked: root.app.refreshPlan()
             }
-            Button { Layout.fillWidth: root.width < 760; icon.name: "view-refresh"; text: root.tr("Rebuild plan", "重排計劃"); onClicked: app.refreshPlan() }
-            Button { Layout.fillWidth: root.width < 760; icon.name: "document-save"; text: root.tr("Export script", "匯出 script"); onClicked: app.requestExportScript() }
+            WfButton {
+                dark: root.dark
+                variant: "tonal"
+                text: root.tr("Export script", "匯出 script")
+                onClicked: root.app.requestExportScript()
+            }
         }
 
-        Pane {
+        WfCard {
             Layout.fillWidth: true
-            padding: 14
-            background: Rectangle { radius: 16; color: Material.theme === Material.Dark ? "#211F26" : "#F7F2FA" }
+            dark: root.dark
+            surfaceLevel: "low"
+            padding: DesignTokens.spacing12
+
             GridLayout {
                 anchors.fill: parent
-                columns: root.width >= 700 ? 4 : 1
-                columnSpacing: 8
-                rowSpacing: 6
-                Label { text: "⚡"; font.pixelSize: 24; color: Material.accent }
+                columns: root.compact ? 1 : 3
+                columnSpacing: DesignTokens.spacing12
+                rowSpacing: DesignTokens.spacing8
+
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Label { text: root.tr("Concurrent job engine", "平行工序引擎"); font.weight: Font.DemiBold }
+                    Layout.columnSpan: root.compact ? 1 : 2
+                    spacing: DesignTokens.spacing4
                     Label {
-                        text: root.tr("Independent preparation jobs can run together; writes to the same mounted image are serialized automatically.",
-                                      "互不相干嘅準備工序可以一齊跑；寫入同一個掛載映像就會自動排隊，唔會鬥快撞車。")
+                        text: root.tr("Concurrent job engine", "平行工序引擎")
+                        color: root.surfaceForeground
+                        font.family: DesignTokens.fontDisplay
+                        font.pixelSize: 15
+                        font.weight: Font.Bold
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.tr("Independent preparation jobs may run together. Writes to one mounted image remain serialized.",
+                                      "互不相干嘅準備工序可以一齊跑；寫入同一個掛載映像仍會順序執行。")
+                        color: root.surfaceVariantForeground
+                        font.family: DesignTokens.fontBody
+                        font.pixelSize: 12
                         wrapMode: Text.Wrap
-                        color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
                     }
                 }
-                Label { Layout.fillWidth: root.width < 700; text: root.tr("Parallel", "平行"); wrapMode: Text.Wrap }
-                SpinBox {
-                    from: 1; to: 16
-                    value: app.maxParallelJobs
-                    Accessible.name: root.tr("Maximum parallel jobs", "最多平行工序")
-                    onValueModified: app.maxParallelJobs = value
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                    spacing: DesignTokens.spacing8
+                    Label {
+                        text: root.tr("Parallel jobs", "平行工序")
+                        color: root.surfaceVariantForeground
+                        font.family: DesignTokens.fontBody
+                        font.pixelSize: 12
+                    }
+                    SpinBox {
+                        Layout.preferredHeight: DesignTokens.controlHeight
+                        from: 1
+                        to: 16
+                        value: root.app.maxParallelJobs
+                        editable: true
+                        Accessible.name: root.tr("Maximum parallel jobs", "最多平行工序")
+                        onValueModified: root.app.maxParallelJobs = value
+                    }
                 }
             }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: DesignTokens.spacing4
+            Layout.rightMargin: DesignTokens.spacing4
+            spacing: DesignTokens.spacing8
+            Label {
+                Layout.preferredWidth: 78
+                text: root.tr("STATE", "狀態")
+                color: root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 10
+                font.weight: Font.Bold
+                font.letterSpacing: 0.8
+            }
+            Label {
+                Layout.fillWidth: true
+                text: root.tr("OPERATION / EXACT COMMAND", "工序／實際指令")
+                color: root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 10
+                font.weight: Font.Bold
+                font.letterSpacing: 0.8
+            }
+            Label {
+                visible: !root.compact
+                Layout.preferredWidth: 190
+                text: root.tr("DEPENDENCY / RISK", "依賴／風險")
+                color: root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 10
+                font.weight: Font.Bold
+                font.letterSpacing: 0.8
+            }
+            Item { Layout.preferredWidth: DesignTokens.controlHeight }
         }
 
         ListView {
             id: planList
             Layout.fillWidth: true
             Layout.fillHeight: true
-            model: app.operationPlan
-            spacing: 8
+            Layout.minimumHeight: 180
+            model: root.app.operationPlan
+            spacing: DesignTokens.spacing8
             clip: true
+            boundsBehavior: Flickable.StopAtBounds
 
-            delegate: Pane {
+            delegate: WfCard {
+                id: operationCard
                 required property var modelData
                 required property int index
                 width: planList.width
-                padding: 14
-                background: Rectangle {
-                    radius: 16
-                    color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"
-                    border.width: 1
-                    border.color: modelData.destructive ? root.errorText : (Material.theme === Material.Dark ? "#49454F" : "#E7E0EC")
-                }
-                RowLayout {
+                dark: root.dark
+                surfaceLevel: "lowest"
+                padding: DesignTokens.spacing12
+                outlineColor: operationCard.modelData.destructive
+                              ? root.error : root.outlineVariant
+
+                GridLayout {
                     anchors.fill: parent
-                    spacing: 12
+                    columns: root.compact ? 2 : 4
+                    columnSpacing: DesignTokens.spacing12
+                    rowSpacing: DesignTokens.spacing8
+
                     Rectangle {
-                        width: 38; height: 38; radius: 12
-                        color: modelData.status === "running" ? Material.accent
-                             : modelData.status === "done" ? root.successFill
-                             : (modelData.status === "failed" || modelData.status === "blocked") ? (Material.theme === Material.Dark ? "#8C1D18" : "#BA1A1A")
-                             : modelData.status === "cancelled" ? (Material.theme === Material.Dark ? "#7A5A20" : "#8B5000")
-                             : (Material.theme === Material.Dark ? "#36343B" : "#E7E0EC")
-                        Accessible.name: root.statusText(modelData.status)
+                        Layout.preferredWidth: 64
+                        Layout.preferredHeight: 34
+                        radius: DesignTokens.radiusControl
+                        color: DesignTokens.toneContainer(root.statusTone(operationCard.modelData.status), root.dark)
+                        border.width: 1
+                        border.color: DesignTokens.toneStrong(root.statusTone(operationCard.modelData.status), root.dark)
                         Label {
                             anchors.centerIn: parent
-                            text: root.statusGlyph(modelData.status, index)
-                            color: modelData.status === "queued" ? (Material.theme === Material.Dark ? "white" : "#1D1B20") : "white"
+                            text: root.statusGlyph(operationCard.modelData.status, operationCard.index)
+                            color: DesignTokens.toneForeground(root.statusTone(operationCard.modelData.status), root.dark)
+                            font.family: DesignTokens.fontMono
+                            font.pixelSize: 10
                             font.weight: Font.Bold
                         }
                     }
+
                     ColumnLayout {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: DesignTokens.spacing4
                         Label {
                             Layout.fillWidth: true
-                            text: modelData.title
-                            font.weight: Font.DemiBold
+                            text: operationCard.modelData.title
+                            color: root.surfaceForeground
+                            font.family: DesignTokens.fontBody
+                            font.pixelSize: 14
+                            font.weight: Font.Bold
                             wrapMode: Text.Wrap
                         }
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: planList.width >= 700 ? 4 : 1
-                            columnSpacing: 8
-                            rowSpacing: 2
-                            Label { text: "● " + root.statusText(modelData.status); color: (modelData.status === "failed" || modelData.status === "blocked") ? root.errorText : (modelData.status === "cancelled" ? root.warningText : Material.accent); font.weight: Font.DemiBold; font.pixelSize: 10 }
-                            Label { visible: modelData.admin; text: "🛡 " + root.tr("Admin", "管理員"); color: root.warningText; font.pixelSize: 10 }
-                            Label { visible: modelData.destructive; text: "⚠ " + root.tr("Destructive", "有破壞性"); color: root.errorText; font.pixelSize: 10 }
-                            Label { visible: modelData.reboot; text: "↻ " + root.tr("Reboot", "要重開"); font.pixelSize: 10 }
-                        }
                         Label {
                             Layout.fillWidth: true
-                            text: modelData.description
-                            wrapMode: Text.Wrap
-                            color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Label { text: root.detailLabel("Scope", "範圍", modelData.writeScope); font.pixelSize: 10 }
-                            Label { text: root.detailLabel("Dependencies", "依賴", modelData.dependsOn.length); font.pixelSize: 10 }
-                            Label { text: modelData.checkpointRequired ? root.tr("Checkpoint required", "需要檢查點") : root.tr("No checkpoint", "毋須檢查點"); font.pixelSize: 10 }
-                            Label { text: modelData.parallelEligible ? root.tr("Parallel eligible", "可平行") : root.tr("Serialized", "順序執行"); font.pixelSize: 10 }
-                            Label { text: modelData.reversible ? root.tr("Reversible", "可復原") : root.tr("Not reversible", "不可復原"); font.pixelSize: 10; color: modelData.reversible ? Material.accent : root.warningText }
-                            Label { text: root.detailLabel("Skip effect", "略過影響", modelData.skipConsequence); font.pixelSize: 10; color: modelData.skipConsequence === "omits-optional-change" ? Material.accent : root.warningText }
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            visible: modelData.compatibilityNotes.length > 0
-                            text: root.tr("Compatibility: ", "相容性：") + modelData.compatibilityNotes.join(" • ")
-                            wrapMode: Text.Wrap
-                            font.pixelSize: 10
-                            color: root.warningText
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: modelData.command
-                            font.family: "Cascadia Mono"
+                            text: operationCard.modelData.description
+                            color: root.surfaceVariantForeground
+                            font.family: DesignTokens.fontBody
                             font.pixelSize: 11
-                            wrapMode: Text.WrapAnywhere
-                            color: Material.theme === Material.Dark ? "#D0BCFF" : "#6750A4"
+                            elide: Text.ElideRight
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: commandLabel.implicitHeight + DesignTokens.spacing12
+                            radius: DesignTokens.radiusControl
+                            color: DesignTokens.surfaceDim(root.dark)
+                            Label {
+                                id: commandLabel
+                                anchors.fill: parent
+                                anchors.margins: DesignTokens.spacing8
+                                text: operationCard.modelData.command
+                                color: root.surfaceForeground
+                                font.family: DesignTokens.fontMono
+                                font.pixelSize: 10
+                                wrapMode: Text.WrapAnywhere
+                            }
                         }
                     }
-                    ToolButton {
-                        text: "⋮"
-                        Accessible.name: root.tr("Operation actions for %1", "%1 工序動作").arg(modelData.title)
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
+
+                    ColumnLayout {
+                        visible: !root.compact
+                        Layout.preferredWidth: 190
+                        Layout.minimumWidth: 0
+                        spacing: DesignTokens.spacing4
+                        WfStatusChip {
+                            dark: root.dark
+                            tone: operationCard.modelData.destructive ? "error"
+                                  : operationCard.modelData.admin ? "warning" : "neutral"
+                            text: operationCard.modelData.destructive
+                                  ? root.tr("DESTRUCTIVE", "有破壞性")
+                                  : operationCard.modelData.admin
+                                    ? root.tr("ADMIN", "管理員")
+                                    : root.tr("STANDARD", "標準")
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.tr("Depends on", "依賴") + ": "
+                                  + operationCard.modelData.dependsOn.length
+                                  + "  ·  " + operationCard.modelData.writeScope
+                            color: root.surfaceVariantForeground
+                            font.family: DesignTokens.fontMono
+                            font.pixelSize: 10
+                            wrapMode: Text.WrapAnywhere
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: operationCard.modelData.checkpointRequired
+                                  ? root.tr("Checkpoint required", "需要檢查點")
+                                  : root.tr("No checkpoint", "毋須檢查點")
+                            color: operationCard.modelData.checkpointRequired ? root.warning : root.surfaceVariantForeground
+                            font.family: DesignTokens.fontBody
+                            font.pixelSize: 11
+                            font.weight: Font.DemiBold
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: operationCard.modelData.parallelEligible
+                                  ? root.tr("Parallel eligible", "可平行")
+                                  : root.tr("Serialized write", "順序寫入")
+                            color: root.surfaceVariantForeground
+                            font.family: DesignTokens.fontBody
+                            font.pixelSize: 11
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: operationCard.modelData.compatibilityNotes.length > 0
+                            text: operationCard.modelData.compatibilityNotes.join(" · ")
+                            color: root.warning
+                            font.family: DesignTokens.fontBody
+                            font.pixelSize: 10
+                            wrapMode: Text.Wrap
+                        }
+                    }
+
+                    WfIconButton {
+                        dark: root.dark
+                        glyph: "⋮"
+                        accessibleName: root.tr("Operation actions for %1", "%1 工序動作").arg(operationCard.modelData.title)
+                        toolTip: accessibleName
                         onClicked: commandMenu.open()
                         Menu {
                             id: commandMenu
-                            MenuItem { text: "⧉  " + root.tr("Copy command", "複製指令"); onTriggered: app.copyText(modelData.command) }
-                            MenuItem { text: "↑  " + root.tr("Move earlier", "移前") ; onTriggered: app.moveOperation(index, -1) }
-                            MenuItem { text: "↓  " + root.tr("Move later", "移後"); onTriggered: app.moveOperation(index, 1) }
+                            MenuItem {
+                                text: root.tr("Copy exact command", "複製實際指令")
+                                onTriggered: root.app.copyText(operationCard.modelData.command)
+                            }
+                            MenuItem {
+                                text: root.tr("Move earlier", "移前")
+                                onTriggered: root.app.moveOperation(operationCard.index, -1)
+                            }
+                            MenuItem {
+                                text: root.tr("Move later", "移後")
+                                onTriggered: root.app.moveOperation(operationCard.index, 1)
+                            }
                             MenuSeparator {}
                             MenuItem {
-                                text: modelData.status === "skipped" ? "↺  " + root.tr("Restore operation", "還原工序") : "×  " + root.tr("Skip optional operation", "略過可選工序")
-                                enabled: !app.busy && (modelData.status === "skipped" || modelData.skipConsequence === "omits-optional-change")
-                                onTriggered: app.skipOperation(index)
+                                text: operationCard.modelData.status === "skipped"
+                                      ? root.tr("Restore operation", "還原工序")
+                                      : root.tr("Skip optional operation", "略過可選工序")
+                                enabled: !root.app.busy
+                                         && (operationCard.modelData.status === "skipped"
+                                             || operationCard.modelData.skipConsequence === "omits-optional-change")
+                                onTriggered: root.app.skipOperation(operationCard.index)
                             }
+                        }
+                    }
+
+                    Flow {
+                        visible: root.compact
+                        Layout.columnSpan: 2
+                        Layout.fillWidth: true
+                        spacing: DesignTokens.spacing8
+                        WfStatusChip {
+                            dark: root.dark
+                            tone: operationCard.modelData.destructive ? "error"
+                                  : operationCard.modelData.admin ? "warning" : "neutral"
+                            text: operationCard.modelData.destructive
+                                  ? root.tr("DESTRUCTIVE", "有破壞性")
+                                  : operationCard.modelData.admin
+                                    ? root.tr("ADMIN", "管理員")
+                                    : root.statusText(operationCard.modelData.status).toUpperCase()
+                        }
+                        Label {
+                            text: root.tr("Dependencies", "依賴") + ": " + operationCard.modelData.dependsOn.length
+                            color: root.surfaceVariantForeground
+                            font.family: DesignTokens.fontMono
+                            font.pixelSize: 10
+                        }
+                        Label {
+                            text: operationCard.modelData.reversible
+                                  ? root.tr("Reversible", "可復原")
+                                  : root.tr("Not reversible", "不可復原")
+                            color: operationCard.modelData.reversible ? root.success : root.warning
+                            font.family: DesignTokens.fontBody
+                            font.pixelSize: 10
                         }
                     }
                 }
@@ -201,46 +377,56 @@ Item {
 
             Label {
                 anchors.centerIn: parent
+                width: Math.min(implicitWidth, parent.width - DesignTokens.spacing24)
                 visible: planList.count === 0
-                text: root.tr("The plan is empty. Add a source and some customizations first.", "計劃仲係空嘅。先加來源同揀啲調校啦。")
-                color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                text: root.tr("The plan is empty. Add a source and customizations first.",
+                              "計劃仲係空嘅。先加來源同調校。")
+                color: root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 13
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
             }
         }
 
-        GridLayout {
+        WfCard {
             Layout.fillWidth: true
-            columns: root.width >= 820 ? 3 : 1
-            columnSpacing: 8
-            rowSpacing: 8
-            CheckBox {
-                id: checkpointCheck
-                Layout.fillWidth: true
-                text: root.tr("Create recovery checkpoint before destructive steps", "危險工序之前建立復原檢查點")
-                checked: app.checkpointBeforeDestructive
-                contentItem: Label {
-                    leftPadding: checkpointCheck.indicator.width + checkpointCheck.spacing
-                    text: checkpointCheck.text
-                    font: checkpointCheck.font
-                    color: checkpointCheck.palette.windowText
-                    wrapMode: Text.Wrap
-                    verticalAlignment: Text.AlignVCenter
+            dark: root.dark
+            surfaceLevel: "low"
+            padding: DesignTokens.spacing12
+
+            GridLayout {
+                anchors.fill: parent
+                columns: root.width >= 820 ? 3 : 1
+                columnSpacing: DesignTokens.spacing12
+                rowSpacing: DesignTokens.spacing8
+
+                CheckBox {
+                    id: checkpointCheck
+                    Layout.fillWidth: true
+                    text: root.tr("Create recovery checkpoint before destructive steps", "危險工序之前建立復原檢查點")
+                    checked: root.app.checkpointBeforeDestructive
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 12
+                    onToggled: root.app.checkpointBeforeDestructive = checked
                 }
-                onToggled: app.checkpointBeforeDestructive = checked
-            }
-            Button {
-                visible: app.busy
-                Layout.fillWidth: root.width < 820
-                icon.name: "process-stop"
-                text: root.tr("Cancel safely", "安全取消")
-                onClicked: app.cancelJobs()
-            }
-            Button {
-                Layout.fillWidth: root.width < 820
-                highlighted: true
-                enabled: app.projectLoaded && app.operationCount > 0 && !app.busy
-                icon.name: "media-playback-start"
-                text: root.tr("Run reviewed plan", "執行已檢查計劃")
-                onClicked: app.requestRunPlan()
+                WfButton {
+                    visible: root.app.busy
+                    Layout.fillWidth: root.width < 820
+                    dark: root.dark
+                    variant: "destructive"
+                    text: root.tr("Cancel safely", "安全取消")
+                    onClicked: root.app.cancelJobs()
+                }
+                WfButton {
+                    Layout.fillWidth: root.width < 820
+                    dark: root.dark
+                    variant: "filled"
+                    glyph: "▶"
+                    enabled: root.app.projectLoaded && root.app.operationCount > 0 && !root.app.busy
+                    text: root.tr("Run reviewed plan", "執行已檢查計劃")
+                    onClicked: root.app.requestRunPlan()
+                }
             }
         }
     }

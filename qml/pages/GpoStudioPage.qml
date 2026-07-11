@@ -2,7 +2,9 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
+import "../components"
 
 Item {
     id: root
@@ -12,15 +14,25 @@ Item {
 
     property var selectedPolicy: null
     property var elementValues: ({})
-    readonly property bool compact: width < 820
+    readonly property bool compact: width < 860
     property int draftState: 1
     property bool documentationExpanded: false
 
     readonly property bool hasSelection: selectedPolicy !== null && selectedPolicy !== undefined
-    readonly property color surfaceColor: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"
-    readonly property color surfaceVariantColor: Material.theme === Material.Dark ? "#2B292F" : "#F7F2FA"
-    readonly property color outlineColor: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC"
-    readonly property color secondaryTextColor: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+    required property bool dark
+    Material.theme: dark ? Material.Dark : Material.Light
+    readonly property color surfaceColor: DesignTokens.surfaceLowest(root.dark)
+    readonly property color surfaceVariantColor: DesignTokens.surfaceLow(root.dark)
+    readonly property color surfaceContainerColor: DesignTokens.surfaceContainer(root.dark)
+    readonly property color outlineColor: DesignTokens.outlineVariant(root.dark)
+    readonly property color secondaryTextColor: DesignTokens.onSurfaceVariant(root.dark)
+    readonly property color surfaceForegroundColor: DesignTokens.onSurface(root.dark)
+    readonly property color primaryColor: DesignTokens.primary(root.dark)
+    readonly property color primaryContainerColor: DesignTokens.primaryContainer(root.dark)
+    readonly property color primaryContainerForegroundColor: DesignTokens.onPrimaryContainer(root.dark)
+    readonly property color successColor: DesignTokens.success(root.dark)
+    readonly property color successContainerColor: DesignTokens.successContainer(root.dark)
+    readonly property color successContainerForegroundColor: DesignTokens.onSuccessContainer(root.dark)
 
     function ensureCatalog() {
         if (!active)
@@ -125,8 +137,8 @@ Item {
         if (!selectedPolicy)
             return ""
         if (selectedPolicy.policyClass === "Both")
-            return policyScope.currentIndex === 1 ? root.tr("User", "使用者") : root.tr("Computer", "電腦")
-        return selectedPolicy.policyClass === "User" ? root.tr("User", "使用者") : root.tr("Computer", "電腦")
+            return policyScope.currentIndex === 1 ? root.tr("User", "用戶") : root.tr("Computer", "電腦")
+        return selectedPolicy.policyClass === "User" ? root.tr("User", "用戶") : root.tr("Computer", "電腦")
     }
 
     function registryTarget() {
@@ -154,20 +166,22 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: DesignTokens.spacing12
 
         GridLayout {
             Layout.fillWidth: true
             columns: root.width >= 760 ? 3 : 1
-            columnSpacing: 10
-            rowSpacing: 8
+            columnSpacing: DesignTokens.spacing12
+            rowSpacing: DesignTokens.spacing8
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 2
                 Label {
                     Layout.fillWidth: true
                     text: root.tr("Group Policy Studio", "群組原則工房")
-                    font.pixelSize: 30
+                    color: root.surfaceForegroundColor
+                    font.family: DesignTokens.fontDisplay
+                    font.pixelSize: 26
                     font.weight: Font.Bold
                     wrapMode: Text.Wrap
                 }
@@ -177,40 +191,36 @@ Item {
                                   "搵出已安裝 ADMX 政策、揀目標狀態，再 commit 一項可審核嘅映像建置變更。")
                     wrapMode: Text.Wrap
                     color: root.secondaryTextColor
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 13
                 }
             }
 
-            Rectangle {
+            WfStatusChip {
                 Layout.fillWidth: root.width < 760
-                Layout.preferredWidth: policyCountLabel.implicitWidth + 28
-                Layout.preferredHeight: 38
-                radius: 19
-                color: Material.theme === Material.Dark ? "#4A4458" : "#E8DEF8"
-                Label {
-                    id: policyCountLabel
-                    anchors.centerIn: parent
-                    text: root.app.gpoPolicyCount.toLocaleString() + "  " + root.tr("installed", "已安裝")
-                    color: Material.theme === Material.Dark ? "#E8DEF8" : "#4F378B"
-                    font.weight: Font.DemiBold
-                }
+                dark: root.dark
+                tone: "primary"
+                uppercase: false
+                showDot: false
+                text: root.app.gpoPolicyCount.toLocaleString() + " " + root.tr("installed", "已安裝")
             }
 
-            Button {
+            WfButton {
                 Layout.fillWidth: root.width < 760
-                text: "⇩  " + root.tr("Export reference", "匯出參考")
+                dark: root.dark
+                variant: "outlined"
+                text: root.tr("Export reference", "匯出參考")
                 enabled: root.app.gpoLoaded
                 onClicked: docsExport.open()
             }
         }
 
-        Pane {
+        WfCard {
             Layout.fillWidth: true
-            padding: 12
-            background: Rectangle {
-                radius: 18
-                color: root.surfaceColor
-                border.color: root.outlineColor
-            }
+            dark: root.dark
+            outlined: true
+            surfaceLevel: "low"
+            padding: DesignTokens.spacing12
 
             ColumnLayout {
                 anchors.fill: parent
@@ -219,22 +229,16 @@ Item {
                 GridLayout {
                     Layout.fillWidth: true
                     columns: root.width >= 760 ? 4 : 1
-                    columnSpacing: 8
-                    rowSpacing: 8
+                    columnSpacing: DesignTokens.spacing8
+                    rowSpacing: DesignTokens.spacing8
                     TextField {
                         id: policySearch
                         Layout.fillWidth: true
+                        Layout.preferredHeight: DesignTokens.controlHeight
                         placeholderText: root.tr("Search names, explanations, categories, or registry paths", "搜尋名稱、解說、分類或登錄路徑")
-                        leftPadding: 38
                         selectByMouse: true
-                        Label {
-                            anchors.left: parent.left
-                            anchors.leftMargin: 13
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "⌕"
-                            font.pixelSize: 19
-                            color: root.secondaryTextColor
-                        }
+                        font.family: DesignTokens.fontBody
+                        font.pixelSize: 13
                         onTextEdited: searchDebounce.restart()
                         onAccepted: root.app.searchGpo(text, regexMode.checked)
                     }
@@ -249,16 +253,19 @@ Item {
                         }
                     }
 
-                    Button {
+                    WfButton {
                         Layout.fillWidth: root.width < 760
-                        text: "🧩  " + root.tr("Build regex", "建立 Regex")
+                        dark: root.dark
+                        variant: "outlined"
+                        text: root.tr("Build regex", "建立 Regex")
                         onClicked: regexWizard.open()
                     }
 
-                    Button {
+                    WfButton {
                         Layout.fillWidth: root.width < 760
+                        dark: root.dark
+                        variant: "filled"
                         text: root.tr("Search", "搜尋")
-                        highlighted: true
                         onClicked: root.app.searchGpo(policySearch.text, regexMode.checked)
                     }
                 }
@@ -272,6 +279,7 @@ Item {
                     TextField {
                         id: intent
                         Layout.fillWidth: true
+                        Layout.preferredHeight: DesignTokens.controlHeight
                         placeholderText: root.tr("Describe what you want Windows to do; OpenCode will suggest catalog keywords", "描述你想 Windows 做咩；OpenCode 會建議目錄關鍵字")
                         selectByMouse: true
                         onAccepted: {
@@ -280,9 +288,11 @@ Item {
                         }
                     }
 
-                    Button {
+                    WfButton {
                         Layout.fillWidth: root.width < 660
-                        text: "✦  " + root.tr("Suggest search", "建議搜尋")
+                        dark: root.dark
+                        variant: "tonal"
+                        text: root.tr("Suggest search", "建議搜尋")
                         enabled: intent.text.trim().length > 0 && !root.app.openCodeBusy
                         onClicked: root.app.askOpenCodeForGpo(intent.text)
                     }
@@ -302,21 +312,18 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             columns: root.compact ? 1 : 2
-            columnSpacing: 12
-            rowSpacing: 12
+            columnSpacing: DesignTokens.spacing16
+            rowSpacing: DesignTokens.spacing12
 
-            Pane {
+            WfCard {
                 Layout.fillWidth: true
-                Layout.preferredWidth: root.compact ? -1 : 360
+                Layout.preferredWidth: root.compact ? -1 : 340
                 Layout.fillHeight: true
                 Layout.minimumWidth: 0
                 Layout.minimumHeight: 120
-                padding: 8
-                background: Rectangle {
-                    radius: 18
-                    color: root.surfaceColor
-                    border.color: root.outlineColor
-                }
+                dark: root.dark
+                outlined: true
+                padding: DesignTokens.spacing8
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -329,14 +336,17 @@ Item {
                         Layout.topMargin: 5
                         Label {
                             text: root.tr("Policy catalog", "政策目錄")
-                            font.pixelSize: 17
-                            font.weight: Font.DemiBold
+                            color: root.surfaceForegroundColor
+                            font.family: DesignTokens.fontDisplay
+                            font.pixelSize: 15
+                            font.weight: Font.Bold
                         }
                         Item { Layout.fillWidth: true }
                         Label {
                             text: root.app.gpoResults.length + " " + root.tr("shown", "顯示")
-                            color: Material.accent
+                            color: root.primaryColor
                             font.weight: Font.DemiBold
+                            font.pixelSize: 11
                         }
                     }
 
@@ -376,8 +386,8 @@ Item {
                                 highlighted: root.hasSelection && root.selectedPolicy.id === modelData.id
                                 leftPadding: 10
                                 rightPadding: 10
-                                topPadding: 8
-                                bottomPadding: 8
+                                topPadding: 9
+                                bottomPadding: 9
 
                                 onClicked: {
                                     policyList.currentIndex = index
@@ -388,17 +398,17 @@ Item {
                                     spacing: 10
 
                                     Rectangle {
-                                        Layout.preferredWidth: 34
-                                        Layout.preferredHeight: 34
-                                        radius: 10
-                                        color: policyDelegate.highlighted
-                                               ? (Material.theme === Material.Dark ? "#6750A4" : "#6750A4")
-                                               : (Material.theme === Material.Dark ? "#36343B" : "#F3EDF7")
+                                        Layout.preferredWidth: 30
+                                        Layout.preferredHeight: 30
+                                        radius: DesignTokens.radiusControl
+                                        color: policyDelegate.highlighted ? root.primaryColor : root.surfaceContainerColor
                                         Label {
                                             anchors.centerIn: parent
                                             text: policyDelegate.modelData.policyClass === "Machine" ? "C"
                                                   : policyDelegate.modelData.policyClass === "User" ? "U" : "B"
-                                            color: policyDelegate.highlighted ? "white" : Material.accent
+                                            color: policyDelegate.highlighted ? DesignTokens.onPrimary(root.dark) : root.primaryColor
+                                            font.family: DesignTokens.fontMono
+                                            font.pixelSize: 10
                                             font.weight: Font.Bold
                                         }
                                     }
@@ -409,6 +419,9 @@ Item {
                                         Label {
                                             Layout.fillWidth: true
                                             text: policyDelegate.modelData.name
+                                            color: policyDelegate.highlighted ? root.primaryContainerForegroundColor : root.surfaceForegroundColor
+                                            font.family: DesignTokens.fontBody
+                                            font.pixelSize: 12
                                             font.weight: Font.DemiBold
                                             wrapMode: Text.Wrap
                                             maximumLineCount: 2
@@ -419,31 +432,29 @@ Item {
                                             text: policyDelegate.modelData.category || root.tr("Uncategorized policy", "未分類政策")
                                             font.pixelSize: 10
                                             elide: Text.ElideMiddle
-                                            color: root.secondaryTextColor
+                                            color: policyDelegate.highlighted ? root.primaryContainerForegroundColor : root.secondaryTextColor
                                         }
                                     }
 
                                     Label {
                                         visible: policyDelegate.modelData.elements && policyDelegate.modelData.elements.length > 0
                                         text: policyDelegate.modelData.elements.length
-                                        color: policyDelegate.highlighted ? "white" : root.secondaryTextColor
+                                        color: policyDelegate.highlighted ? root.primaryContainerForegroundColor : root.secondaryTextColor
                                         font.pixelSize: 10
                                         padding: 4
                                         background: Rectangle {
                                             radius: 8
-                                            color: policyDelegate.highlighted
-                                                   ? (Material.theme === Material.Dark ? "#7D6CB2" : "#7D6CB2")
-                                                   : (Material.theme === Material.Dark ? "#49454F" : "#E7E0EC")
+                                            color: policyDelegate.highlighted ? "transparent" : root.surfaceContainerColor
                                         }
                                     }
                                 }
 
                                 background: Rectangle {
-                                    radius: 14
+                                    radius: DesignTokens.radiusControl
                                     color: policyDelegate.highlighted
-                                           ? (Material.theme === Material.Dark ? "#4A4458" : "#E8DEF8")
+                                           ? root.primaryContainerColor
                                            : policyDelegate.hovered
-                                             ? (Material.theme === Material.Dark ? "#2B292F" : "#F7F2FA")
+                                             ? root.surfaceContainerColor
                                              : "transparent"
                                 }
                             }
@@ -482,17 +493,14 @@ Item {
                 }
             }
 
-            Pane {
+            WfCard {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: 0
                 Layout.minimumHeight: 120
+                dark: root.dark
+                outlined: true
                 padding: 0
-                background: Rectangle {
-                    radius: 18
-                    color: root.surfaceColor
-                    border.color: root.outlineColor
-                }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -510,15 +518,17 @@ Item {
 
                             Rectangle {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                width: 64
-                                height: 64
-                                radius: 22
-                                color: Material.theme === Material.Dark ? "#4A4458" : "#E8DEF8"
+                                width: 76
+                                height: 34
+                                radius: DesignTokens.radiusControl
+                                color: root.primaryContainerColor
                                 Label {
                                     anchors.centerIn: parent
-                                    text: "☷"
-                                    font.pixelSize: 28
-                                    color: Material.accent
+                                    text: root.tr("POLICY", "政策")
+                                    font.family: DesignTokens.fontMono
+                                    font.pixelSize: 10
+                                    font.weight: Font.Bold
+                                    color: root.primaryContainerForegroundColor
                                 }
                             }
                             Label {
@@ -526,8 +536,10 @@ Item {
                                 text: root.tr("Select a policy to start a reviewable change", "揀一項政策開始可審核變更")
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.Wrap
-                                font.pixelSize: 21
-                                font.weight: Font.DemiBold
+                                color: root.surfaceForegroundColor
+                                font.family: DesignTokens.fontDisplay
+                                font.pixelSize: 18
+                                font.weight: Font.Bold
                             }
                             Label {
                                 width: parent.width
@@ -560,12 +572,13 @@ Item {
                                         Layout.preferredWidth: scopeChip.implicitWidth + 20
                                         Layout.preferredHeight: 28
                                         radius: 14
-                                        color: Material.theme === Material.Dark ? "#4A4458" : "#E8DEF8"
+                                        color: root.primaryContainerColor
                                         Label {
                                             id: scopeChip
                                             anchors.centerIn: parent
                                             text: root.scopeName().toUpperCase()
-                                            color: Material.theme === Material.Dark ? "#E8DEF8" : "#4F378B"
+                                            color: root.primaryContainerForegroundColor
+                                            font.family: DesignTokens.fontMono
                                             font.pixelSize: 10
                                             font.weight: Font.Bold
                                         }
@@ -578,7 +591,8 @@ Item {
                                     }
                                     Label {
                                         text: root.tr("NEW DRAFT", "新草稿")
-                                        color: Material.accent
+                                        color: root.primaryColor
+                                        font.family: DesignTokens.fontMono
                                         font.pixelSize: 10
                                         font.weight: Font.Bold
                                     }
@@ -587,7 +601,9 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     text: root.selectedPolicy ? root.selectedPolicy.name : ""
-                                    font.pixelSize: 25
+                                    color: root.surfaceForegroundColor
+                                    font.family: DesignTokens.fontDisplay
+                                    font.pixelSize: 20
                                     font.weight: Font.Bold
                                     wrapMode: Text.Wrap
                                 }
@@ -601,7 +617,7 @@ Item {
                                     }
                                     ComboBox {
                                         id: policyScope
-                                        model: [root.tr("Computer", "電腦"), root.tr("User", "使用者")]
+                                        model: [root.tr("Computer", "電腦"), root.tr("User", "用戶")]
                                     }
                                     Item { Layout.fillWidth: true }
                                 }
@@ -621,27 +637,27 @@ Item {
                                     visible: root.selectedPolicy && root.selectedPolicy.supportedOn.length > 0
                                     text: root.tr("Supported on: %1", "支援：%1")
                                               .arg(root.selectedPolicy ? root.selectedPolicy.supportedOn : "")
-                                    color: Material.accent
+                                    color: root.primaryColor
+                                    font.family: DesignTokens.fontBody
                                     font.pixelSize: 10
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideRight
                                 }
 
-                                Button {
+                                WfButton {
                                     visible: root.selectedPolicy && root.selectedPolicy.documentation.length > 240
+                                    dark: root.dark
+                                    variant: "text"
                                     text: root.documentationExpanded ? root.tr("Show less", "顯示較少") : root.tr("Read full explanation", "閱讀完整解說")
-                                    flat: true
                                     onClicked: root.documentationExpanded = !root.documentationExpanded
                                 }
 
-                                Pane {
+                                WfCard {
                                     Layout.fillWidth: true
-                                    padding: 14
-                                    background: Rectangle {
-                                        radius: 16
-                                        color: root.surfaceVariantColor
-                                        border.color: root.outlineColor
-                                    }
+                                    dark: root.dark
+                                    outlined: true
+                                    surfaceLevel: "low"
+                                    padding: DesignTokens.spacing12
                                     ColumnLayout {
                                         anchors.fill: parent
                                         spacing: 8
@@ -649,13 +665,16 @@ Item {
                                             Layout.fillWidth: true
                                             Label {
                                                 text: root.tr("Desired policy state", "目標政策狀態")
-                                                font.pixelSize: 17
-                                                font.weight: Font.DemiBold
+                                                color: root.surfaceForegroundColor
+                                                font.family: DesignTokens.fontDisplay
+                                                font.pixelSize: 15
+                                                font.weight: Font.Bold
                                             }
                                             Item { Layout.fillWidth: true }
                                             Label {
                                                 text: root.tr("Draft only", "只係草稿")
-                                                color: Material.accent
+                                                color: root.primaryColor
+                                                font.family: DesignTokens.fontMono
                                                 font.pixelSize: 10
                                                 font.weight: Font.Bold
                                             }
@@ -689,8 +708,10 @@ Item {
                                         Layout.fillWidth: true
                                         Label {
                                             text: root.tr("Enabled values", "啟用值")
-                                            font.pixelSize: 17
-                                            font.weight: Font.DemiBold
+                                            color: root.surfaceForegroundColor
+                                            font.family: DesignTokens.fontDisplay
+                                            font.pixelSize: 15
+                                            font.weight: Font.Bold
                                         }
                                         Item { Layout.fillWidth: true }
                                         Label {
@@ -701,16 +722,14 @@ Item {
 
                                     Repeater {
                                         model: root.selectedPolicy ? root.selectedPolicy.elements : []
-                                        delegate: Pane {
+                                        delegate: WfCard {
                                             id: elementCard
                                             required property var modelData
                                             Layout.fillWidth: true
-                                            padding: 12
-                                            background: Rectangle {
-                                                radius: 14
-                                                color: root.surfaceVariantColor
-                                                border.color: root.outlineColor
-                                            }
+                                            dark: root.dark
+                                            outlined: true
+                                            surfaceLevel: "low"
+                                            padding: DesignTokens.spacing12
                                             ColumnLayout {
                                                 anchors.fill: parent
                                                 spacing: 7
@@ -719,14 +738,17 @@ Item {
                                                     Label {
                                                         Layout.fillWidth: true
                                                         text: elementCard.modelData.label + (elementCard.modelData.required ? "  *" : "")
+                                                        color: root.surfaceForegroundColor
+                                                        font.family: DesignTokens.fontBody
                                                         font.weight: Font.DemiBold
                                                         wrapMode: Text.Wrap
                                                     }
                                                     Label {
                                                         text: elementCard.modelData.control
+                                                        font.family: DesignTokens.fontMono
                                                         font.pixelSize: 9
                                                         font.weight: Font.Bold
-                                                        color: Material.accent
+                                                        color: root.primaryColor
                                                     }
                                                 }
                                                 Loader {
@@ -754,14 +776,13 @@ Item {
                                     }
                                 }
 
-                                Pane {
+                                WfCard {
                                     Layout.fillWidth: true
-                                    padding: 12
-                                    background: Rectangle {
-                                        radius: 14
-                                        color: Material.theme === Material.Dark ? "#1D2020" : "#F2F7EE"
-                                        border.color: Material.theme === Material.Dark ? "#53634B" : "#C4D8B8"
-                                    }
+                                    dark: root.dark
+                                    outlined: true
+                                    fillColor: root.successContainerColor
+                                    outlineColor: root.successColor
+                                    padding: DesignTokens.spacing12
                                     ColumnLayout {
                                         anchors.fill: parent
                                         spacing: 5
@@ -770,7 +791,7 @@ Item {
                                             Label {
                                                 text: root.tr("Policy target", "政策目標")
                                                 font.weight: Font.DemiBold
-                                                color: Material.theme === Material.Dark ? "#C7E0B8" : "#386A20"
+                                                color: root.successContainerForegroundColor
                                             }
                                             Item { Layout.fillWidth: true }
                                             Label {
@@ -784,7 +805,8 @@ Item {
                                         Label {
                                             Layout.fillWidth: true
                                             text: root.registryTarget()
-                                            font.family: "Cascadia Mono"
+                                            color: root.successContainerForegroundColor
+                                            font.family: DesignTokens.fontMono
                                             font.pixelSize: 11
                                             wrapMode: Text.WrapAnywhere
                                         }
@@ -814,14 +836,14 @@ Item {
                         color: root.outlineColor
                     }
 
-                    Pane {
+                    WfCard {
                         visible: root.hasSelection
                         Layout.fillWidth: true
-                        padding: 14
-                        background: Rectangle {
-                            color: root.surfaceVariantColor
-                            radius: 18
-                        }
+                        dark: root.dark
+                        outlined: false
+                        surfaceLevel: "low"
+                        radius: 0
+                        padding: DesignTokens.spacing12
                         RowLayout {
                             anchors.fill: parent
                             spacing: 12
@@ -831,7 +853,7 @@ Item {
                                 Label {
                                     text: root.tr("Git-backed recipe change", "Git 支援嘅配方變更")
                                     font.weight: Font.DemiBold
-                                    color: Material.theme === Material.Dark ? "#C7E0B8" : "#386A20"
+                                    color: root.successColor
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -843,9 +865,14 @@ Item {
                                     wrapMode: Text.Wrap
                                 }
                             }
-                            Button {
-                                text: root.tr("Commit %1", "Commit %1").arg(root.stateName())
-                                highlighted: true
+                            WfButton {
+                                dark: root.dark
+                                variant: "filled"
+                                text: root.draftState === 0
+                                      ? root.tr("Commit Not configured", "Commit 未設定")
+                                      : root.draftState === 2
+                                        ? root.tr("Commit Disabled", "Commit 停用")
+                                        : root.tr("Commit Enabled", "Commit 啟用")
                                 enabled: root.app.projectLoaded
                                 onClicked: root.commitDraft()
                             }
@@ -871,18 +898,25 @@ Item {
         id: comboEditor
         ComboBox {
             property var elementModel: ({})
-            width: parent ? parent.width : implicitWidth
-            model: elementModel.options
-            textRole: "label"
-            Accessible.name: elementModel.label
-            Component.onCompleted: {
+            function syncDefaultSelection() {
+                if (!model || model.length === 0 || !elementModel)
+                    return
                 for (var i = 0; i < model.length; ++i) {
                     if (model[i].value === elementModel.defaultValue) {
                         currentIndex = i
-                        break
+                        return
                     }
                 }
+                currentIndex = 0
             }
+            width: parent ? parent.width : implicitWidth
+            implicitHeight: DesignTokens.controlHeight
+            model: elementModel.options
+            textRole: "label"
+            Accessible.name: elementModel.label
+            Component.onCompleted: syncDefaultSelection()
+            onElementModelChanged: syncDefaultSelection()
+            onModelChanged: syncDefaultSelection()
             onActivated: root.elementValues[elementModel.id] = model[index].value
         }
     }
@@ -896,6 +930,7 @@ Item {
             value: Number(elementModel.defaultValue || 0)
             stepSize: Math.max(1, Number(elementModel.spinStep))
             editable: true
+            implicitHeight: DesignTokens.controlHeight
             Accessible.name: elementModel.label
             onValueModified: root.elementValues[elementModel.id] = value
         }
@@ -907,6 +942,8 @@ Item {
             property var elementModel: ({})
             width: parent ? parent.width : implicitWidth
             text: elementModel.defaultValue
+            implicitHeight: DesignTokens.controlHeight
+            font.family: DesignTokens.fontMono
             maximumLength: 20
             inputMethodHints: Qt.ImhFormattedNumbersOnly
             Accessible.name: elementModel.label
@@ -923,6 +960,7 @@ Item {
             property var elementModel: ({})
             width: parent ? parent.width : implicitWidth
             text: elementModel.defaultValue
+            implicitHeight: DesignTokens.controlHeight
             maximumLength: elementModel.maximumLength >= 0 ? elementModel.maximumLength : 32767
             placeholderText: root.tr("Value", "值")
             Accessible.name: elementModel.label
@@ -936,6 +974,7 @@ Item {
             property var elementModel: ({})
             width: parent ? parent.width : implicitWidth
             implicitHeight: 96
+            font.family: DesignTokens.fontBody
             text: elementModel.defaultValue
             placeholderText: elementModel.control === "ListEditor"
                              ? root.tr("One entry per line", "每行一項") : root.tr("Text", "文字")
@@ -952,17 +991,19 @@ Item {
         modal: false
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        padding: 22
+        padding: DesignTokens.spacing20
         background: Rectangle {
-            radius: 24
+            radius: DesignTokens.radiusCard
             color: root.surfaceColor
-            border.color: Material.accent
+            border.color: root.outlineColor
         }
         ColumnLayout {
             anchors.fill: parent
             Label {
-                text: "🧩  " + root.tr("Regex builder wizard", "Regex 建構精靈")
-                font.pixelSize: 22
+                text: root.tr("Regex builder", "Regex 建構器")
+                color: root.surfaceForegroundColor
+                font.family: DesignTokens.fontDisplay
+                font.pixelSize: 20
                 font.weight: Font.Bold
             }
             Label {
@@ -998,21 +1039,23 @@ Item {
                     return "^" + startsWith.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + body
                            + endsWith.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$"
                 }
-                font.family: "Cascadia Mono"
-                color: Material.accent
+                font.family: DesignTokens.fontMono
+                color: root.primaryColor
                 wrapMode: Text.Wrap
             }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                Button {
+                WfButton {
+                    dark: root.dark
+                    variant: "text"
                     text: root.tr("Cancel", "取消")
-                    flat: true
                     onClicked: regexWizard.close()
                 }
-                Button {
-                    text: root.tr("Use && search", "使用同搜尋")
-                    highlighted: true
+                WfButton {
+                    dark: root.dark
+                    variant: "filled"
+                    text: root.tr("Use & search", "使用同搜尋")
                     onClicked: {
                         policySearch.text = regexPreview.text
                         regexMode.checked = true
@@ -1030,17 +1073,19 @@ Item {
         width: Math.min(560, root.width - 50)
         modal: false
         focus: true
-        padding: 20
+        padding: DesignTokens.spacing20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
-            radius: 22
+            radius: DesignTokens.radiusCard
             color: root.surfaceColor
-            border.color: Material.accent
+            border.color: root.outlineColor
         }
         ColumnLayout {
             anchors.fill: parent
             Label {
                 text: root.tr("Export complete bilingual GPO reference", "匯出完整雙語 GPO 參考")
+                color: root.surfaceForegroundColor
+                font.family: DesignTokens.fontDisplay
                 font.pixelSize: 20
                 font.weight: Font.Bold
             }
@@ -1052,14 +1097,16 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                Button {
+                WfButton {
+                    dark: root.dark
+                    variant: "text"
                     text: root.tr("Cancel", "取消")
-                    flat: true
                     onClicked: docsExport.close()
                 }
-                Button {
+                WfButton {
+                    dark: root.dark
+                    variant: "filled"
                     text: root.tr("Export", "匯出")
-                    highlighted: true
                     enabled: docsPath.text.trim().length > 0
                     onClicked: {
                         if (root.app.exportGpoDocumentation(docsPath.text))

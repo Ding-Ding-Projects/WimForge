@@ -145,7 +145,7 @@ CliProcessResult runProcessDefault(const QString &executable,
     configureProcessWithoutConsole(process);
     if (!workingDirectory.trimmed().isEmpty())
         process.setWorkingDirectory(workingDirectory);
-    process.start(executable, arguments, QIODevice::ReadOnly);
+    process.start(resolveExecutableForLaunch(executable), arguments, QIODevice::ReadOnly);
 
     CliProcessResult result;
     result.started = process.waitForStarted(15'000);
@@ -862,7 +862,7 @@ CliResult saveEditedProject(const CommandContext &context,
                              stringsToJson(validation.errors));
     }
 
-    const QString commitMessage = QStringLiteral("CLI: update %1 field%2")
+    const QString commitMessage = QStringLiteral("CLI: update %1 field%2 / CLI：更新 %1 個欄位")
                                       .arg(edits.size())
                                       .arg(edits.size() == 1 ? QString() : QStringLiteral("s"));
     if (!edited->save(&error, commitMessage))
@@ -908,7 +908,8 @@ CliResult runProjectCommand(const CommandContext &context, QStringList arguments
         project.projectDirectory = QDir(directory).absolutePath();
         project.projectName = name;
         project.description = description;
-        if (!project.save(&error, QStringLiteral("Create project from CLI")))
+        if (!project.save(&error,
+                          QStringLiteral("Create project from CLI / 用 CLI 建立工程")))
             return failureResult(context, CliExitCode::Validation, command, error);
         return successResult(context,
                              command,
@@ -2623,6 +2624,7 @@ CliResult runActionHistoryCommand(const CommandContext &context, QStringList arg
                                                          context.projectDirectory, &error);
             if (!project)
                 return failureResult(context, CliExitCode::Validation, command, error);
+            // Undo/redo events are created with bilingual titles by ActionHistory.
             if (!project->save(&error, created.title))
                 return failureResult(context, CliExitCode::IoError, command, error);
         }
@@ -2844,7 +2846,9 @@ CliResult runWinForgeCommand(const CommandContext &context, QStringList argument
                                      ? CliExitCode::Validation : CliExitCode::NotFound,
                                  command, error);
         project->settings.insert(QStringLiteral("_winForgeRecipe"), WinForgeBridge::toJson(*recipe));
-        if (!project->save(&error, QStringLiteral("winforge: import bridge recipe")))
+        if (!project->save(
+                &error,
+                QStringLiteral("winforge: import bridge recipe / WinForge：匯入橋接配方")))
             return failureResult(context, CliExitCode::IoError, command, error);
         return successResult(context, command, WinForgeBridge::toJson(*recipe),
                              QStringLiteral("Imported and committed WinForge recipe '%1'.").arg(recipe->id));
@@ -2962,7 +2966,9 @@ CliResult runWinForgeCommand(const CommandContext &context, QStringList argument
                 {QStringLiteral("role"), QStringLiteral("winforge-bridge")},
             });
             project->options.extra.insert(QStringLiteral("stagedFiles"), updated);
-            if (!project->save(&error, QStringLiteral("winforge: stage bridge into ISO plan")))
+            if (!project->save(
+                    &error,
+                    QStringLiteral("winforge: stage bridge into ISO plan / WinForge：將橋接內容加入 ISO 計劃")))
                 return failureResult(context, CliExitCode::IoError, command, error);
         }
         const QJsonObject result{

@@ -52,11 +52,11 @@ Verification is authoritative. If an `installed` marker exists but the applicati
 
 OpenCode therefore installs automatically only when `opencode --version` fails. Its exact install command is `npm install -g opencode-ai@latest`. Codex likewise uses `npm install -g @openai/codex` and verifies `codex --version`; no user credential is placed into the image.
 
-## Host OpenCode verification
+## Explicit host OpenCode verification
 
-The desktop's host helper is separate from the target-image package plan. Shortly after WimForge starts, it locates OpenCode in `PATH` and common npm installation locations and runs `opencode --version` asynchronously. An existing executable is not considered ready until that process exits normally with code zero and nonempty output.
+The desktop's host helper is separate from the target-image package plan. Because the desktop is elevated, startup never searches `PATH` or user-profile npm locations and never launches a developer tool. The operator must select **Verify / install now** in Package Studio to approve discovery and setup for the current session. An existing executable is not considered ready until `opencode --version` exits normally with code zero and nonempty output.
 
-If no executable is found, WimForge uses an existing npm or installs `OpenJS.NodeJS.LTS` through WinGet, then runs `npm install -g opencode-ai@latest`. It locates the resulting executable and performs the same live verification before reporting installation success or allowing an OpenCode-assisted studio action to continue. A missing executable, failed start, nonzero exit, or empty version output becomes non-modal in-app error feedback; the rest of WimForge remains usable.
+After that approval, if no executable is found, WimForge uses an existing npm or installs `OpenJS.NodeJS.LTS` through WinGet, then runs `npm install -g opencode-ai@latest`. It locates the resulting executable and performs the same live verification before reporting success. OpenCode-assisted studio actions never start setup implicitly; they remain disabled with an actionable error until the explicit setup succeeds. A missing executable, failed start, nonzero exit, or empty version output becomes non-modal in-app error feedback; the rest of WimForge remains usable.
 
 ## Verified ISO staging bundle
 
@@ -137,3 +137,7 @@ The non-WinGet commands come from their vendors:
 The Codex app and ChatGPT Desktop are deliberately represented as disabled official-payload entries. Package Studio does **not** invent WinGet identifiers for them. The ISO author must obtain current official packages from the [Codex app page](https://developers.openai.com/codex/app), [Microsoft Store listing](https://apps.microsoft.com/detail/9nt1r1c2hh7j), or [OpenAI desktop page](https://openai.com/chatgpt/desktop/), then supply the current hash, signer, and reviewed silent command before enabling them.
 
 Licenses in the catalog are informational metadata for review; they do not grant redistribution rights. ISO authors remain responsible for each vendor's license, subscription, and redistribution terms, including the Microsoft, Docker, Anthropic, and OpenAI applications.
+
+## 香港粵語重點
+
+Package Studio 只會執行有明確 provider、驗證方法同 trust 資料嘅項目；唔會自己作一個 WinGet ID，亦唔會幫你繞過授權或廠商登入。桌面版 OpenCode helper 同目標 Windows 內安裝 OpenCode 係兩件事：前者要你在 Package Studio 親自撳 **Verify / install now** 才會搜尋或安裝；後者係受審閱嘅映像 package plan。兩邊都唔會放入你嘅登入資料。

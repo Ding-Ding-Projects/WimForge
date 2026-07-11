@@ -11,7 +11,7 @@ WimForge turns project configuration into a dependency graph of direct executabl
 | WIM or ESD | Cloned into `.wimforge/work/images` through recoverable publication |
 | SWM set | The selected index is exported from the complete set into a working WIM |
 
-Mounting, servicing, export, splitting, and ISO generation target the working form. Direct index inspection accepts WIM/ESD/SWM or extracted media; a raw ISO must first be mounted/extracted so **Image path** can identify `sources\install.*`. The pristine source is used for verification/preparation.
+Mounting, servicing, export, splitting, and ISO generation target the working form. Direct index inspection accepts WIM/ESD/SWM and extracted media. Raw ISO inspection temporarily mounts the source read-only, records the discovered `sources/install.*` relative path, and confirms dismount before returning. The later servicing plan uses that path inside its extracted workspace, never a temporary optical-drive letter. Because recovery-compressed ESD and split SWM containers are not mounted directly, the selected source index is first exported to a project-owned working WIM; subsequent mount/export operations address index 1 of that converted WIM. ISO output recovery-compresses it back to `install.esd` or regenerates the complete `install*.swm` set before `oscdimg` runs.
 
 Setting `cloneSource=false` is refused unless `options.extra.allowInPlaceSourceModification=true`, and that dangerous opt-in applies only to raw image sources. ISO and media inputs are always cloned.
 
@@ -102,6 +102,10 @@ WimForge cannot guarantee that Windows will accept an applicable-looking payload
 - NTLite's independent [Image page](https://www.ntlite.com/docs/image/) for comparison context
 
 The implementation-level contract is documented in [`docs/servicing-plan.md`](https://github.com/codingmachineedge/WimForge/blob/main/docs/servicing-plan.md).
+
+## 香港粵語重點
+
+WimForge 會將原始 ISO、media folder、WIM、ESD 或 SWM 複製去工程 workspace 先寫，預設唔會改你嘅來源。檢查 ISO 時只會唯讀掛載，搜到 `sources/install.*` 後確認 dismount；服務 plan 只記穩定相對路徑，唔會依賴臨時光碟機字母。ESD/SWM 需要先 export 成工程自己嘅 WIM 先掛載；輸出再按你揀嘅格式回復壓縮或分割。任何 DISM 成功都唔等於新映像一定開到機，最後一定要用乾淨 VM 安裝。
 
 ---
 

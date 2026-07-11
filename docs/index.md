@@ -33,7 +33,7 @@ inspectable, and project changes stay Git-backed.
 
 <div class="wf-value-grid" markdown>
 <article class="wf-value-card" markdown>
-### Review before elevation
+### Review before execution
 See executable paths, argument tokens, dependencies, destructive flags, and
 localized descriptions before any servicing plan runs.
 </article>
@@ -46,8 +46,8 @@ adds a compensating event instead of rewriting the past.
 
 <article class="wf-value-card" markdown>
 ### Portable by design
-Complete `.wimforge` saves carry project and notification repositories,
-including the Git history needed for recovery and inspection.
+Complete `.wimforge` saves carry project, nested workspace-tab, and notification
+repositories, including the Git history needed for recovery and inspection.
 </article>
 </div>
 
@@ -140,3 +140,7 @@ including the Git history needed for recovery and inspection.
 - Auditing the design? Read [Architecture and Data Layout](wiki/Architecture-and-Data-Layout.md).
 - Ready to contribute? See [Building and Releases](wiki/Building-and-Releases.md) and [Contributing](wiki/Contributing.md).
 </div>
+
+## 香港粵語導覽
+
+WimForge 係離線 Windows 映像編排工具，重點係先審閱、後執行、全程有 Git 歷史同 JSONL log。開啟 app 時會先見到工程管理頁，可以建立、開啟、匯入或繼續最近工程；入到工程後，每個功能頁都可以做可儲存嘅 browser-style 分頁。先看 [快速開始](wiki/Getting-Started.md)，再用 [雙語截圖畫廊](gallery.md) 對照每個畫面。

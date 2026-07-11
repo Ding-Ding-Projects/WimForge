@@ -29,7 +29,7 @@ AppCopyright=Copyright (c) 2026 codingmachineedge
 AppComments=Open-source Windows image customization studio
 AppSupportURL={#MyAppUrl}/issues
 AppUpdatesURL={#MyAppUrl}/releases/latest
-DefaultDirName={localappdata}\Programs\{#MyAppName}
+DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=..\LICENSE
@@ -42,7 +42,7 @@ WizardStyle=modern
 MinVersion=10.0.17763
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -73,3 +73,26 @@ Name: "{autodesktop}\WimForge"; Filename: "{app}\{#MyAppExeName}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch WimForge"; Flags: nowait postinstall skipifsilent
+
+[Code]
+const
+  LegacyPerUserUninstallKey =
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{D72458D7-6214-43E9-8F65-58E046A08F14}_is1';
+
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+
+  { v0.1.17 and earlier used this AppId under HKCU. Never execute that
+    registration's uninstall command from this elevated setup: both the value
+    and the referenced LocalAppData executable are writable by the unelevated user. }
+  if not RegKeyExists(HKCU, LegacyPerUserUninstallKey) then
+    Exit;
+
+  SuppressibleMsgBox(
+    'WimForge found an older per-user installation for the current Windows account.' + #13#10 + #13#10 +
+    'Close this setup, uninstall WimForge from Settings > Apps > Installed apps ' +
+    'while signed in to this account, then run this installer again.',
+    mbError, MB_OK, IDOK);
+  Result := False;
+end;

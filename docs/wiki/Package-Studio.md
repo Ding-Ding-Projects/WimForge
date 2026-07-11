@@ -45,7 +45,7 @@ Desktop slots without a verified package identity are intentionally disabled. En
 
 These are separate workflows:
 
-- **WimForge host helper:** shortly after app startup, WimForge locates OpenCode and live-verifies `opencode --version`. If missing, it asynchronously installs Node.js LTS through WinGet when needed and then runs `npm install -g opencode-ai@latest` on the current host. It reports success only after locating the resulting executable and receiving a normal zero exit with nonempty version output. GPO and unattended intent helpers use this verified host installation.
+- **WimForge host helper:** the elevated desktop performs no PATH/user-profile discovery at startup. The operator selects **Verify / install now** to approve discovery and setup for the current session. WimForge then live-verifies `opencode --version`; if missing, the approved action can install Node.js LTS through WinGet and run `npm install -g opencode-ai@latest`. GPO and unattended helpers use only a verified host installation and never trigger setup implicitly.
 - **Target machine package:** the Full AI Development profile puts OpenCode in the target's first-logon dependency plan. It first verifies `opencode --version` and installs only when absent.
 
 Neither workflow embeds credentials or signs a user in. Installation success is verified after the installer returns; a zero installer exit code alone is not accepted when the executable remains missing.
@@ -131,6 +131,10 @@ Primary sources:
 Package metadata is informational and does not grant redistribution rights. Review Microsoft, Docker, Anthropic, OpenAI, and every other vendor's license/terms before placing software on distributable media.
 
 Implementation detail lives in [`docs/package-studio.md`](https://github.com/codingmachineedge/WimForge/blob/main/docs/package-studio.md).
+
+## 香港粵語重點
+
+Package Studio 將 WinGet、npm、pip、已簽名 installer、offline payload 同結構化 custom executable 放入可審閱依賴圖。佢唔會代你登入廠商、贈送 licence 或估 hash/signer；冇可信資料嘅 slot 預設關閉。Host OpenCode helper 喺提權 app 開啟時唔會自動搜 PATH/用戶 profile；你要喺 Package Studio 撳 **Verify / install now** 明確批准，驗到 `opencode --version` 正常先算 ready。
 
 ---
 

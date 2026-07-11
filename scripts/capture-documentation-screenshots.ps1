@@ -3,7 +3,7 @@ param(
     [string] $BuildDirectory = 'build-capture/Debug',
     [string] $OutputDirectory = 'docs/screenshots',
     [ValidateSet('en', 'zh-HK', 'bilingual')]
-    [string] $Language = 'en'
+    [string] $Language = 'bilingual'
 )
 
 Set-StrictMode -Version Latest
@@ -39,6 +39,7 @@ if (-not $qtBin -or -not (Test-Path -LiteralPath (Join-Path $qtBin 'Qt6Core.dll'
 New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
 
 $pages = [ordered] @{
+    'project-start' = 'project-start.png'
     overview = 'overview.png'; source = 'source.png'; customize = 'customize.png'
     gpo = 'group-policy.png'; unattended = 'unattended.png'; packages = 'package-studio.png'
     winforge = 'winforge-bridge.png'; vmlab = 'virtual-machine-lab.png'
@@ -48,6 +49,9 @@ $pages = [ordered] @{
 $originalEnvironment = @{
     TEMP = $env:TEMP; TMP = $env:TMP; QT_SCALE_FACTOR = $env:QT_SCALE_FACTOR
     QT_SCREEN_SCALE_FACTORS = $env:QT_SCREEN_SCALE_FACTORS
+    QT_QPA_PLATFORM = $env:QT_QPA_PLATFORM
+    QT_ENABLE_HIGHDPI_SCALING = $env:QT_ENABLE_HIGHDPI_SCALING
+    QT_AUTO_SCREEN_SCALE_FACTOR = $env:QT_AUTO_SCREEN_SCALE_FACTOR
     LOCALAPPDATA = $env:LOCALAPPDATA; APPDATA = $env:APPDATA
     WIMFORGE_NOTIFICATION_STORE = $env:WIMFORGE_NOTIFICATION_STORE
     PATH = $env:PATH
@@ -59,6 +63,15 @@ try {
     } else { Join-Path $env:PUBLIC 'Documents' }
     $neutralRoot = [System.IO.Path]::GetFullPath((Join-Path $publicRoot 'WimForge-Screenshot'))
     New-Item -ItemType Directory -Path $neutralRoot -Force | Out-Null
+    # The desktop manifest is PerMonitorV2-aware. On a 150% monitor Windows can
+    # otherwise constrain the hidden 1,440x900 logical window to a 960x600
+    # work area and leave the captured PNG padded. Disable platform DPI
+    # virtualization for this documentation-only process so the requested
+    # logical viewport maps one-to-one to the PNG while retaining Windows font
+    # rendering (the offscreen plugin does not provide the production fonts).
+    $env:QT_QPA_PLATFORM = 'windows:dpiawareness=0'
+    $env:QT_ENABLE_HIGHDPI_SCALING = '0'
+    $env:QT_AUTO_SCREEN_SCALE_FACTOR = '0'
     $env:QT_SCALE_FACTOR = '1'; $env:QT_SCREEN_SCALE_FACTORS = '1'
     $env:PATH = $qtBin + [System.IO.Path]::PathSeparator + $env:PATH
 
@@ -80,9 +93,14 @@ try {
         $env:WIMFORGE_NOTIFICATION_STORE = Join-Path $routeRoot 'NotificationStore'
 
         $destination = Join-Path $outputPath $entry.Value
+        $arguments = if ($entry.Key -eq 'project-start') {
+            @('--project-start', '--language', $Language, '--screenshot', $destination)
+        } else {
+            @('--demo', '--language', $Language, '--page', $entry.Key,
+              '--screenshot', $destination)
+        }
         $process = Start-Process -FilePath $executable `
-            -ArgumentList @('--demo', '--language', $Language, '--page', $entry.Key,
-                            '--screenshot', $destination) `
+            -ArgumentList $arguments `
             -Wait -PassThru -WindowStyle Hidden
         if ($process.ExitCode -ne 0) {
             throw "Screenshot capture failed for route '$($entry.Key)' with exit code $($process.ExitCode)"

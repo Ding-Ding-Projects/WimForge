@@ -133,6 +133,7 @@ $cmake = Find-Application 'cmake.exe'
 $null = Find-Application 'ninja.exe'
 $git = Find-Application 'git.exe'
 Initialize-MsvcEnvironment
+$manifestTool = Find-Application 'mt.exe'
 if ($env:QT_ROOT_DIR) {
     $qtRoot = [IO.Path]::GetFullPath($env:QT_ROOT_DIR)
     $windeployqt = Join-Path $qtRoot 'bin/windeployqt.exe'
@@ -225,6 +226,11 @@ if ($executableCandidates.Count -ne 1) {
 }
 
 $builtExecutable = $executableCandidates[0]
+$elevationContract = Join-Path $repoRoot 'tests/startup_elevation_contract_tests.ps1'
+& $elevationContract `
+    -ExecutablePath $builtExecutable.FullName `
+    -ManifestTool $manifestTool `
+    -ExpectedLevel requireAdministrator
 $builtCli = Join-Path $builtExecutable.DirectoryName 'WimForgeCli.exe'
 if (-not (Test-Path -LiteralPath $builtCli -PathType Leaf)) {
     throw "The release build did not produce the companion CLI: $builtCli"

@@ -2,15 +2,19 @@
 
 WimForge project saves use a single `.wimforge` file. A save is not just a
 copy of `project.json`: it contains the complete project working tree and
-hidden `.git` directory—including its contextual action-history journal—plus
-the separate notification-history repository. Branches, tags, refs, reflogs,
-objects, local Git configuration, hooks, and undo/redo commits therefore
-survive export and import byte-for-byte.
+hidden `.git` directory—including its contextual action-history journal and
+nested `.wimforge/tabs` repository—plus the separate notification-history
+repository. The top-level project and notification repositories preserve their
+branches, tags, refs, reflogs, objects, local Git configuration, hooks, and
+undo/redo commits. Imported nested tab history is retained, but executable Git
+controls such as hooks, external object stores, index indirection, and imported
+configuration are intentionally neutralized before the elevated app uses it.
 
 The bundle can also carry ordinary supporting files outside those repositories.
-Each repository has a stable role such as `project` or `notifications`; the
-core format can also carry additional repository roles. Paths inside a bundle
-are relative and use `/` separators.
+Each top-level repository has a stable role such as `project` or
+`notifications`; the tab repository travels inside the project tree. The core
+format can also carry additional repository roles. Paths inside a bundle are
+relative and use `/` separators.
 
 ## Version 1 container
 
@@ -118,3 +122,7 @@ auto restored = ProjectBundle::importFromFile(savePath, destination, {}, &error)
 The returned `repositoryPaths` map resolves each role to its restored local
 directory, so the project, contextual history popover, and notification center
 can reconnect to their original Git histories immediately.
+
+## 香港粵語速讀
+
+`.wimforge` 唔係只有 `project.json`：佢會連工程 Git、內嵌 `.wimforge/tabs` 分頁 Git，同獨立通知 Git 一齊打包。匯入時會核對路徑、hash 同 repository 拓撲；分頁資料庫嘅 hooks、外部 object store、index indirection 同可執行 config 會先被中和，免得提權 app 誤行匯入內容。

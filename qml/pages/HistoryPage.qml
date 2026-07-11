@@ -2,67 +2,140 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
+import "../components"
 
 Item {
     id: root
+
     required property var app
     required property var tr
     property var compareA: null
     property var compareB: null
+
+    required property bool dark
+    Material.theme: dark ? Material.Dark : Material.Light
     readonly property bool compact: width < 820
-    readonly property color errorText: Material.theme === Material.Dark ? "#FFB4AB" : "#BA1A1A"
-    readonly property color warningText: Material.theme === Material.Dark ? "#FFD18B" : "#8B5000"
-    readonly property color successText: Material.theme === Material.Dark ? "#A8D5A2" : "#386A20"
+    readonly property color surfaceForeground: DesignTokens.onSurface(root.dark)
+    readonly property color surfaceVariantForeground: DesignTokens.onSurfaceVariant(root.dark)
+    readonly property color outlineVariant: DesignTokens.outlineVariant(root.dark)
+    readonly property color primary: DesignTokens.primary(root.dark)
+    readonly property color success: DesignTokens.success(root.dark)
+    readonly property color warning: DesignTokens.tertiary(root.dark)
+    readonly property color error: DesignTokens.error(root.dark)
+    readonly property var filteredActionHistory: {
+        const source = root.app.actionHistory
+        const query = historySearch.text.trim().toLowerCase()
+        if (query.length === 0)
+            return source
+
+        const filtered = []
+        for (let index = 0; index < source.length; ++index) {
+            const serialized = JSON.stringify(source[index])
+            if (String(serialized || "").toLowerCase().indexOf(query) >= 0)
+                filtered.push(source[index])
+        }
+        return filtered
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: DesignTokens.spacing12
 
-        GridLayout {
+        WfPageHeader {
             Layout.fillWidth: true
-            columns: root.width >= 760 ? 3 : 1
-            columnSpacing: 8
-            rowSpacing: 8
-            ColumnLayout {
-                Layout.fillWidth: true
-                Label { Layout.fillWidth: true; text: root.tr("History Time Machine", "歷史時光機"); font.pixelSize: 30; font.weight: Font.Bold; wrapMode: Text.Wrap }
-                Label {
-                    Layout.fillWidth: true
-                    text: root.tr("Event-sourced actions, selective undo, redo-of-undo, restore points, bookmarks, branches, diffs, raw Git commits and crash recovery—without rewriting the past.",
-                                  "事件式動作、選擇性 Undo、Undo 嘅 Redo、還原點、書籤、分支、diff、原始 Git commit 同死機復原；唔會竄改過去。")
-                    wrapMode: Text.Wrap; color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
-                }
+            dark: root.dark
+            eyebrow: root.tr("Project record", "工程記錄")
+            title: root.tr("History Time Machine", "歷史時光機")
+            description: root.tr("Inspect immutable actions, compare reversible patches, restore commits and recover interrupted work.",
+                                 "檢查不可變動作、比較可逆 patch、還原 commit，同復原中斷工作。")
+
+            WfButton {
+                dark: root.dark
+                variant: "tonal"
+                glyph: "↶"
+                text: root.tr("Undo here", "喺呢度 Undo")
+                enabled: root.app.projectLoaded
+                onClicked: root.app.undoContext("", "")
             }
-            Button { Layout.fillWidth: root.width < 760; text: "↶  " + root.tr("Undo here", "喺呢度 Undo"); highlighted: true; enabled: app.projectLoaded; onClicked: app.undoContext("", "") }
-            Button { Layout.fillWidth: root.width < 760; text: "↕  " + root.tr("Complete save", "完整儲存"); onClicked: app.requestExportProject() }
+            WfButton {
+                dark: root.dark
+                variant: "outlined"
+                text: root.tr("Complete save", "完整儲存")
+                onClicked: root.app.requestExportProject()
+            }
         }
 
-        GridLayout {
+        WfCard {
             Layout.fillWidth: true
-            columns: root.width >= 900 ? 5 : root.width >= 600 ? 2 : 1
-            columnSpacing: 8
-            rowSpacing: 8
-            TextField { id: historySearch; Layout.fillWidth: true; placeholderText: root.tr("Search title, context, branch or changed path…", "搜尋標題、context、分支或者改動路徑…") }
-            ComboBox {
-                id: branchPicker
-                Layout.fillWidth: root.width < 900
-                model: app.historyBranches
-                currentIndex: Math.max(0, app.historyBranches.indexOf(app.historyBranch))
-                Accessible.name: root.tr("History branch", "歷史分支")
-                onActivated: app.switchHistoryBranch(currentText)
+            dark: root.dark
+            surfaceLevel: "low"
+            padding: DesignTokens.spacing12
+
+            GridLayout {
+                anchors.fill: parent
+                columns: root.width >= 980 ? 5 : root.width >= 620 ? 2 : 1
+                columnSpacing: DesignTokens.spacing8
+                rowSpacing: DesignTokens.spacing8
+
+                WfField {
+                    id: historySearch
+                    Layout.fillWidth: true
+                    dark: root.dark
+                    placeholderText: root.tr("Search title, context, branch or changed path…",
+                                             "搜尋標題、context、分支或者改動路徑…")
+                }
+                ComboBox {
+                    id: branchPicker
+                    Layout.fillWidth: root.width < 980
+                    Layout.preferredHeight: DesignTokens.controlHeight
+                    model: root.app.historyBranches
+                    currentIndex: Math.max(0, root.app.historyBranches.indexOf(root.app.historyBranch))
+                    Accessible.name: root.tr("History branch", "歷史分支")
+                    onActivated: root.app.switchHistoryBranch(currentText)
+                }
+                WfButton {
+                    Layout.fillWidth: root.width < 620
+                    dark: root.dark
+                    variant: "outlined"
+                    text: root.tr("New branch", "新分支")
+                    onClicked: branchPopup.open()
+                }
+                WfButton {
+                    Layout.fillWidth: root.width < 620
+                    dark: root.dark
+                    variant: "outlined"
+                    text: root.tr("Bookmark", "書籤")
+                    onClicked: bookmarkPopup.open()
+                }
+                WfButton {
+                    Layout.fillWidth: root.width < 620
+                    dark: root.dark
+                    variant: "text"
+                    glyph: "↻"
+                    text: root.tr("Refresh", "重新整理")
+                    onClicked: root.app.refreshHistory()
+                }
             }
-            Button { Layout.fillWidth: root.width < 600; text: "⑂  " + root.tr("New branch", "新分支"); onClicked: branchPopup.open() }
-            Button { Layout.fillWidth: root.width < 600; text: "★  " + root.tr("Bookmark", "書籤"); onClicked: bookmarkPopup.open() }
-            Button { Layout.fillWidth: root.width < 600; text: "↻  " + root.tr("Refresh", "重新整理"); onClicked: app.refreshHistory() }
         }
 
         TabBar {
             id: tabs
             Layout.fillWidth: true
-            TabButton { text: "✦  " + root.tr("Action timeline", "動作時間線") }
-            TabButton { text: "⌘  " + root.tr("Git commits", "Git commit") }
-            TabButton { text: "🛟  " + root.tr("Recovery && notifications", "復原同通知") }
+            background: Rectangle {
+                color: "transparent"
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: root.outlineVariant
+                }
+            }
+            TabButton { text: root.tr("Action timeline", "動作時間線"); font.family: DesignTokens.fontBody }
+            TabButton { text: root.tr("Git commits", "Git commit"); font.family: DesignTokens.fontBody }
+            TabButton { text: root.tr("Recovery & notifications", "復原同通知"); font.family: DesignTokens.fontBody }
         }
 
         StackLayout {
@@ -74,113 +147,257 @@ Item {
                 GridLayout {
                     anchors.fill: parent
                     columns: root.compact ? 1 : 2
-                    columnSpacing: 10
-                    rowSpacing: 10
+                    columnSpacing: DesignTokens.spacing12
+                    rowSpacing: DesignTokens.spacing12
+
                     ListView {
                         id: actionList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumWidth: 0
-                        Layout.minimumHeight: 120
+                        Layout.minimumHeight: 160
                         clip: true
-                        spacing: 7
-                        model: app.actionHistory
-                        delegate: Pane {
+                        spacing: DesignTokens.spacing8
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: root.filteredActionHistory
+
+                        delegate: WfCard {
                             id: eventCard
                             required property var modelData
-                            readonly property bool matches: historySearch.text.trim().length === 0
-                                || JSON.stringify(modelData).toLowerCase().indexOf(historySearch.text.toLowerCase()) >= 0
                             width: actionList.width
-                            height: matches ? implicitHeight : 0
-                            visible: matches
-                            padding: 13
-                            background: Rectangle {
-                                radius: 17
-                                color: eventCard.modelData.effective ? (Material.theme === Material.Dark ? "#211F26" : "#FFFBFE") : (Material.theme === Material.Dark ? "#252329" : "#F3EEF5")
-                                border.width: eventCard.modelData.destructive ? 2 : 1
-                                border.color: eventCard.modelData.destructive ? root.errorText : (Material.theme === Material.Dark ? "#49454F" : "#E7E0EC")
-                            }
+                            height: implicitHeight
+                            dark: root.dark
+                            padding: DesignTokens.spacing12
+                            fillColor: eventCard.modelData.effective
+                                     ? DesignTokens.surfaceLowest(root.dark)
+                                     : DesignTokens.surfaceLow(root.dark)
+                            outlineColor: eventCard.modelData.destructive ? root.error : root.outlineVariant
+
                             ColumnLayout {
                                 anchors.fill: parent
+                                spacing: DesignTokens.spacing8
+
                                 GridLayout {
                                     Layout.fillWidth: true
-                                    columns: actionList.width >= 650 ? 3 : 1
-                                    columnSpacing: 8
-                                    rowSpacing: 4
-                                    Label { text: eventCard.modelData.type === "compensation" ? (eventCard.modelData.icon === "redo" ? "↷" : "↶") : eventCard.modelData.type === "bookmark" ? "★" : eventCard.modelData.type === "branch" ? "⑂" : "✦"; font.pixelSize: 20; color: Material.accent }
+                                    columns: actionList.width >= 620 ? 3 : 1
+                                    columnSpacing: DesignTokens.spacing8
+                                    rowSpacing: DesignTokens.spacing4
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 34
+                                        Layout.preferredHeight: 34
+                                        radius: DesignTokens.radiusControl
+                                        color: eventCard.modelData.destructive
+                                               ? DesignTokens.errorContainer(root.dark)
+                                               : DesignTokens.primaryContainer(root.dark)
+                                        Label {
+                                            anchors.centerIn: parent
+                                            text: eventCard.modelData.type === "compensation"
+                                                  ? (eventCard.modelData.icon === "redo" ? "R" : "U")
+                                                  : eventCard.modelData.type === "bookmark" ? "B"
+                                                  : eventCard.modelData.type === "branch" ? "BR" : "A"
+                                            color: eventCard.modelData.destructive
+                                                   ? DesignTokens.onErrorContainer(root.dark)
+                                                   : DesignTokens.onPrimaryContainer(root.dark)
+                                            font.family: DesignTokens.fontMono
+                                            font.pixelSize: 10
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+
                                     ColumnLayout {
                                         Layout.fillWidth: true
-                                        Label { Layout.fillWidth: true; text: eventCard.modelData.title; font.weight: Font.DemiBold; font.pixelSize: 16; wrapMode: Text.Wrap }
-                                        Label { Layout.fillWidth: true; text: eventCard.modelData.diffSummary || eventCard.modelData.description; color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"; wrapMode: Text.Wrap }
+                                        spacing: DesignTokens.spacing4
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: eventCard.modelData.title
+                                            color: root.surfaceForeground
+                                            font.family: DesignTokens.fontBody
+                                            font.pixelSize: 14
+                                            font.weight: Font.Bold
+                                            wrapMode: Text.Wrap
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: eventCard.modelData.diffSummary || eventCard.modelData.description
+                                            color: root.surfaceVariantForeground
+                                            font.family: DesignTokens.fontBody
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
                                     }
-                                    Label { Layout.fillWidth: actionList.width < 650; text: "#" + eventCard.modelData.sequence + "  ·  " + eventCard.modelData.contextKey + "  ·  " + eventCard.modelData.branch; font.family: "Cascadia Mono"; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
+
+                                    Label {
+                                        Layout.fillWidth: actionList.width < 620
+                                        text: "#" + eventCard.modelData.sequence + " · "
+                                              + eventCard.modelData.contextKey + " · "
+                                              + eventCard.modelData.branch
+                                        color: root.surfaceVariantForeground
+                                        font.family: DesignTokens.fontMono
+                                        font.pixelSize: 10
+                                        wrapMode: Text.WrapAnywhere
+                                    }
                                 }
-                                GridLayout {
+
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    columns: actionList.width >= 650 ? 3 : 1
-                                    columnSpacing: 8
-                                    rowSpacing: 3
-                                    Label { text: eventCard.modelData.effective ? root.tr("ACTIVE", "生效中") : root.tr("UNDONE", "已逆轉"); color: eventCard.modelData.effective ? root.successText : root.warningText; font.bold: true; font.pixelSize: 10 }
-                                    Label { Layout.fillWidth: true; text: eventCard.modelData.changedPaths ? eventCard.modelData.changedPaths.join("  ·  ") : ""; wrapMode: Text.WrapAnywhere; font.family: "Cascadia Mono"; font.pixelSize: 9 }
-                                    Label { visible: eventCard.modelData.destructive; text: "⚠ " + root.tr("DESTRUCTIVE", "有破壞性"); color: root.errorText; font.bold: true; font.pixelSize: 10 }
+                                    spacing: DesignTokens.spacing8
+                                    WfStatusChip {
+                                        dark: root.dark
+                                        tone: eventCard.modelData.effective ? "success" : "warning"
+                                        text: eventCard.modelData.effective
+                                              ? root.tr("ACTIVE", "生效中")
+                                              : root.tr("UNDONE", "已逆轉")
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: eventCard.modelData.changedPaths
+                                              ? eventCard.modelData.changedPaths.join(" · ") : ""
+                                        color: root.surfaceVariantForeground
+                                        font.family: DesignTokens.fontMono
+                                        font.pixelSize: 9
+                                        elide: Text.ElideMiddle
+                                    }
+                                    WfStatusChip {
+                                        visible: eventCard.modelData.destructive
+                                        dark: root.dark
+                                        tone: "error"
+                                        text: root.tr("DESTRUCTIVE", "有破壞性")
+                                    }
                                 }
+
                                 ScrollView {
                                     id: eventActionsScroll
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: eventActions.implicitHeight
                                     ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                                    ScrollBar.horizontal.policy: ScrollBar.AsNeeded
                                     RowLayout {
                                         id: eventActions
                                         width: Math.max(implicitWidth, eventActionsScroll.availableWidth)
-                                        spacing: 4
-                                        Button { visible: eventCard.modelData.canUndo; text: "↶  " + root.tr("Undo", "逆轉"); flat: true; onClicked: app.undoHistoryEvent(eventCard.modelData.id) }
-                                        Button { visible: eventCard.modelData.canRedo; text: "↷  " + root.tr("Redo", "重做"); flat: true; onClicked: app.redoHistoryEvent(eventCard.modelData.id) }
-                                        Button { visible: eventCard.modelData.type === "action"; text: "⏱  " + root.tr("Restore", "還原"); flat: true; onClicked: app.restoreHistoryEvent(eventCard.modelData.id) }
-                                        ToolButton {
-                                            text: root.compareA && root.compareA.id === eventCard.modelData.id ? "A✓" : "A"
+                                        spacing: DesignTokens.spacing4
+                                        WfButton {
+                                            visible: eventCard.modelData.canUndo
+                                            dark: root.dark
+                                            compact: true
+                                            variant: "text"
+                                            text: root.tr("Undo", "逆轉")
+                                            onClicked: root.app.undoHistoryEvent(eventCard.modelData.id)
+                                        }
+                                        WfButton {
+                                            visible: eventCard.modelData.canRedo
+                                            dark: root.dark
+                                            compact: true
+                                            variant: "text"
+                                            text: root.tr("Redo", "重做")
+                                            onClicked: root.app.redoHistoryEvent(eventCard.modelData.id)
+                                        }
+                                        WfButton {
+                                            visible: eventCard.modelData.type === "action"
+                                            dark: root.dark
+                                            compact: true
+                                            variant: "text"
+                                            text: root.tr("Restore", "還原")
+                                            onClicked: root.app.restoreHistoryEvent(eventCard.modelData.id)
+                                        }
+                                        WfButton {
+                                            dark: root.dark
+                                            compact: true
+                                            variant: root.compareA && root.compareA.id === eventCard.modelData.id
+                                                     ? "tonal" : "outlined"
+                                            text: root.compareA && root.compareA.id === eventCard.modelData.id ? "A selected" : "A"
                                             Accessible.name: root.tr("Compare from event %1", "由事件 %1 比較").arg(eventCard.modelData.sequence)
                                             onClicked: root.compareA = eventCard.modelData
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: Accessible.name
                                         }
-                                        ToolButton {
-                                            text: root.compareB && root.compareB.id === eventCard.modelData.id ? "B✓" : "B"
+                                        WfButton {
+                                            dark: root.dark
+                                            compact: true
+                                            variant: root.compareB && root.compareB.id === eventCard.modelData.id
+                                                     ? "tonal" : "outlined"
+                                            text: root.compareB && root.compareB.id === eventCard.modelData.id ? "B selected" : "B"
                                             Accessible.name: root.tr("Compare to event %1", "比較到事件 %1").arg(eventCard.modelData.sequence)
                                             onClicked: root.compareB = eventCard.modelData
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: Accessible.name
                                         }
                                     }
                                 }
                             }
                         }
-                        Label { anchors.centerIn: parent; width: Math.min(implicitWidth, parent.width - 24); visible: actionList.count === 0; text: root.tr("Make a project change and its immutable event appears here.", "改一下工程，永久事件就會出現喺度。"); wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter }
+
+                        Label {
+                            anchors.centerIn: parent
+                            width: Math.min(implicitWidth, parent.width - DesignTokens.spacing24)
+                            visible: actionList.count === 0
+                            text: historySearch.text.trim().length > 0
+                                  ? root.tr("No history events match this search.",
+                                            "冇歷史事件符合呢個搜尋。")
+                                  : root.tr("Make a project change and its immutable event appears here.",
+                                            "改一下工程，永久事件就會出現喺度。")
+                            color: root.surfaceVariantForeground
+                            font.family: DesignTokens.fontBody
+                            font.pixelSize: 13
+                            wrapMode: Text.Wrap
+                            horizontalAlignment: Text.AlignHCenter
+                        }
                     }
 
-                    Pane {
+                    WfCard {
                         Layout.fillWidth: root.compact
-                        Layout.preferredWidth: root.compact ? -1 : 335
+                        Layout.preferredWidth: root.compact ? -1 : 320
                         Layout.fillHeight: true
                         Layout.minimumWidth: 0
-                        Layout.minimumHeight: 120
-                        padding: 15
-                        background: Rectangle { radius: 18; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC" }
+                        Layout.minimumHeight: 160
+                        dark: root.dark
+                        surfaceLevel: "low"
+                        padding: DesignTokens.spacing16
+
                         ColumnLayout {
                             anchors.fill: parent
-                            Label { Layout.fillWidth: true; text: "⇄  " + root.tr("Live comparison", "即時比較"); font.pixelSize: 18; font.weight: Font.Bold; wrapMode: Text.Wrap }
-                            Label { Layout.fillWidth: true; text: root.compareA ? "A  #" + root.compareA.sequence + "  " + root.compareA.title : root.tr("Choose A on the timeline", "喺時間線揀 A"); wrapMode: Text.Wrap }
-                            Label { Layout.fillWidth: true; text: root.compareB ? "B  #" + root.compareB.sequence + "  " + root.compareB.title : root.tr("Choose B on the timeline", "喺時間線揀 B"); wrapMode: Text.Wrap }
-                            Rectangle { Layout.fillWidth: true; height: 1; color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC" }
+                            spacing: DesignTokens.spacing8
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.tr("Live comparison", "即時比較")
+                                color: root.surfaceForeground
+                                font.family: DesignTokens.fontDisplay
+                                font.pixelSize: 18
+                                font.weight: Font.Bold
+                            }
+                            ComparisonSlot {
+                                Layout.fillWidth: true
+                                marker: "A"
+                                value: root.compareA
+                                emptyText: root.tr("Choose A on the timeline", "喺時間線揀 A")
+                            }
+                            ComparisonSlot {
+                                Layout.fillWidth: true
+                                marker: "B"
+                                value: root.compareB
+                                emptyText: root.tr("Choose B on the timeline", "喺時間線揀 B")
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 1
+                                color: root.outlineVariant
+                            }
                             ScrollView {
-                                Layout.fillWidth: true; Layout.fillHeight: true
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
                                 TextArea {
                                     readOnly: true
                                     Accessible.name: root.tr("Event comparison", "事件比較")
                                     wrapMode: TextEdit.WrapAnywhere
-                                    font.family: "Cascadia Mono"; font.pixelSize: 10
                                     text: root.compareA && root.compareB
-                                        ? "A inverse\n" + JSON.stringify(root.compareA.inverseDiff, null, 2) + "\n\nB forward\n" + JSON.stringify(root.compareB.forwardDiff, null, 2)
-                                        : root.tr("Pick two events to inspect their reversible state patches side by side.", "揀兩個事件，就可以睇佢哋可逆狀態 patch。")
+                                          ? "A inverse\n" + JSON.stringify(root.compareA.inverseDiff, null, 2)
+                                            + "\n\nB forward\n" + JSON.stringify(root.compareB.forwardDiff, null, 2)
+                                          : root.tr("Pick two events to inspect their reversible state patches.",
+                                                    "揀兩個事件，就可以檢查佢哋嘅可逆狀態 patch。")
+                                    color: root.surfaceForeground
+                                    font.family: DesignTokens.fontMono
+                                    font.pixelSize: 10
+                                    background: Rectangle {
+                                        radius: DesignTokens.radiusControl
+                                        color: DesignTokens.surfaceDim(root.dark)
+                                    }
                                 }
                             }
                         }
@@ -188,39 +405,86 @@ Item {
                 }
             }
 
-            Pane {
+            WfCard {
+                dark: root.dark
                 padding: 0
-                background: Rectangle { radius: 18; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC" }
+                surfaceLevel: "lowest"
                 ColumnLayout {
                     anchors.fill: parent
+                    spacing: 0
                     GridLayout {
-                        Layout.fillWidth: true; Layout.margins: 14
+                        Layout.fillWidth: true
+                        Layout.margins: DesignTokens.spacing16
                         columns: root.width >= 700 ? 2 : 1
-                        columnSpacing: 8
-                        rowSpacing: 4
-                        Label { Layout.fillWidth: true; text: root.tr("Raw project repository", "原始工程 Git 倉"); font.pixelSize: 18; font.weight: Font.Bold; wrapMode: Text.Wrap }
-                        Label { Layout.fillWidth: true; text: app.projectHistoryCount + " commits  ·  " + app.projectRoot; wrapMode: Text.WrapAnywhere; horizontalAlignment: root.width >= 700 ? Text.AlignRight : Text.AlignLeft }
+                        columnSpacing: DesignTokens.spacing8
+                        rowSpacing: DesignTokens.spacing4
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.tr("Raw project repository", "原始工程 Git 倉")
+                            color: root.surfaceForeground
+                            font.family: DesignTokens.fontDisplay
+                            font.pixelSize: 18
+                            font.weight: Font.Bold
+                            wrapMode: Text.Wrap
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.app.projectHistoryCount + " commits · " + root.app.projectRoot
+                            color: root.surfaceVariantForeground
+                            font.family: DesignTokens.fontMono
+                            font.pixelSize: 10
+                            wrapMode: Text.WrapAnywhere
+                            horizontalAlignment: root.width >= 700 ? Text.AlignRight : Text.AlignLeft
+                        }
                     }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.outlineVariant }
                     ListView {
                         id: gitList
-                        Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                        model: app.projectHistory
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: root.app.projectHistory
                         delegate: ItemDelegate {
+                            id: gitCommitDelegate
                             required property var modelData
                             width: gitList.width
+                            implicitHeight: DesignTokens.rowHeight + DesignTokens.spacing12
                             contentItem: RowLayout {
-                                Label { text: modelData.isRevert ? "↶" : "●"; color: modelData.isRevert ? root.warningText : Material.accent; font.pixelSize: 18 }
+                                spacing: DesignTokens.spacing12
+                                Rectangle {
+                                    Layout.preferredWidth: 8
+                                    Layout.preferredHeight: 8
+                                    radius: 4
+                                    color: gitCommitDelegate.modelData.isRevert ? root.warning : root.primary
+                                }
                                 ColumnLayout {
                                     Layout.fillWidth: true
-                                    Label { Layout.fillWidth: true; text: modelData.subject; font.weight: Font.DemiBold; wrapMode: Text.Wrap }
-                                    Label { Layout.fillWidth: true; text: modelData.shortHash + "  ·  " + modelData.timestamp; font.family: "Cascadia Mono"; font.pixelSize: 10; color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"; wrapMode: Text.Wrap }
+                                    spacing: DesignTokens.spacing4
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: gitCommitDelegate.modelData.subject
+                                        color: root.surfaceForeground
+                                        font.family: DesignTokens.fontBody
+                                        font.pixelSize: 13
+                                        font.weight: Font.DemiBold
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: gitCommitDelegate.modelData.shortHash + " · " + gitCommitDelegate.modelData.timestamp
+                                        color: root.surfaceVariantForeground
+                                        font.family: DesignTokens.fontMono
+                                        font.pixelSize: 10
+                                        wrapMode: Text.Wrap
+                                    }
                                 }
-                                ToolButton {
-                                    text: "⧉"
-                                    Accessible.name: root.tr("Copy commit %1", "複製 commit %1").arg(modelData.shortHash)
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: Accessible.name
-                                    onClicked: app.copyText(modelData.hash)
+                                WfIconButton {
+                                    dark: root.dark
+                                    glyph: "⧉"
+                                    accessibleName: root.tr("Copy commit %1", "複製 commit %1").arg(gitCommitDelegate.modelData.shortHash)
+                                    toolTip: accessibleName
+                                    onClicked: root.app.copyText(gitCommitDelegate.modelData.hash)
                                 }
                             }
                         }
@@ -234,38 +498,89 @@ Item {
                 GridLayout {
                     width: recoveryScroll.availableWidth
                     columns: root.width >= 800 ? 2 : 1
-                    columnSpacing: 12
-                    rowSpacing: 12
-                    Pane {
-                    Layout.fillWidth: true; Layout.minimumHeight: 300; padding: 18
-                    background: Rectangle { radius: 18; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC" }
-                    ColumnLayout {
-                        anchors.fill: parent
-                        Label { Layout.fillWidth: true; text: "🛟  " + root.tr("Crash recovery", "死機復原"); font.pixelSize: 20; font.weight: Font.Bold; wrapMode: Text.Wrap }
-                        Label { Layout.fillWidth: true; text: root.tr("The journal is flushed on every transition. Interrupted mounts return as in-app recovery work, never a blocking system dialog.", "每次狀態轉換都即寫日誌；中斷掛載會變成 app 入面嘅復原工作，唔會彈阻塞式系統對話框。") ; wrapMode: Text.Wrap }
-                        Label { Layout.fillWidth: true; text: "✓  " + root.tr("Atomic config writes", "原子式設定寫入"); wrapMode: Text.Wrap }
-                        Label { Layout.fillWidth: true; text: "✓  " + root.tr("DAG operation checkpoints", "DAG 工序檢查點"); wrapMode: Text.Wrap }
-                        Label { Layout.fillWidth: true; text: "✓  " + root.tr("Interrupted-run detection and safe-unmount action", "中斷工序偵測同安全卸載動作"); wrapMode: Text.Wrap }
-                        Label { Layout.fillWidth: true; text: "✓  " + root.tr("Source and payload verification gates", "來源同 payload 驗證閘"); wrapMode: Text.Wrap }
-                        Item { Layout.fillHeight: true }
-                        Label { text: root.tr("Recovery directory", "復原資料夾"); color: Material.accent }
-                        Label { Layout.fillWidth: true; text: app.recoveryPath; wrapMode: Text.WrapAnywhere; font.family: "Cascadia Mono"; font.pixelSize: 10 }
+                    columnSpacing: DesignTokens.spacing12
+                    rowSpacing: DesignTokens.spacing12
+
+                    RecoveryCard {
+                        Layout.fillWidth: true
+                        Layout.minimumHeight: 300
+                        title: root.tr("Crash recovery", "死機復原")
+                        description: root.tr("The journal is flushed on every transition. Interrupted mounts return as in-app recovery work.",
+                                             "每次狀態轉換都即寫日誌；中斷掛載會變成 app 入面嘅復原工作。")
+                        pathLabel: root.tr("Recovery directory", "復原資料夾")
+                        pathValue: root.app.recoveryPath
+                        items: [
+                            root.tr("Atomic configuration writes", "原子式設定寫入"),
+                            root.tr("DAG operation checkpoints", "DAG 工序檢查點"),
+                            root.tr("Interrupted-run detection and safe-unmount action", "中斷工序偵測同安全卸載動作"),
+                            root.tr("Source and payload verification gates", "來源同 payload 驗證閘")
+                        ]
                     }
-                }
-                    Pane {
-                    Layout.fillWidth: true; Layout.minimumHeight: 300; padding: 18
-                    background: Rectangle { radius: 18; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC" }
-                    ColumnLayout {
-                        anchors.fill: parent
-                        Label { Layout.fillWidth: true; text: "🔔  " + root.tr("Notification ledger", "通知帳簿"); font.pixelSize: 20; font.weight: Font.Bold; wrapMode: Text.Wrap }
-                        Label { Layout.fillWidth: true; text: root.tr("A separate Git repository commits new, read, unread, dismiss, restore and tombstoned-delete events. The complete save bundle carries it too.", "另一個 Git 倉會 commit 新增、已讀、未讀、閂埋、還原同墓碑刪除；完整儲存 bundle 亦會帶埋。") ; wrapMode: Text.Wrap }
-                        Label { text: app.notificationRepoPath; Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; font.family: "Cascadia Mono"; font.pixelSize: 10; color: Material.accent }
-                        Button { text: "↶  " + root.tr("Undo latest notification event", "Undo 最新通知事件"); onClicked: app.undoLatestNotificationChange() }
-                        Button { text: "🔔  " + root.tr("Create test event", "建立測試事件"); onClicked: app.sendTestNotification() }
-                        Item { Layout.fillHeight: true }
-                        Label { Layout.fillWidth: true; text: root.tr("Soft-delete means the item disappears from normal view while its record and Git ancestry stay recoverable.", "軟刪除即係平時睇唔到，但記錄同 Git 祖先仍然可復原。") ; wrapMode: Text.Wrap; color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71" }
+
+                    WfCard {
+                        Layout.fillWidth: true
+                        Layout.minimumHeight: 300
+                        dark: root.dark
+                        surfaceLevel: "lowest"
+                        padding: DesignTokens.spacing16
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: DesignTokens.spacing8
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: root.tr("Notification ledger", "通知帳簿")
+                                    color: root.surfaceForeground
+                                    font.family: DesignTokens.fontDisplay
+                                    font.pixelSize: 18
+                                    font.weight: Font.Bold
+                                }
+                                WfStatusChip { dark: root.dark; tone: "success"; text: root.tr("RECOVERABLE", "可復原") }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.tr("A separate Git repository commits new, read, unread, dismiss, restore and tombstoned-delete events. The complete save carries it too.",
+                                              "另一個 Git 倉會 commit 新增、已讀、未讀、閂埋、還原同墓碑刪除；完整儲存亦會帶埋。")
+                                color: root.surfaceVariantForeground
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 12
+                                wrapMode: Text.Wrap
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.app.notificationRepoPath
+                                color: root.surfaceForeground
+                                font.family: DesignTokens.fontMono
+                                font.pixelSize: 10
+                                wrapMode: Text.WrapAnywhere
+                            }
+                            WfButton {
+                                Layout.fillWidth: root.compact
+                                dark: root.dark
+                                variant: "outlined"
+                                text: root.tr("Undo latest notification event", "Undo 最新通知事件")
+                                onClicked: root.app.undoLatestNotificationChange()
+                            }
+                            WfButton {
+                                Layout.fillWidth: root.compact
+                                dark: root.dark
+                                variant: "tonal"
+                                text: root.tr("Create test event", "建立測試事件")
+                                onClicked: root.app.sendTestNotification()
+                            }
+                            Item { Layout.fillHeight: true }
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.tr("Soft-delete hides an item while its record and Git ancestry remain recoverable.",
+                                              "軟刪除會隱藏項目，但記錄同 Git 祖先仍然可以復原。")
+                                color: root.surfaceVariantForeground
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
+                            }
+                        }
                     }
-                }
                 }
             }
         }
@@ -274,28 +589,195 @@ Item {
     Popup {
         id: branchPopup
         anchors.centerIn: Overlay.overlay
-        modal: false; focus: true; width: Math.min(420, Math.max(260, root.width - 40)); padding: 18
+        modal: false
+        focus: true
+        width: Math.min(420, Math.max(260, root.width - 40))
+        padding: DesignTokens.spacing16
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle { radius: 22; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.accent }
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.dark)
+            border.width: 1
+            border.color: root.outlineVariant
+        }
         ColumnLayout {
             anchors.fill: parent
-            Label { text: "⑂  " + root.tr("Create history branch", "建立歷史分支"); font.pixelSize: 20; font.weight: Font.Bold }
-            TextField { id: branchName; Layout.fillWidth: true; placeholderText: "experiment/no-bloat" }
-            Button { Layout.alignment: Qt.AlignRight; text: root.tr("Create", "建立"); highlighted: true; enabled: branchName.text.trim().length > 0; onClicked: { app.branchHistoryEvent("", branchName.text.trim()); branchPopup.close() } }
+            spacing: DesignTokens.spacing12
+            Label {
+                text: root.tr("Create history branch", "建立歷史分支")
+                color: root.surfaceForeground
+                font.family: DesignTokens.fontDisplay
+                font.pixelSize: 18
+                font.weight: Font.Bold
+            }
+            WfField { id: branchName; Layout.fillWidth: true; dark: root.dark; placeholderText: "experiment/no-bloat" }
+            WfButton {
+                Layout.alignment: Qt.AlignRight
+                dark: root.dark
+                variant: "filled"
+                text: root.tr("Create", "建立")
+                enabled: branchName.text.trim().length > 0
+                onClicked: {
+                    root.app.branchHistoryEvent("", branchName.text.trim())
+                    branchPopup.close()
+                }
+            }
         }
     }
 
     Popup {
         id: bookmarkPopup
         anchors.centerIn: Overlay.overlay
-        modal: false; focus: true; width: Math.min(420, Math.max(260, root.width - 40)); padding: 18
+        modal: false
+        focus: true
+        width: Math.min(420, Math.max(260, root.width - 40))
+        padding: DesignTokens.spacing16
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle { radius: 22; color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"; border.color: Material.accent }
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.dark)
+            border.width: 1
+            border.color: root.outlineVariant
+        }
         ColumnLayout {
             anchors.fill: parent
-            Label { text: "★  " + root.tr("Bookmark current point", "將而家加書籤"); font.pixelSize: 20; font.weight: Font.Bold }
-            TextField { id: bookmarkName; Layout.fillWidth: true; placeholderText: root.tr("Known-good baseline", "已知正常基準") }
-            Button { Layout.alignment: Qt.AlignRight; text: root.tr("Save", "儲存"); highlighted: true; enabled: bookmarkName.text.trim().length > 0; onClicked: { app.bookmarkHistoryEvent("", bookmarkName.text.trim()); bookmarkPopup.close() } }
+            spacing: DesignTokens.spacing12
+            Label {
+                text: root.tr("Bookmark current point", "將而家加書籤")
+                color: root.surfaceForeground
+                font.family: DesignTokens.fontDisplay
+                font.pixelSize: 18
+                font.weight: Font.Bold
+            }
+            WfField {
+                id: bookmarkName
+                Layout.fillWidth: true
+                dark: root.dark
+                placeholderText: root.tr("Known-good baseline", "已知正常基準")
+            }
+            WfButton {
+                Layout.alignment: Qt.AlignRight
+                dark: root.dark
+                variant: "filled"
+                text: root.tr("Save", "儲存")
+                enabled: bookmarkName.text.trim().length > 0
+                onClicked: {
+                    root.app.bookmarkHistoryEvent("", bookmarkName.text.trim())
+                    bookmarkPopup.close()
+                }
+            }
+        }
+    }
+
+    component ComparisonSlot: Rectangle {
+        id: comparisonSlot
+        required property string marker
+        required property var value
+        required property string emptyText
+        implicitHeight: Math.max(DesignTokens.rowHeight, slotContent.implicitHeight + DesignTokens.spacing12)
+        radius: DesignTokens.radiusControl
+        color: DesignTokens.surfaceDim(root.dark)
+        border.width: 1
+        border.color: root.outlineVariant
+        RowLayout {
+            id: slotContent
+            anchors.fill: parent
+            anchors.margins: DesignTokens.spacing8
+            spacing: DesignTokens.spacing8
+            Rectangle {
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
+                radius: 12
+                color: DesignTokens.primaryContainer(root.dark)
+                Label {
+                    anchors.centerIn: parent
+                    text: comparisonSlot.marker
+                    color: DesignTokens.onPrimaryContainer(root.dark)
+                    font.family: DesignTokens.fontMono
+                    font.pixelSize: 11
+                    font.weight: Font.Bold
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: comparisonSlot.value
+                      ? "#" + comparisonSlot.value.sequence + "  " + comparisonSlot.value.title
+                      : comparisonSlot.emptyText
+                color: comparisonSlot.value ? root.surfaceForeground : root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+            }
+        }
+    }
+
+    component RecoveryCard: WfCard {
+        id: recoveryCard
+        required property string title
+        required property string description
+        required property string pathLabel
+        required property string pathValue
+        required property var items
+        dark: root.dark
+        surfaceLevel: "lowest"
+        padding: DesignTokens.spacing16
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: DesignTokens.spacing8
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    Layout.fillWidth: true
+                    text: recoveryCard.title
+                    color: root.surfaceForeground
+                    font.family: DesignTokens.fontDisplay
+                    font.pixelSize: 18
+                    font.weight: Font.Bold
+                }
+                WfStatusChip { dark: root.dark; tone: "success"; text: root.tr("READY", "就緒") }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: recoveryCard.description
+                color: root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
+            Repeater {
+                model: recoveryCard.items
+                delegate: RowLayout {
+                    id: recoveryItem
+                    required property string modelData
+                    Layout.fillWidth: true
+                    spacing: DesignTokens.spacing8
+                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.success }
+                    Label {
+                        Layout.fillWidth: true
+                        text: recoveryItem.modelData
+                        color: root.surfaceForeground
+                        font.family: DesignTokens.fontBody
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                    }
+                }
+            }
+            Item { Layout.fillHeight: true }
+            Label {
+                text: recoveryCard.pathLabel
+                color: root.surfaceVariantForeground
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+            }
+            Label {
+                Layout.fillWidth: true
+                text: recoveryCard.pathValue
+                color: root.surfaceForeground
+                font.family: DesignTokens.fontMono
+                font.pixelSize: 10
+                wrapMode: Text.WrapAnywhere
+            }
         }
     }
 }

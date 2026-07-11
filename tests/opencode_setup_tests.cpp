@@ -91,9 +91,9 @@ struct Fixture
         auto runner = std::make_unique<FakeRunner>();
         fakeRunner = runner.get();
         OpenCodeSetupEnvironment environment{
-            [this] { return executable; },
-            [this] { return npm; },
-            [this] { return winget; },
+            [this] { ++executableLookups; return executable; },
+            [this] { ++npmLookups; return npm; },
+            [this] { ++wingetLookups; return winget; },
             [this] { return now; },
         };
         setup = std::make_unique<OpenCodeSetup>(std::move(environment), std::move(runner));
@@ -103,6 +103,9 @@ struct Fixture
     OpenCodeToolCommand npm;
     QString winget;
     qint64 now = 100;
+    int executableLookups = 0;
+    int npmLookups = 0;
+    int wingetLookups = 0;
     FakeRunner *fakeRunner = nullptr;
     std::unique_ptr<OpenCodeSetup> setup;
 };
@@ -117,6 +120,25 @@ OpenCodeProcessResult success(const QString &output = {})
     return result;
 }
 
+void passiveReadinessNeverLaunchesUserProfileTools(TestRun &test)
+{
+    Fixture fixture;
+    fixture.executable = QStringLiteral("C:/Users/example/AppData/Roaming/npm/opencode.exe");
+    int deniedCallbacks = 0;
+    fixture.setup->ensureReady([&](bool ready, const QString &error) {
+        if (!ready && error.contains(QStringLiteral("explicit approval")))
+            ++deniedCallbacks;
+    });
+    test.check(fixture.executableLookups == 0 && fixture.npmLookups == 0
+                   && fixture.wingetLookups == 0 && fixture.fakeRunner->count() == 0
+                   && deniedCallbacks == 1,
+               QStringLiteral("passive readiness cannot resolve or launch a user-profile tool"));
+
+    fixture.setup->retry();
+    test.check(fixture.executableLookups > 0 && fixture.fakeRunner->count() == 1,
+               QStringLiteral("the explicit setup action authorizes one bounded verification"));
+}
+
 void reportsAbsentToolsWithoutStartingAProcess(TestRun &test)
 {
     Fixture fixture;
@@ -124,7 +146,7 @@ void reportsAbsentToolsWithoutStartingAProcess(TestRun &test)
                    && fixture.setup->canRetry(),
                QStringLiteral("the initial absent state is explicit and actionable"));
     int failedCallbacks = 0;
-    fixture.setup->ensureReady([&](bool ready, const QString &error) {
+    fixture.setup->retry([&](bool ready, const QString &error) {
         if (!ready && error.contains(QStringLiteral("neither npm nor WinGet")))
             ++failedCallbacks;
     });
@@ -138,7 +160,7 @@ void verifiesExistingInstallation(TestRun &test)
     Fixture fixture;
     fixture.executable = QStringLiteral("C:/npm/opencode.exe");
     int completions = 0;
-    fixture.setup->ensureReady([&](bool ready, const QString &) {
+    fixture.setup->retry([&](bool ready, const QString &) {
         if (ready)
             ++completions;
     });
@@ -172,7 +194,7 @@ void installsWithNpmAndQueuesCallers(TestRun &test)
     int readyCallbacks = 0;
     int failedCallbacks = 0;
     for (int index = 0; index < 3; ++index) {
-        fixture.setup->ensureReady([&](bool ready, const QString &) {
+        fixture.setup->retry([&](bool ready, const QString &) {
             ready ? ++readyCallbacks : ++failedCallbacks;
         });
     }
@@ -203,7 +225,7 @@ void installsNodeBeforeNpm(TestRun &test)
 {
     Fixture fixture;
     fixture.winget = QStringLiteral("C:/Windows/winget.exe");
-    fixture.setup->ensureReady();
+    fixture.setup->retry();
     test.check(fixture.fakeRunner->count() == 1,
                QStringLiteral("missing npm starts one WinGet operation"));
     const OpenCodeProcessCommand winGetCommand = fixture.fakeRunner->at(0).command;
@@ -232,7 +254,7 @@ void failureAndRetryAreDeterministic(TestRun &test)
     Fixture fixture;
     fixture.executable = QStringLiteral("C:/npm/opencode.exe");
     int failedCallbacks = 0;
-    fixture.setup->ensureReady([&](bool ready, const QString &error) {
+    fixture.setup->retry([&](bool ready, const QString &error) {
         if (!ready && error.contains(QStringLiteral("timed out")))
             ++failedCallbacks;
     });
@@ -263,7 +285,7 @@ void failedStartAndShutdownAreObservable(TestRun &test)
 {
     Fixture failedFixture;
     failedFixture.executable = QStringLiteral("C:/npm/opencode.exe");
-    failedFixture.setup->ensureReady();
+    failedFixture.setup->retry();
     OpenCodeProcessResult failedStart;
     failedStart.outcome = OpenCodeProcessResult::Outcome::FailedToStart;
     failedStart.error = QStringLiteral("access denied");
@@ -275,7 +297,7 @@ void failedStartAndShutdownAreObservable(TestRun &test)
     Fixture shutdownFixture;
     shutdownFixture.npm = {QStringLiteral("npm"), {}};
     int cancelledCallbacks = 0;
-    shutdownFixture.setup->ensureReady([&](bool ready, const QString &error) {
+    shutdownFixture.setup->retry([&](bool ready, const QString &error) {
         if (!ready && error.contains(QStringLiteral("shutdown")))
             ++cancelledCallbacks;
     });
@@ -302,6 +324,7 @@ int main(int argc, char *argv[])
     Q_UNUSED(application);
 
     TestRun test;
+    passiveReadinessNeverLaunchesUserProfileTools(test);
     reportsAbsentToolsWithoutStartingAProcess(test);
     verifiesExistingInstallation(test);
     installsWithNpmAndQueuesCallers(test);

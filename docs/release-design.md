@@ -2,7 +2,7 @@
 
 WimForge ships two Windows x64 release assets from every successful build of every push to `main`. The same workflow is available through `workflow_dispatch`, but its release job is intentionally restricted to `main`:
 
-- `WimForge-Setup-x64-0.1.N.exe` is the per-user Inno Setup installer.
+- `WimForge-Setup-x64-0.1.N.exe` is the administrator-approved Inno Setup installer for protected Program Files.
 - `WimForge-portable-x64-0.1.N.zip` is the self-contained portable application.
 
 `N` is the immutable GitHub Actions `run_number`. The matching Git tag is `v0.1.N`, so push and manual runs cannot reuse a version.
@@ -62,7 +62,7 @@ The script deliberately deletes and recreates `build/release` and `dist`; both l
 
 ## Safety and trust
 
-The installer is per-user and does not itself require elevation. WimForge requests administrative authority only when an image-servicing operation needs it. The current servicing backend is Windows DISM, so release builds are Windows-only and should be exercised against disposable image copies before production use.
+The installer requires administrator approval and installs into protected Program Files because the shipped desktop executable declares `requireAdministrator` and loads adjacent Qt runtime DLLs. Windows requests UAC consent before the GUI starts; a runtime relaunch fallback protects stale or incorrectly embedded desktop binaries. The console-subsystem CLI remains suitable for terminal automation and must still be launched with the authority required by the selected operation. Portable copies must live in an access-controlled directory before elevation; Downloads, Temp, shared folders, and other user-writable locations are not trusted deployment roots. The current servicing backend is Windows DISM, so release builds are Windows-only and should be exercised against disposable image copies before production use.
 
 The release pipeline does not currently sign the executable or installer. GitHub publishes a SHA-256 digest for each uploaded release asset, but code signing remains a future hardening step. `windeployqt` handles Qt dependencies; any future non-Qt dynamic dependency must also be staged beside `WimForge.exe` and verified in a clean Windows VM.
 
@@ -73,3 +73,7 @@ Reference documentation:
 - [`gh release create`](https://cli.github.com/manual/gh_release_create)
 - [GitHub REST release-asset fields and SHA-256 digest](https://docs.github.com/en/rest/releases/assets)
 - [GitHub Actions concurrency behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+
+## 香港粵語重點
+
+每次 `main` build 只會公開兩個檔案：管理員批准嘅 Program Files 安裝程式，同自我完備嘅可攜式 ZIP。Workflow 會先建 draft release，對齊兩個檔名、大小、SHA-256 同 commit，最後先轉公開；Actions artifact service 唔會留下另一份檔案。現時未有 code signing，所以下載後請對返 GitHub 來源同 digest，可攜式版一定要擺去受保護資料夾先提權。Release notes 同 asset labels 會用 English / 香港粵語雙語發佈。

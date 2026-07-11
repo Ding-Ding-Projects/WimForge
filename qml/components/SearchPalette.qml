@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
 
 Popup {
@@ -14,7 +15,7 @@ Popup {
     height: Math.min(660, parent.height - 32)
     modal: true
     focus: true
-    padding: 18
+    padding: DesignTokens.spacing16
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     function openForQuery(query) {
@@ -27,10 +28,10 @@ Popup {
     onClosed: app.clearSearch()
 
     background: Rectangle {
-        radius: 24
-        color: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"
+        radius: DesignTokens.radiusCard
+        color: DesignTokens.surfaceLow(Material.theme === Material.Dark)
         border.width: 1
-        border.color: Material.theme === Material.Dark ? "#79747E" : "#CAC4D0"
+        border.color: DesignTokens.outline(Material.theme === Material.Dark)
     }
 
     Timer {
@@ -41,16 +42,29 @@ Popup {
     }
 
     contentItem: ColumnLayout {
-        spacing: 10
+        spacing: DesignTokens.spacing12
 
         RowLayout {
             Layout.fillWidth: true
-            Label { text: "⌕"; font.pixelSize: 26; color: Material.accent; Accessible.ignored: true }
+            Label {
+                text: "⌕"
+                color: DesignTokens.primary(Material.theme === Material.Dark)
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 24
+                Accessible.ignored: true
+            }
             TextField {
                 id: queryField
                 Layout.fillWidth: true
+                Layout.preferredHeight: DesignTokens.fieldHeight
                 placeholderText: root.tr("Search pages, commands, settings, features, packages, policies and project data",
                                          "搜尋頁面、指令、設定、功能、套件、政策同工程資料")
+                color: DesignTokens.onSurface(Material.theme === Material.Dark)
+                placeholderTextColor: DesignTokens.onSurfaceVariant(Material.theme === Material.Dark)
+                selectionColor: DesignTokens.primaryContainer(Material.theme === Material.Dark)
+                selectedTextColor: DesignTokens.onPrimaryContainer(Material.theme === Material.Dark)
+                font.family: DesignTokens.fontBody
+                font.pixelSize: 13
                 Accessible.name: placeholderText
                 onTextEdited: searchDelay.restart()
                 onAccepted: {
@@ -67,12 +81,21 @@ Popup {
                         resultList.forceActiveFocus()
                     }
                 }
+                background: Rectangle {
+                    radius: DesignTokens.radiusControl
+                    color: DesignTokens.surfaceLowest(Material.theme === Material.Dark)
+                    border.width: queryField.activeFocus ? 2 : 1
+                    border.color: queryField.activeFocus
+                                  ? DesignTokens.primary(Material.theme === Material.Dark)
+                                  : DesignTokens.outline(Material.theme === Material.Dark)
+                }
             }
-            ToolButton {
-                text: "×"
-                Accessible.name: root.tr("Close search", "關閉搜尋")
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
+            WfIconButton {
+                glyph: "×"
+                accessibleName: root.tr("Close search", "關閉搜尋")
+                toolTip: accessibleName
+                dark: Material.theme === Material.Dark
+                motionEnabled: app.motionEnabled
                 onClicked: root.close()
             }
         }
@@ -82,7 +105,8 @@ Popup {
             text: app.searchResults.length === 0
                   ? root.tr("No matching local result", "搵唔到相符本機結果")
                   : root.tr("%1 ranked result(s)", "%1 項排序結果").arg(app.searchResults.length)
-            color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+            color: DesignTokens.onSurfaceVariant(Material.theme === Material.Dark)
+            font.family: DesignTokens.fontBody
             wrapMode: Text.Wrap
         }
 
@@ -92,12 +116,12 @@ Popup {
             Layout.fillHeight: true
             model: app.searchResults
             clip: true
-            spacing: 6
+            spacing: DesignTokens.spacing4
             keyNavigationEnabled: true
-            highlightMoveDuration: app.motionEnabled ? 100 : 0
+            highlightMoveDuration: DesignTokens.motionDuration(100, app.motionEnabled)
             highlight: Rectangle {
-                radius: 14
-                color: Material.theme === Material.Dark ? "#4A4458" : "#E8DEF8"
+                radius: DesignTokens.radiusControl
+                color: DesignTokens.primaryContainer(Material.theme === Material.Dark)
             }
 
             delegate: ItemDelegate {
@@ -105,7 +129,7 @@ Popup {
                 required property var modelData
                 required property int index
                 width: resultList.width
-                implicitHeight: Math.max(66, resultRow.implicitHeight + 16)
+                implicitHeight: Math.max(64, resultRow.implicitHeight + 16)
                 highlighted: ListView.isCurrentItem
                 Accessible.name: modelData.kindLabel + ": " + modelData.title + ". " + modelData.subtitle
                 onClicked: {
@@ -120,8 +144,9 @@ Popup {
                     spacing: 12
                     Label {
                         text: resultDelegate.modelData.icon
-                        font.pixelSize: 22
-                        color: Material.accent
+                        font.family: DesignTokens.fontBody
+                        font.pixelSize: 20
+                        color: DesignTokens.primary(Material.theme === Material.Dark)
                         Accessible.ignored: true
                     }
                     ColumnLayout {
@@ -130,23 +155,25 @@ Popup {
                         Label {
                             Layout.fillWidth: true
                             text: resultDelegate.modelData.title
+                            color: DesignTokens.onSurface(Material.theme === Material.Dark)
+                            font.family: DesignTokens.fontBody
                             font.weight: Font.DemiBold
                             wrapMode: Text.Wrap
                         }
                         Label {
                             Layout.fillWidth: true
                             text: resultDelegate.modelData.subtitle
-                            color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+                            color: DesignTokens.onSurfaceVariant(Material.theme === Material.Dark)
+                            font.family: DesignTokens.fontBody
                             wrapMode: Text.WrapAnywhere
                             maximumLineCount: 2
                             elide: Text.ElideRight
                         }
                     }
-                    Label {
+                    WfStatusChip {
                         text: resultDelegate.modelData.kindLabel
-                        font.pixelSize: 10
-                        color: Material.accent
-                        Accessible.ignored: true
+                        tone: "primary"
+                        dark: Material.theme === Material.Dark
                     }
                 }
             }
@@ -156,8 +183,9 @@ Popup {
             Layout.fillWidth: true
             text: root.tr("↑/↓ move · Enter open · Esc close", "↑/↓ 移動 · Enter 開啟 · Esc 關閉")
             horizontalAlignment: Text.AlignRight
+            font.family: DesignTokens.fontMono
             font.pixelSize: 10
-            color: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
+            color: DesignTokens.onSurfaceVariant(Material.theme === Material.Dark)
         }
     }
 }

@@ -236,18 +236,20 @@ jobs:
 
           $notes = @"
           Automated Windows x64 build of commit $commit.
+          呢個係由 commit $commit 自動建立嘅 Windows x64 版本。
 
-          Direct release assets:
-          - WimForge-Setup-x64-$version.exe - per-user Inno Setup installer
-          - WimForge-portable-x64-$version.zip - self-contained portable Qt application
+          Direct release assets / 直接發佈檔案：
+          - WimForge-Setup-x64-$version.exe - administrator-approved Inno Setup installer for protected Program Files / 需要管理員批准、安裝去受保護 Program Files 嘅 Inno Setup 安裝程式
+          - WimForge-portable-x64-$version.zip - self-contained portable Qt application / 自我完備嘅可攜式 Qt 應用程式
 
           WimForge orchestrates offline Windows image servicing with Windows DISM command-line tools.
+          WimForge 用 Windows DISM 命令列工具編排離線 Windows 映像服務工作。
           "@
 
           try {
             & gh release create $tag `
-              "$setup#Windows x64 installer" `
-              "$portable#Windows x64 portable package" `
+              "$setup#Windows x64 installer / Windows x64 安裝程式" `
+              "$portable#Windows x64 portable package / Windows x64 可攜式套件" `
               --repo $repository `
               --target $commit `
               --title "WimForge $tag" `

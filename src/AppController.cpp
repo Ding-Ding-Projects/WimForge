@@ -1,6 +1,9 @@
 #include "AppController.h"
 #include "core/GpoPolicyCompiler.h"
+#include "core/ImageSourceInspector.h"
+#include "core/PayloadCatalog.h"
 #include "core/ProcessLaunch.h"
+#include "core/StructuredLogger.h"
 #include "core/VmLabScope.h"
 
 #include <QClipboard>
@@ -8,6 +11,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
+#include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -21,6 +25,7 @@
 #include <QStandardPaths>
 #include <QThread>
 #include <QTimer>
+#include <QUrlQuery>
 
 #include <algorithm>
 #include <limits>
@@ -34,6 +39,157 @@ QString cleanPath(const QString &value)
 {
     const QString trimmed = value.trimmed();
     return trimmed.isEmpty() ? QString() : QDir::cleanPath(trimmed);
+}
+
+QString bilingualCommitMessage(const QString &english, const QString &cantonese)
+{
+    return english + QStringLiteral(" / ") + cantonese;
+}
+
+void removeCaseInsensitive(QStringList &values, const QString &needle)
+{
+    values.removeIf([&needle](const QString &value) {
+        return value.compare(needle, Qt::CaseInsensitive) == 0;
+    });
+}
+
+bool isSafeConfigurationIdentity(const QString &value)
+{
+    const QString trimmed = value.trimmed();
+    return !trimmed.isEmpty() && trimmed.size() <= 1024
+        && !trimmed.contains(QLatin1Char('\r'))
+        && !trimmed.contains(QLatin1Char('\n'))
+        && !trimmed.contains(QChar::Null);
+}
+
+QString normalizedTaskPath(const QString &value)
+{
+    QString path = QDir::fromNativeSeparators(value.trimmed());
+    // Task Scheduler commonly displays a single root backslash. Store the
+    // path relative to Windows/System32/Tasks, as required by ProjectConfig.
+    if (path.startsWith(QLatin1Char('/')) && !path.startsWith(QStringLiteral("//")))
+        path.remove(0, 1);
+    return path;
+}
+
+bool isSafeScheduledTaskPath(const QString &value)
+{
+    const QString path = normalizedTaskPath(value);
+    if (path.isEmpty() || path.size() > 4096 || QDir::isAbsolutePath(path)
+        || path.contains(QLatin1Char(':')) || path.contains(QLatin1Char('\r'))
+        || path.contains(QLatin1Char('\n')) || path.contains(QChar::Null)) {
+        return false;
+    }
+    const QStringList segments = path.split(QLatin1Char('/'), Qt::KeepEmptyParts);
+    return std::none_of(segments.cbegin(), segments.cend(), [](const QString &segment) {
+        return segment.isEmpty() || segment == QStringLiteral(".")
+            || segment == QStringLiteral("..");
+    });
+}
+
+bool isAppxProvisioningPayload(const QFileInfo &file)
+{
+    static const QSet<QString> extensions{
+        QStringLiteral("appx"), QStringLiteral("appxbundle"),
+        QStringLiteral("msix"), QStringLiteral("msixbundle"),
+    };
+    return file.isFile() && file.isAbsolute()
+        && extensions.contains(file.suffix().toLower());
+}
+
+constexpr qsizetype MaximumRecentProjects = 12;
+constexpr qsizetype MaximumRecentProjectNameLength = 160;
+constexpr qsizetype MaximumRecentProjectPathLength = 32'767;
+
+bool isUnsafeDisplayCharacter(QChar character)
+{
+    const ushort codePoint = character.unicode();
+    return codePoint < 0x20 || codePoint == 0x7f
+        || (codePoint >= 0x202a && codePoint <= 0x202e)
+        || (codePoint >= 0x2066 && codePoint <= 0x2069);
+}
+
+bool isSafeLocalRecentPath(const QString &path)
+{
+    if (path.isEmpty() || path.size() > MaximumRecentProjectPathLength
+        || !QDir::isAbsolutePath(path)) {
+        return false;
+    }
+    if (std::any_of(path.cbegin(), path.cend(), isUnsafeDisplayCharacter))
+        return false;
+
+    const QString portable = QDir::fromNativeSeparators(path);
+#ifdef Q_OS_WIN
+    // QSettings is user-writable while the GUI runs elevated. Never probe or
+    // retain network shares, device namespaces, or other non-drive paths from
+    // that store; doing so at startup could trigger an unintended privileged
+    // filesystem/network access.
+    if (portable.startsWith(QStringLiteral("//"))
+        || !QRegularExpression(QStringLiteral("^[A-Za-z]:/")).match(portable).hasMatch()) {
+        return false;
+    }
+#endif
+
+    return !QDir(portable).isRoot();
+}
+
+QString recentPathKey(const QString &path)
+{
+    QString key = QDir::fromNativeSeparators(cleanPath(path));
+#ifdef Q_OS_WIN
+    key = key.toCaseFolded();
+#endif
+    return key;
+}
+
+std::optional<QVariantMap> sanitizedRecentProject(const QVariant &candidate)
+{
+    const QVariantMap source = candidate.toMap();
+    const QString rawPath = source.isEmpty()
+        ? candidate.toString()
+        : source.value(QStringLiteral("path")).toString();
+    const QString path = QDir::fromNativeSeparators(cleanPath(rawPath));
+    if (!isSafeLocalRecentPath(path))
+        return std::nullopt;
+
+    QString name = source.value(QStringLiteral("name")).toString().trimmed();
+    if (name.isEmpty())
+        name = QFileInfo(path).fileName();
+    std::replace_if(name.begin(), name.end(), isUnsafeDisplayCharacter, QLatin1Char(' '));
+    name = name.simplified().left(MaximumRecentProjectNameLength);
+    if (name.isEmpty())
+        name = QFileInfo(path).fileName();
+
+    QString lastOpened = source.value(QStringLiteral("lastOpened")).toString().trimmed();
+    const QDateTime parsed = QDateTime::fromString(lastOpened, Qt::ISODateWithMs);
+    if (!parsed.isValid())
+        lastOpened.clear();
+
+    return QVariantMap{
+        {QStringLiteral("name"), name},
+        {QStringLiteral("path"), path},
+        {QStringLiteral("lastOpened"), lastOpened},
+    };
+}
+
+QVariantMap payloadCatalogVariant(const ServicingPayloadEntry &entry)
+{
+    return QVariantMap{
+        {QStringLiteral("path"), entry.path},
+        {QStringLiteral("title"), entry.title},
+        {QStringLiteral("detail"), entry.detail},
+        {QStringLiteral("extension"), entry.extension},
+        {QStringLiteral("kb"), entry.knowledgeBaseId},
+        {QStringLiteral("provider"), entry.provider},
+        {QStringLiteral("driverClass"), entry.driverClass},
+        {QStringLiteral("driverVersion"), entry.driverVersion},
+        {QStringLiteral("catalogFile"), entry.catalogFile},
+        {QStringLiteral("sizeBytes"), entry.sizeBytes},
+        {QStringLiteral("containedFileCount"), entry.containedFileCount},
+        {QStringLiteral("exists"), entry.exists},
+        {QStringLiteral("directory"), entry.directory},
+        {QStringLiteral("supported"), entry.supported},
+    };
 }
 
 QString notificationTimestamp(const QDateTime &value)
@@ -671,6 +827,10 @@ AppController::AppController(QObject *parent)
       m_jobEngine(this),
       m_settings(QStringLiteral("WimForge"), QStringLiteral("WimForge"))
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("controller"),
+        QStringLiteral("controller.created"),
+        QStringLiteral("Application controller initialization started."));
     m_openCodeSetup = std::make_unique<OpenCodeSetup>();
     connect(m_openCodeSetup.get(), &OpenCodeSetup::changed, this, [this] {
         if (m_openCodeSetup->busy() || m_openCodeSetup->state() == OpenCodeSetupState::Failed)
@@ -680,7 +840,8 @@ AppController::AppController(QObject *parent)
     connect(m_openCodeSetup.get(), &OpenCodeSetup::becameReady, this,
             [this](bool installedDuringAttempt) {
         if (installedDuringAttempt) {
-            notify(QStringLiteral("OpenCode installed and verified"),
+            notify(localized(QStringLiteral("OpenCode installed and verified"),
+                             QStringLiteral("OpenCode 已安裝兼驗證")),
                    m_openCodeSetup->status(), QStringLiteral("success"));
         }
     });
@@ -697,6 +858,7 @@ AppController::AppController(QObject *parent)
     m_crashJournalEnabled = m_settings.value(QStringLiteral("safety/journal"), true).toBool();
     m_verifySourceHash = m_settings.value(QStringLiteral("safety/hash"), true).toBool();
     m_checkpointBeforeDestructive = m_settings.value(QStringLiteral("safety/checkpoint"), true).toBool();
+    loadRecentProjects();
     m_winForgeIncludeRuntime = m_settings.value(QStringLiteral("bridge/includeRuntime"), true).toBool();
     m_winForgeRuntimePath = cleanPath(m_settings.value(QStringLiteral("bridge/runtimePath")).toString());
     if (m_winForgeRuntimePath.isEmpty())
@@ -747,22 +909,23 @@ AppController::AppController(QObject *parent)
                        m_winForgeRuntimeContract.capabilities.join(QStringLiteral(", ")))
             : bridgeError;
     }
-    const QString lastProject = m_settings.value(QStringLiteral("project/last")).toString();
-    if (!lastProject.isEmpty() && QFileInfo::exists(QDir(lastProject).filePath(QStringLiteral("project.json"))))
-        openProject(lastProject);
     if (!m_vmManager)
         recreateVmLab();
 
-    // Installation and live verification are asynchronous and surface only
-    // in-app progress, so automatic setup never blocks servicing jobs or opens
-    // a modal dialog.
-    QTimer::singleShot(2'500, this, [this] {
-        m_openCodeSetup->ensureReady();
-    });
+    // Host developer tools are intentionally idle at startup. The desktop is
+    // elevated, so discovery/verification/setup begins only after the explicit
+    // Package Studio action authorizes it for this session.
 }
 
 AppController::~AppController()
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("controller"),
+        QStringLiteral("controller.destroying"),
+        QStringLiteral("Application controller is shutting down."),
+        QJsonObject{{QStringLiteral("projectLoaded"), projectLoaded()},
+                    {QStringLiteral("jobRunning"), m_jobEngine.isRunning()},
+                    {QStringLiteral("sourceInspectionRunning"), m_inspecting}});
     if (m_vmManager && m_vmManager->busy())
         m_vmManager->cancel();
     m_vmManager.reset();
@@ -786,23 +949,85 @@ AppController::~AppController()
 
 QString AppController::version() const { return QString::fromLatin1(WIMFORGE_VERSION); }
 bool AppController::projectLoaded() const { return m_project.has_value(); }
+QVariantList AppController::recentProjects() const { return m_recentProjects; }
 QString AppController::projectName() const { return m_project ? m_project->projectName : QString(); }
 QString AppController::projectRoot() const { return m_project ? m_project->projectDirectory : QString(); }
 QString AppController::sourcePath() const { return m_project ? m_project->sourcePath : QString(); }
 QString AppController::imagePath() const { return m_project ? m_project->imagePath : QString(); }
+QString AppController::imageRelativePath() const
+{
+    return m_project
+        ? m_project->options.extra.value(QStringLiteral("imageRelativePath")).toString()
+        : QString();
+}
 QString AppController::mountPath() const { return m_project ? m_project->mountPath : QString(); }
 QString AppController::outputPath() const { return m_project ? m_project->outputPath : QString(); }
 QString AppController::outputFormat() const { return m_project ? m_project->outputFormat : QStringLiteral("wim"); }
 QString AppController::isoLabel() const { return m_project ? m_project->isoLabel : QStringLiteral("WIMFORGE"); }
 int AppController::imageIndex() const { return m_project ? m_project->selectedImageIndex : 1; }
 bool AppController::cloneSource() const { return !m_project || m_project->cloneSource; }
-QStringList AppController::editionNames() const { return m_editionNames; }
-QString AppController::imageSummary() const { return m_imageSummary; }
+QStringList AppController::editionNames() const
+{
+    return m_editionNames.isEmpty()
+        ? QStringList{localized(QStringLiteral("Inspect source to load editions"),
+                                QStringLiteral("檢查來源以載入版本"))}
+        : m_editionNames;
+}
+QString AppController::imageSummary() const
+{
+    return localized(m_imageSummaryEn, m_imageSummaryZh);
+}
 QStringList AppController::drivers() const { return m_project ? m_project->drivers : QStringList(); }
+QStringList AppController::updates() const { return m_project ? m_project->updates : QStringList(); }
 QStringList AppController::packages() const { return m_project ? m_project->packages : QStringList(); }
+QVariantList AppController::driverCatalog() const { return m_driverCatalogItems; }
+QVariantList AppController::updateCatalog() const { return m_updateCatalogItems; }
 QStringList AppController::features() const { return m_project ? m_project->featuresToEnable : QStringList(); }
+QStringList AppController::featureDisables() const
+{
+    return m_project ? m_project->featuresToDisable : QStringList();
+}
+QVariantList AppController::capabilityChanges() const
+{
+    QVariantList changes;
+    if (!m_project)
+        return changes;
+    for (const QString &identity : m_project->capabilitiesToAdd) {
+        changes.append(QVariantMap{{QStringLiteral("identity"), identity},
+                                   {QStringLiteral("state"), 1},
+                                   {QStringLiteral("disposition"), QStringLiteral("add")}});
+    }
+    for (const QString &identity : m_project->capabilitiesToRemove) {
+        changes.append(QVariantMap{{QStringLiteral("identity"), identity},
+                                   {QStringLiteral("state"), -1},
+                                   {QStringLiteral("disposition"), QStringLiteral("remove")}});
+    }
+    return changes;
+}
 QStringList AppController::appRemovals() const { return m_project ? m_project->appxPackagesToRemove : QStringList(); }
+QStringList AppController::appProvisions() const
+{
+    return m_project ? m_project->appxPackagesToProvision : QStringList();
+}
 QStringList AppController::componentRemovals() const { return m_project ? m_project->componentsToRemove : QStringList(); }
+QVariantList AppController::scheduledTaskChanges() const
+{
+    QVariantList changes;
+    if (!m_project)
+        return changes;
+    for (const ScheduledTaskChange &change : m_project->scheduledTaskChanges) {
+        const QString disposition = change.disposition == ScheduledTaskDisposition::Enable
+            ? QStringLiteral("enable")
+            : change.disposition == ScheduledTaskDisposition::Remove
+                ? QStringLiteral("remove") : QStringLiteral("disable");
+        changes.append(QVariantMap{
+            {QStringLiteral("path"), change.taskPath},
+            {QStringLiteral("disposition"), disposition},
+            {QStringLiteral("compatibilityOverride"), change.compatibilityOverride},
+        });
+    }
+    return changes;
+}
 QStringList AppController::unattendedFiles() const { return m_project ? m_project->unattendedFiles : QStringList(); }
 QStringList AppController::postSetupItems() const { return m_project ? m_project->postSetupItems : QStringList(); }
 
@@ -891,6 +1116,7 @@ int AppController::notificationUnreadCount() const
 
 QString AppController::notificationRepoPath() const { return m_notificationStore.storeDirectory(); }
 bool AppController::busy() const { return m_jobEngine.isRunning() || m_inspecting; }
+bool AppController::sourceInspectionBusy() const { return m_inspecting; }
 double AppController::progress() const { return m_jobEngine.progress(); }
 QString AppController::statusText() const { return m_statusText; }
 int AppController::runningJobCount() const { return m_jobEngine.runningCount(); }
@@ -1047,7 +1273,8 @@ QString AppController::openCodeStatus() const
     if (!m_openCodeRequestStatus.isEmpty())
         return m_openCodeRequestStatus;
     return m_openCodeSetup ? m_openCodeSetup->status()
-                           : QStringLiteral("OpenCode status is unavailable.");
+                           : localized(QStringLiteral("OpenCode status is unavailable."),
+                                       QStringLiteral("而家攞唔到 OpenCode 狀態。"));
 }
 
 QString AppController::openCodeError() const
@@ -1177,6 +1404,13 @@ QString AppController::currentOutput() const
 
 QString AppController::searchQuery() const { return m_searchQuery; }
 QVariantList AppController::searchResults() const { return m_searchResults; }
+QVariantList AppController::workspaceTabs() const { return m_workspaceTabs.tabs(); }
+int AppController::activeWorkspaceTab() const { return m_workspaceTabs.activeIndex(); }
+QString AppController::workspaceTabRepository() const { return m_workspaceTabs.repositoryPath(); }
+QString AppController::applicationLogPath() const
+{
+    return StructuredLogger::instance().logPath();
+}
 
 void AppController::setLanguageMode(int value)
 {
@@ -1192,11 +1426,109 @@ void AppController::setMaxParallelJobs(int value) { value = qBound(1, value, 16)
 void AppController::setThreadLimit(int value) { value = qBound(1, value, logicalCpuCount()); if (m_threadLimit == value) return; m_threadLimit = value; m_settings.setValue(QStringLiteral("jobs/threads"), value); emit preferencesChanged(); }
 void AppController::setScratchReserveGb(int value) { value = qBound(5, value, 500); if (m_scratchReserveGb == value) return; m_scratchReserveGb = value; m_settings.setValue(QStringLiteral("jobs/reserveGb"), value); emit preferencesChanged(); }
 void AppController::setCrashJournalEnabled(bool value) { if (m_crashJournalEnabled == value) return; m_crashJournalEnabled = value; m_settings.setValue(QStringLiteral("safety/journal"), value); emit preferencesChanged(); }
-void AppController::setVerifySourceHash(bool value) { if (m_verifySourceHash == value) return; m_verifySourceHash = value; m_settings.setValue(QStringLiteral("safety/hash"), value); if (m_project) mutateProject(QStringLiteral("safety: change payload verification"), [value](ProjectConfig &p) { p.options.verifyPayloads = value; }); emit preferencesChanged(); }
+void AppController::setVerifySourceHash(bool value) { if (m_verifySourceHash == value) return; m_verifySourceHash = value; m_settings.setValue(QStringLiteral("safety/hash"), value); if (m_project) mutateProject(bilingualCommitMessage(QStringLiteral("safety: change payload verification"), QStringLiteral("安全：更改 payload 驗證")), [value](ProjectConfig &p) { p.options.verifyPayloads = value; }); emit preferencesChanged(); }
 void AppController::setCheckpointBeforeDestructive(bool value) { if (m_checkpointBeforeDestructive == value) return; m_checkpointBeforeDestructive = value; m_settings.setValue(QStringLiteral("safety/checkpoint"), value); emit preferencesChanged(); }
-void AppController::setAutoImport(bool value) { if (m_project) mutateProject(QStringLiteral("automation: change auto import"), [value](ProjectConfig &p) { p.autoImport = value; }); }
-void AppController::setAutoExport(bool value) { if (m_project) mutateProject(QStringLiteral("automation: change auto export"), [value](ProjectConfig &p) { p.autoExport = value; }); }
-void AppController::setAutoExportPath(const QString &value) { if (m_project) mutateProject(QStringLiteral("automation: change export destination"), [value](ProjectConfig &p) { p.autoExportPath = cleanPath(value); }); }
+void AppController::setAutoImport(bool value) { if (m_project) mutateProject(bilingualCommitMessage(QStringLiteral("automation: change auto import"), QStringLiteral("自動化：更改自動匯入")), [value](ProjectConfig &p) { p.autoImport = value; }); }
+void AppController::setAutoExport(bool value) { if (m_project) mutateProject(bilingualCommitMessage(QStringLiteral("automation: change auto export"), QStringLiteral("自動化：更改自動匯出")), [value](ProjectConfig &p) { p.autoExport = value; }); }
+void AppController::setAutoExportPath(const QString &value) { if (m_project) mutateProject(bilingualCommitMessage(QStringLiteral("automation: change export destination"), QStringLiteral("自動化：更改匯出目的地")), [value](ProjectConfig &p) { p.autoExportPath = cleanPath(value); }); }
+
+void AppController::loadRecentProjects()
+{
+    QVariantList candidates = m_settings.value(QStringLiteral("project/recent")).toList();
+
+    // Migrate the previous single-project preference into the list without
+    // reopening it. Normal startup must always land on Project Start.
+    const QString legacyLast = m_settings.value(QStringLiteral("project/last")).toString();
+    if (!legacyLast.trimmed().isEmpty()) {
+        candidates.prepend(QVariantMap{
+            {QStringLiteral("path"), legacyLast},
+            {QStringLiteral("lastOpened"),
+             QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        });
+    }
+    m_settings.remove(QStringLiteral("project/last"));
+
+    QVariantList sanitized;
+    QSet<QString> seen;
+    for (const QVariant &candidate : std::as_const(candidates)) {
+        const auto entry = sanitizedRecentProject(candidate);
+        if (!entry)
+            continue;
+        const QString key = recentPathKey(entry->value(QStringLiteral("path")).toString());
+        if (key.isEmpty() || seen.contains(key))
+            continue;
+        seen.insert(key);
+        sanitized.append(*entry);
+        if (sanitized.size() >= MaximumRecentProjects)
+            break;
+    }
+    m_recentProjects = std::move(sanitized);
+    persistRecentProjects();
+}
+
+void AppController::rememberRecentProject(const QString &directory, const QString &name)
+{
+    const auto entry = sanitizedRecentProject(QVariantMap{
+        {QStringLiteral("name"), name},
+        {QStringLiteral("path"), directory},
+        {QStringLiteral("lastOpened"),
+         QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+    });
+    if (!entry)
+        return;
+
+    const QString wanted = recentPathKey(entry->value(QStringLiteral("path")).toString());
+    QVariantList updated{*entry};
+    for (const QVariant &candidate : std::as_const(m_recentProjects)) {
+        const QString candidatePath = candidate.toMap().value(QStringLiteral("path")).toString();
+        if (recentPathKey(candidatePath) != wanted)
+            updated.append(candidate);
+        if (updated.size() >= MaximumRecentProjects)
+            break;
+    }
+    m_recentProjects = std::move(updated);
+    persistRecentProjects();
+    emit recentProjectsChanged();
+}
+
+void AppController::persistRecentProjects()
+{
+    if (m_recentProjects.isEmpty())
+        m_settings.remove(QStringLiteral("project/recent"));
+    else
+        m_settings.setValue(QStringLiteral("project/recent"), m_recentProjects);
+    m_settings.sync();
+}
+
+void AppController::removeRecentProject(const QString &directory)
+{
+    const QString wanted = recentPathKey(directory);
+    if (wanted.isEmpty())
+        return;
+
+    bool changed = false;
+    for (qsizetype index = m_recentProjects.size(); index-- > 0;) {
+        const QString path = m_recentProjects.at(index).toMap()
+                                 .value(QStringLiteral("path")).toString();
+        if (recentPathKey(path) == wanted) {
+            m_recentProjects.removeAt(index);
+            changed = true;
+        }
+    }
+    if (!changed)
+        return;
+    persistRecentProjects();
+    emit recentProjectsChanged();
+}
+
+void AppController::clearRecentProjects()
+{
+    if (m_recentProjects.isEmpty())
+        return;
+    m_recentProjects.clear();
+    persistRecentProjects();
+    emit recentProjectsChanged();
+}
 
 void AppController::requestNewProject() { emit newProjectRequested(); }
 void AppController::requestOpenProject() { emit openProjectRequested(); }
@@ -1212,13 +1544,18 @@ bool AppController::createProject(const QString &directory, const QString &name)
     project.options.verifyPayloads = m_verifySourceHash;
     project.options.maximumParallelOperations = m_maxParallelJobs;
     QString error;
-    if (!project.save(&error, QStringLiteral("project: create %1").arg(project.projectName))) {
+    if (!project.save(&error, bilingualCommitMessage(
+            QStringLiteral("project: create %1").arg(project.projectName),
+            QStringLiteral("工程：建立 %1").arg(project.projectName)))) {
         showError(error); return false;
     }
     m_project = std::move(project);
-    m_settings.setValue(QStringLiteral("project/last"), m_project->projectDirectory);
+    rememberRecentProject(m_project->projectDirectory, m_project->projectName);
     loadProjectState();
-    notify(QStringLiteral("Project created"), QStringLiteral("Every configuration action is now committed in this project's local Git repository."), QStringLiteral("success"));
+    notify(localized(QStringLiteral("Project created"), QStringLiteral("工程開好")),
+           localized(QStringLiteral("Every configuration action is now committed in this project's local Git repository."),
+                     QStringLiteral("之後每次改設定，都會 commit 落呢個工程嘅本機 Git repository。")),
+           QStringLiteral("success"));
     showSuccess(localized(QStringLiteral("Project created — Git history is active."), QStringLiteral("工程開好 — Git 歷史已經開工。")));
     return true;
 }
@@ -1229,7 +1566,7 @@ bool AppController::openProject(const QString &directory)
     const auto project = ProjectConfig::load(cleanPath(directory), &error);
     if (!project) { showError(error); return false; }
     m_project = *project;
-    m_settings.setValue(QStringLiteral("project/last"), m_project->projectDirectory);
+    rememberRecentProject(m_project->projectDirectory, m_project->projectName);
     loadProjectState();
     showSuccess(localized(QStringLiteral("Project opened."), QStringLiteral("工程開咗。")));
     return true;
@@ -1261,17 +1598,21 @@ bool AppController::importProject(const QString &sourceFile, const QString &dest
             }
             ProjectConfig candidate = *m_project;
             candidate.settings.insert(QStringLiteral("_notificationRepoPath"), notificationPath);
-            if (!candidate.save(&error, QStringLiteral("bundle: reconnect notification history"))) {
+            if (!candidate.save(&error, bilingualCommitMessage(
+                    QStringLiteral("bundle: reconnect notification history"),
+                    QStringLiteral("Bundle：重新連接通知歷史")))) {
                 showError(error);
                 return false;
             }
             m_project = candidate;
         }
-        m_settings.setValue(QStringLiteral("project/last"), m_project->projectDirectory);
+        rememberRecentProject(m_project->projectDirectory, m_project->projectName);
         loadProjectState();
         refreshNotifications();
-        notify(QStringLiteral("Complete project bundle imported"),
-               QStringLiteral("Project commits, action branches, notification events, tombstones and all local Git metadata were restored."),
+        notify(localized(QStringLiteral("Complete project bundle imported"),
+                         QStringLiteral("完整工程 bundle 已匯入")),
+               localized(QStringLiteral("Project commits, action branches, notification events, tombstones and all local Git metadata were restored."),
+                         QStringLiteral("工程 commit、操作 branch、通知事件、刪除記錄同全部本機 Git metadata 都已還原。")),
                QStringLiteral("success"));
         return true;
     }
@@ -1279,9 +1620,12 @@ bool AppController::importProject(const QString &sourceFile, const QString &dest
     const auto project = ProjectConfig::importJson(cleanPath(sourceFile), cleanPath(destinationDirectory), &error);
     if (!project) { showError(error); return false; }
     m_project = *project;
-    m_settings.setValue(QStringLiteral("project/last"), m_project->projectDirectory);
+    rememberRecentProject(m_project->projectDirectory, m_project->projectName);
     loadProjectState();
-    notify(QStringLiteral("Project imported"), QStringLiteral("The imported configuration now has its own local Git history."), QStringLiteral("success"));
+    notify(localized(QStringLiteral("Project imported"), QStringLiteral("工程已匯入")),
+           localized(QStringLiteral("The imported configuration now has its own local Git history."),
+                     QStringLiteral("匯入咗嘅設定而家有自己一份本機 Git 歷史。")),
+           QStringLiteral("success"));
     return true;
 }
 
@@ -1325,6 +1669,12 @@ void AppController::requestExportScript() { emit exportScriptRequested(); }
 bool AppController::mutateProject(const QString &message, const ProjectMutation &mutation)
 {
     if (!m_project) { showError(QStringLiteral("Open a project first.")); return false; }
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("controller.action"),
+        QStringLiteral("project.mutation_started"),
+        QStringLiteral("Starting a project configuration mutation."),
+        QJsonObject{{QStringLiteral("messageLength"), message.size()},
+                    {QStringLiteral("bilingualMessage"), message.contains(QStringLiteral(" / "))}});
     const QJsonObject before = m_project->toJson();
     ProjectConfig candidate = *m_project;
     mutation(candidate);
@@ -1370,6 +1720,12 @@ bool AppController::mutateProject(const QString &message, const ProjectMutation 
                           .arg(bundleError));
     }
     loadProjectState();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("controller.action"),
+        QStringLiteral("project.mutation_committed"),
+        QStringLiteral("Project configuration mutation committed."),
+        QJsonObject{{QStringLiteral("messageLength"), message.size()},
+                    {QStringLiteral("bilingualMessage"), message.contains(QStringLiteral(" / "))}});
     return true;
 }
 
@@ -1380,10 +1736,30 @@ bool AppController::saveProject(const QString &message)
 
 void AppController::setProjectField(const QString &field, const QString &value)
 {
-    mutateProject(QStringLiteral("config: set %1").arg(field), [field, value](ProjectConfig &p) {
+    mutateProject(bilingualCommitMessage(
+                      QStringLiteral("config: set %1").arg(field),
+                      QStringLiteral("設定：更新 %1").arg(field)),
+                  [field, value](ProjectConfig &p) {
         const QString path = cleanPath(value);
-        if (field == QStringLiteral("sourcePath")) p.sourcePath = path;
-        else if (field == QStringLiteral("imagePath")) p.imagePath = path;
+        if (field == QStringLiteral("sourcePath")) {
+            if (p.sourcePath != path) {
+                p.sourcePath = path;
+                p.imagePath.clear();
+                p.selectedImageIndex = 1;
+                p.options.extra.remove(QStringLiteral("imageRelativePath"));
+                p.options.extra.remove(QStringLiteral("imageInventory"));
+            }
+        }
+        else if (field == QStringLiteral("imagePath")) {
+            if (p.imagePath != path
+                || p.options.extra.contains(QStringLiteral("imageRelativePath"))) {
+                p.imagePath = path;
+                p.selectedImageIndex = 1;
+                p.options.extra.remove(QStringLiteral("imageInventory"));
+                if (!path.isEmpty())
+                    p.options.extra.remove(QStringLiteral("imageRelativePath"));
+            }
+        }
         else if (field == QStringLiteral("mountPath")) p.mountPath = path;
         else if (field == QStringLiteral("outputPath")) p.outputPath = path;
         else if (field == QStringLiteral("outputFormat")) p.outputFormat = value.trimmed().toLower();
@@ -1394,7 +1770,10 @@ void AppController::setProjectField(const QString &field, const QString &value)
 
 void AppController::setProjectBool(const QString &field, bool value)
 {
-    mutateProject(QStringLiteral("config: set %1").arg(field), [field, value](ProjectConfig &p) {
+    mutateProject(bilingualCommitMessage(
+                      QStringLiteral("config: set %1").arg(field),
+                      QStringLiteral("設定：更新 %1").arg(field)),
+                  [field, value](ProjectConfig &p) {
         if (field == QStringLiteral("cloneSource")) p.cloneSource = value;
         else if (field == QStringLiteral("createIso")) p.options.createIso = value;
         else if (field == QStringLiteral("resetBase")) p.options.resetBase = value;
@@ -1404,8 +1783,14 @@ void AppController::setProjectBool(const QString &field, bool value)
 
 void AppController::setProjectNumber(const QString &field, int value)
 {
-    mutateProject(QStringLiteral("config: set %1").arg(field), [field, value](ProjectConfig &p) {
-        if (field == QStringLiteral("imageIndex")) p.selectedImageIndex = qMax(1, value);
+    const int knownImageMaximum = m_editionNames.isEmpty()
+        ? std::numeric_limits<int>::max() : m_editionNames.size();
+    mutateProject(bilingualCommitMessage(
+                      QStringLiteral("config: set %1").arg(field),
+                      QStringLiteral("設定：更新 %1").arg(field)),
+                  [field, value, knownImageMaximum](ProjectConfig &p) {
+        if (field == QStringLiteral("imageIndex"))
+            p.selectedImageIndex = qBound(1, value, knownImageMaximum);
         else if (field == QStringLiteral("parallel")) p.options.maximumParallelOperations = qBound(1, value, 16);
         else if (field == QStringLiteral("splitSizeMb")) p.options.extra.insert(QStringLiteral("splitSizeMb"), qBound(100, value, 4095));
     });
@@ -1417,6 +1802,9 @@ QStringList *AppController::listForCategory(ProjectConfig &project, const QStrin
     if (category == QStringLiteral("packages")) return &project.packages;
     if (category == QStringLiteral("updates")) return &project.updates;
     if (category == QStringLiteral("features")) return &project.featuresToEnable;
+    if (category == QStringLiteral("featureDisables")) return &project.featuresToDisable;
+    if (category == QStringLiteral("capabilityAdds")) return &project.capabilitiesToAdd;
+    if (category == QStringLiteral("capabilityRemovals")) return &project.capabilitiesToRemove;
     if (category == QStringLiteral("appRemovals")) return &project.appxPackagesToRemove;
     if (category == QStringLiteral("appProvision")) return &project.appxPackagesToProvision;
     if (category == QStringLiteral("componentRemovals")) return &project.componentsToRemove;
@@ -1427,9 +1815,32 @@ QStringList *AppController::listForCategory(ProjectConfig &project, const QStrin
 
 void AppController::addListItem(const QString &category, const QString &value)
 {
+    tryAddListItem(category, value);
+}
+
+bool AppController::tryAddListItem(const QString &category, const QString &value)
+{
     const QString item = value.trimmed();
-    if (item.isEmpty()) return;
-    mutateProject(QStringLiteral("config: add %1").arg(category), [this, category, item](ProjectConfig &p) {
+    if (item.isEmpty())
+        return false;
+    if (!m_project) {
+        showError(localized(QStringLiteral("Open a project before adding an item."),
+                            QStringLiteral("加入項目之前請先開工程。")));
+        return false;
+    }
+    QStringList *current = listForCategory(*m_project, category);
+    if (!current) {
+        showError(localized(
+            QStringLiteral("Unsupported project-list category: %1").arg(category),
+            QStringLiteral("唔支援呢個工程清單類別：%1").arg(category)));
+        return false;
+    }
+    if (current->contains(item, Qt::CaseInsensitive))
+        return true;
+    return mutateProject(bilingualCommitMessage(
+                      QStringLiteral("config: add %1 item").arg(category),
+                      QStringLiteral("設定：加入 %1 項目").arg(category)),
+                  [this, category, item](ProjectConfig &p) {
         if (QStringList *list = listForCategory(p, category); list && !list->contains(item, Qt::CaseInsensitive))
             list->append(item);
     });
@@ -1437,24 +1848,454 @@ void AppController::addListItem(const QString &category, const QString &value)
 
 void AppController::removeListItem(const QString &category, int index)
 {
-    mutateProject(QStringLiteral("config: remove %1 item").arg(category), [this, category, index](ProjectConfig &p) {
+    mutateProject(bilingualCommitMessage(
+                      QStringLiteral("config: remove %1 item").arg(category),
+                      QStringLiteral("設定：移除 %1 項目").arg(category)),
+                  [this, category, index](ProjectConfig &p) {
         if (QStringList *list = listForCategory(p, category); list && index >= 0 && index < list->size())
             list->removeAt(index);
     });
 }
 
+bool AppController::addPayloadFiles(const QString &category, const QVariantList &files)
+{
+    if (!m_project) {
+        showError(localized(QStringLiteral("Open a project before adding payloads."),
+                            QStringLiteral("加 payload 之前請先開工程。")));
+        return false;
+    }
+    const bool driversCategory = category == QStringLiteral("drivers");
+    const bool updatesCategory = category == QStringLiteral("updates");
+    if (!driversCategory && !updatesCategory) {
+        showError(localized(
+            QStringLiteral("Unsupported payload category: %1").arg(category),
+            QStringLiteral("唔支援呢個 payload 類別：%1").arg(category)));
+        return false;
+    }
+    const ServicingPayloadKind kind = driversCategory
+        ? ServicingPayloadKind::Driver : ServicingPayloadKind::Update;
+    const QStringList existing = driversCategory ? m_project->drivers : m_project->updates;
+    QStringList accepted;
+    QStringList rejected;
+    for (const QVariant &value : files) {
+        const QUrl url = value.toUrl();
+        QString path = url.isLocalFile() ? url.toLocalFile() : value.toString();
+        if (path.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive))
+            path = QUrl(path).toLocalFile();
+        path = cleanPath(path);
+        const QFileInfo info(path);
+        if (path.isEmpty() || !info.isFile()
+            || !PayloadCatalog::isSupportedFile(path, kind)) {
+            if (!path.isEmpty())
+                rejected.append(path);
+            continue;
+        }
+        path = info.absoluteFilePath();
+        if (!existing.contains(path, Qt::CaseInsensitive)
+            && !accepted.contains(path, Qt::CaseInsensitive)) {
+            accepted.append(path);
+        }
+    }
+    if (accepted.isEmpty()) {
+        const QString expected = driversCategory ? QStringLiteral("INF")
+                                                 : QStringLiteral("CAB/MSU");
+        showError(localized(
+            QStringLiteral("No new %1 files were selected. Choose existing %1 payloads.")
+                .arg(expected),
+            QStringLiteral("未揀到新嘅 %1 檔案。請揀現有嘅 %1 payload。").arg(expected)));
+        return false;
+    }
+    const bool saved = mutateProject(
+        bilingualCommitMessage(
+            QStringLiteral("%1: add %2 local payload(s)").arg(category).arg(accepted.size()),
+            QStringLiteral("%1：加入 %2 個本機 payload").arg(category).arg(accepted.size())),
+        [category, accepted, this](ProjectConfig &project) {
+            if (QStringList *list = listForCategory(project, category)) {
+                for (const QString &path : accepted) {
+                    if (!list->contains(path, Qt::CaseInsensitive))
+                        list->append(path);
+                }
+            }
+        });
+    if (!saved)
+        return false;
+    emit snackbarRequested(localized(
+        QStringLiteral("Queued %1 locally inspected payload(s)%2.")
+            .arg(accepted.size())
+            .arg(rejected.isEmpty() ? QString()
+                                    : QStringLiteral("; skipped %1 unsupported path(s)")
+                                          .arg(rejected.size())),
+        QStringLiteral("已排隊 %1 個本機 payload%2。").arg(accepted.size()).arg(
+            rejected.isEmpty() ? QString()
+                               : QStringLiteral("；略過 %1 個唔支援路徑").arg(rejected.size()))),
+        rejected.isEmpty() ? QStringLiteral("success") : QStringLiteral("warning"));
+    return true;
+}
+
+bool AppController::addPayloadDirectory(const QString &category, const QUrl &directory)
+{
+    if (!m_project) {
+        showError(localized(QStringLiteral("Open a project before adding a payload folder."),
+                            QStringLiteral("加 payload 資料夾之前請先開工程。")));
+        return false;
+    }
+    const bool driversCategory = category == QStringLiteral("drivers");
+    const bool updatesCategory = category == QStringLiteral("updates");
+    if (!driversCategory && !updatesCategory) {
+        showError(localized(
+            QStringLiteral("Unsupported payload category: %1").arg(category),
+            QStringLiteral("唔支援呢個 payload 類別：%1").arg(category)));
+        return false;
+    }
+    const QString path = cleanPath(directory.isLocalFile() ? directory.toLocalFile()
+                                                           : directory.toString());
+    const QFileInfo info(path);
+    if (!info.isDir()) {
+        showError(localized(QStringLiteral("Choose an existing payload folder."),
+                            QStringLiteral("請揀一個存在嘅 payload 資料夾。")));
+        return false;
+    }
+
+    const ServicingPayloadKind kind = driversCategory
+        ? ServicingPayloadKind::Driver : ServicingPayloadKind::Update;
+    const QStringList discovered = PayloadCatalog::discoverFiles(info.absoluteFilePath(), kind);
+    if (discovered.isEmpty()) {
+        showError(localized(
+            driversCategory
+                ? QStringLiteral("That folder contains no INF driver packages.")
+                : QStringLiteral("That folder contains no CAB or MSU update packages."),
+            driversCategory
+                ? QStringLiteral("嗰個資料夾搵唔到 INF 驅動套件。")
+                : QStringLiteral("嗰個資料夾搵唔到 CAB 或 MSU 更新套件。")));
+        return false;
+    }
+
+    QStringList accepted;
+    if (driversCategory) {
+        const QString folder = info.absoluteFilePath();
+        if (!m_project->drivers.contains(folder, Qt::CaseInsensitive))
+            accepted.append(folder);
+    } else {
+        for (const QString &file : discovered) {
+            if (!m_project->updates.contains(file, Qt::CaseInsensitive))
+                accepted.append(file);
+        }
+    }
+    if (accepted.isEmpty()) {
+        emit snackbarRequested(localized(QStringLiteral("Every discovered payload is already queued."),
+                                         QStringLiteral("搵到嘅 payload 已經全部排咗隊。")),
+                                 QStringLiteral("info"));
+        return true;
+    }
+
+    const bool saved = mutateProject(
+        bilingualCommitMessage(
+            QStringLiteral("%1: import folder (%2 discovered file(s))")
+                .arg(category).arg(discovered.size()),
+            QStringLiteral("%1：匯入資料夾（搵到 %2 個檔案）")
+                .arg(category).arg(discovered.size())),
+        [category, accepted, this](ProjectConfig &project) {
+            if (QStringList *list = listForCategory(project, category)) {
+                for (const QString &item : accepted) {
+                    if (!list->contains(item, Qt::CaseInsensitive))
+                        list->append(item);
+                }
+            }
+        });
+    if (saved) {
+        emit snackbarRequested(localized(
+            driversCategory
+                ? QStringLiteral("Queued one recursive driver source with %1 INF package(s).")
+                      .arg(discovered.size())
+                : QStringLiteral("Queued %1 CAB/MSU update package(s) from that folder.")
+                      .arg(accepted.size()),
+            driversCategory
+                ? QStringLiteral("已排隊一個驅動來源，入面有 %1 個 INF 套件。")
+                      .arg(discovered.size())
+                : QStringLiteral("已由資料夾排隊 %1 個 CAB/MSU 更新套件。")
+                      .arg(accepted.size())),
+            QStringLiteral("success"));
+    }
+    return saved;
+}
+
+void AppController::refreshPayloadCatalog()
+{
+    reloadPayloadCatalog(true);
+}
+
+void AppController::openMicrosoftUpdateCatalog(const QString &query)
+{
+    QUrl url(query.trimmed().isEmpty()
+                 ? QStringLiteral("https://www.catalog.update.microsoft.com/Home.aspx")
+                 : QStringLiteral("https://www.catalog.update.microsoft.com/Search.aspx"));
+    if (!query.trimmed().isEmpty()) {
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("q"), query.trimmed());
+        url.setQuery(parameters);
+    }
+    if (!QDesktopServices::openUrl(url)) {
+        showError(localized(QStringLiteral("Windows could not open the Microsoft Update Catalog."),
+                            QStringLiteral("Windows 開唔到 Microsoft Update Catalog。")));
+    }
+}
+
 void AppController::setFeature(const QString &name, bool enabled)
 {
-    mutateProject(QStringLiteral("feature: %1 %2").arg(enabled ? QStringLiteral("enable") : QStringLiteral("disable"), name),
-                  [name, enabled](ProjectConfig &p) {
-        p.featuresToEnable.removeAll(name); p.featuresToDisable.removeAll(name);
-        (enabled ? p.featuresToEnable : p.featuresToDisable).append(name);
-    });
+    setFeatureState(name, enabled ? 1 : -1);
+}
+
+int AppController::featureState(const QString &name) const
+{
+    if (!m_project)
+        return 0;
+    if (m_project->featuresToEnable.contains(name.trimmed(), Qt::CaseInsensitive))
+        return 1;
+    if (m_project->featuresToDisable.contains(name.trimmed(), Qt::CaseInsensitive))
+        return -1;
+    return 0;
+}
+
+bool AppController::setFeatureState(const QString &name, int state)
+{
+    const QString identity = name.trimmed();
+    if (!isSafeConfigurationIdentity(identity) || state < -1 || state > 1) {
+        showError(localized(
+            QStringLiteral("Choose a valid Windows feature identity and state."),
+            QStringLiteral("請揀有效嘅 Windows 功能 identity 同狀態。")));
+        return false;
+    }
+    if (!m_project) {
+        showError(localized(QStringLiteral("Open a project before changing features."),
+                            QStringLiteral("改功能之前請先開工程。")));
+        return false;
+    }
+    if (featureState(identity) == state)
+        return true;
+
+    const QString actionEn = state > 0 ? QStringLiteral("enable")
+        : state < 0 ? QStringLiteral("disable") : QStringLiteral("leave unchanged");
+    const QString actionZh = state > 0 ? QStringLiteral("啟用")
+        : state < 0 ? QStringLiteral("停用") : QStringLiteral("回復不變");
+    return mutateProject(
+        bilingualCommitMessage(
+            QStringLiteral("feature: %1 %2").arg(actionEn, identity),
+            QStringLiteral("功能：%1 %2").arg(actionZh, identity)),
+        [identity, state](ProjectConfig &project) {
+            removeCaseInsensitive(project.featuresToEnable, identity);
+            removeCaseInsensitive(project.featuresToDisable, identity);
+            if (state > 0)
+                project.featuresToEnable.append(identity);
+            else if (state < 0)
+                project.featuresToDisable.append(identity);
+        });
+}
+
+int AppController::capabilityState(const QString &name) const
+{
+    if (!m_project)
+        return 0;
+    if (m_project->capabilitiesToAdd.contains(name.trimmed(), Qt::CaseInsensitive))
+        return 1;
+    if (m_project->capabilitiesToRemove.contains(name.trimmed(), Qt::CaseInsensitive))
+        return -1;
+    return 0;
+}
+
+bool AppController::setCapabilityState(const QString &name, int state)
+{
+    const QString identity = name.trimmed();
+    if (!isSafeConfigurationIdentity(identity) || state < -1 || state > 1) {
+        showError(localized(
+            QStringLiteral("Choose a valid Windows capability identity and state."),
+            QStringLiteral("請揀有效嘅 Windows capability identity 同狀態。")));
+        return false;
+    }
+    if (!m_project) {
+        showError(localized(QStringLiteral("Open a project before changing capabilities."),
+                            QStringLiteral("改 capability 之前請先開工程。")));
+        return false;
+    }
+    if (capabilityState(identity) == state)
+        return true;
+
+    const QString actionEn = state > 0 ? QStringLiteral("add")
+        : state < 0 ? QStringLiteral("remove") : QStringLiteral("leave unchanged");
+    const QString actionZh = state > 0 ? QStringLiteral("加入")
+        : state < 0 ? QStringLiteral("移除") : QStringLiteral("回復不變");
+    return mutateProject(
+        bilingualCommitMessage(
+            QStringLiteral("capability: %1 %2").arg(actionEn, identity),
+            QStringLiteral("能力：%1 %2").arg(actionZh, identity)),
+        [identity, state](ProjectConfig &project) {
+            removeCaseInsensitive(project.capabilitiesToAdd, identity);
+            removeCaseInsensitive(project.capabilitiesToRemove, identity);
+            if (state > 0)
+                project.capabilitiesToAdd.append(identity);
+            else if (state < 0)
+                project.capabilitiesToRemove.append(identity);
+        });
+}
+
+bool AppController::addAppxProvisionFiles(const QVariantList &files)
+{
+    if (!m_project) {
+        showError(localized(
+            QStringLiteral("Open a project before provisioning apps."),
+            QStringLiteral("預載 App 之前請先開工程。")));
+        return false;
+    }
+
+    QStringList accepted;
+    QStringList rejected;
+    for (const QVariant &value : files) {
+        const QUrl url = value.toUrl();
+        QString path = url.isLocalFile() ? url.toLocalFile() : value.toString();
+        if (path.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive))
+            path = QUrl(path).toLocalFile();
+        const QFileInfo file(cleanPath(path));
+        if (!isAppxProvisioningPayload(file)) {
+            if (!path.trimmed().isEmpty())
+                rejected.append(path);
+            continue;
+        }
+        const QString absolute = file.absoluteFilePath();
+        if (!m_project->appxPackagesToProvision.contains(absolute, Qt::CaseInsensitive)
+            && !accepted.contains(absolute, Qt::CaseInsensitive)) {
+            accepted.append(absolute);
+        }
+    }
+
+    if (accepted.isEmpty()) {
+        showError(localized(
+            QStringLiteral("No new signed Appx/MSIX package was selected. Choose an existing .appx, .appxbundle, .msix, or .msixbundle file."),
+            QStringLiteral("未揀到新嘅已簽署 Appx/MSIX 套件。請揀現有嘅 .appx、.appxbundle、.msix 或 .msixbundle 檔案。")));
+        return false;
+    }
+
+    const bool saved = mutateProject(
+        bilingualCommitMessage(
+            QStringLiteral("appx: provision %1 signed package(s)").arg(accepted.size()),
+            QStringLiteral("Appx：預載 %1 個已簽署套件").arg(accepted.size())),
+        [accepted](ProjectConfig &project) {
+            for (const QString &path : accepted) {
+                if (!project.appxPackagesToProvision.contains(path, Qt::CaseInsensitive))
+                    project.appxPackagesToProvision.append(path);
+            }
+        });
+    if (!saved)
+        return false;
+
+    emit snackbarRequested(localized(
+        QStringLiteral("Queued %1 signed Appx/MSIX package(s)%2. DISM verifies package signatures during servicing.")
+            .arg(accepted.size())
+            .arg(rejected.isEmpty() ? QString()
+                                    : QStringLiteral("; skipped %1 unsupported file(s)")
+                                          .arg(rejected.size())),
+        QStringLiteral("已排隊 %1 個已簽署 Appx/MSIX 套件%2。DISM 會喺維護期間驗證套件簽署。")
+            .arg(accepted.size())
+            .arg(rejected.isEmpty() ? QString()
+                                    : QStringLiteral("；略過 %1 個唔支援嘅檔案")
+                                          .arg(rejected.size()))),
+        rejected.isEmpty() ? QStringLiteral("success") : QStringLiteral("warning"));
+    return true;
+}
+
+bool AppController::setScheduledTaskChange(const QString &taskPath,
+                                           const QString &disposition,
+                                           bool compatibilityOverride)
+{
+    if (!m_project) {
+        showError(localized(
+            QStringLiteral("Open a project before changing scheduled tasks."),
+            QStringLiteral("改排程工作之前請先開工程。")));
+        return false;
+    }
+    const QString path = normalizedTaskPath(taskPath);
+    if (!isSafeScheduledTaskPath(path)) {
+        showError(localized(
+            QStringLiteral("Use a safe task path relative to Windows\\System32\\Tasks; absolute paths and parent traversal are blocked."),
+            QStringLiteral("請用相對於 Windows\\System32\\Tasks 嘅安全工作路徑；唔准絕對路徑同返去上層。")));
+        return false;
+    }
+
+    const QString normalizedDisposition = disposition.trimmed().toLower();
+    ScheduledTaskDisposition parsedDisposition;
+    if (normalizedDisposition == QStringLiteral("enable")) {
+        parsedDisposition = ScheduledTaskDisposition::Enable;
+    } else if (normalizedDisposition == QStringLiteral("disable")) {
+        parsedDisposition = ScheduledTaskDisposition::Disable;
+    } else if (normalizedDisposition == QStringLiteral("remove")
+               || normalizedDisposition == QStringLiteral("delete")) {
+        parsedDisposition = ScheduledTaskDisposition::Remove;
+    } else {
+        showError(localized(
+            QStringLiteral("Scheduled-task action must be Enable, Disable, or Delete."),
+            QStringLiteral("排程工作動作一定要係啟用、停用或者刪除。")));
+        return false;
+    }
+    if (parsedDisposition == ScheduledTaskDisposition::Remove
+        && !compatibilityOverride) {
+        showError(localized(
+            QStringLiteral("Deleting an offline scheduled task requires the explicit compatibility override."),
+            QStringLiteral("刪除離線排程工作之前，一定要明確確認相容性解鎖。")));
+        return false;
+    }
+
+    const QString actionEn = parsedDisposition == ScheduledTaskDisposition::Enable
+        ? QStringLiteral("enable")
+        : parsedDisposition == ScheduledTaskDisposition::Disable
+            ? QStringLiteral("disable") : QStringLiteral("delete");
+    const QString actionZh = parsedDisposition == ScheduledTaskDisposition::Enable
+        ? QStringLiteral("啟用")
+        : parsedDisposition == ScheduledTaskDisposition::Disable
+            ? QStringLiteral("停用") : QStringLiteral("刪除");
+    return mutateProject(
+        bilingualCommitMessage(
+            QStringLiteral("scheduled task: %1 %2").arg(actionEn, path),
+            QStringLiteral("排程工作：%1 %2").arg(actionZh, path)),
+        [path, parsedDisposition, compatibilityOverride](ProjectConfig &project) {
+            auto found = std::find_if(project.scheduledTaskChanges.begin(),
+                                      project.scheduledTaskChanges.end(),
+                                      [&path](const ScheduledTaskChange &change) {
+                return change.taskPath.compare(path, Qt::CaseInsensitive) == 0;
+            });
+            const ScheduledTaskChange replacement{
+                path, parsedDisposition,
+                parsedDisposition == ScheduledTaskDisposition::Remove
+                    && compatibilityOverride,
+            };
+            if (found == project.scheduledTaskChanges.end())
+                project.scheduledTaskChanges.append(replacement);
+            else
+                *found = replacement;
+        });
+}
+
+bool AppController::removeScheduledTaskChange(int index)
+{
+    if (!m_project || index < 0 || index >= m_project->scheduledTaskChanges.size()) {
+        showError(localized(
+            QStringLiteral("Choose a queued scheduled-task change to remove."),
+            QStringLiteral("請揀一項已排隊嘅排程工作變更嚟移除。")));
+        return false;
+    }
+    const QString path = m_project->scheduledTaskChanges.at(index).taskPath;
+    return mutateProject(
+        bilingualCommitMessage(
+            QStringLiteral("scheduled task: clear queued change for %1").arg(path),
+            QStringLiteral("排程工作：清除 %1 嘅排隊變更").arg(path)),
+        [index](ProjectConfig &project) {
+            if (index >= 0 && index < project.scheduledTaskChanges.size())
+                project.scheduledTaskChanges.removeAt(index);
+        });
 }
 
 void AppController::setSetting(const QString &name, bool enabled)
 {
-    mutateProject(QStringLiteral("setting: %1 %2").arg(enabled ? QStringLiteral("enable") : QStringLiteral("disable"), name),
+    mutateProject(bilingualCommitMessage(
+                      QStringLiteral("setting: %1 %2").arg(enabled ? QStringLiteral("enable") : QStringLiteral("disable"), name),
+                      QStringLiteral("設定：%1 %2").arg(enabled ? QStringLiteral("啟用") : QStringLiteral("停用"), name)),
                   [name, enabled](ProjectConfig &p) { p.settings.insert(name, enabled); });
 }
 
@@ -1465,58 +2306,151 @@ bool AppController::settingEnabled(const QString &name) const
 
 void AppController::inspectSource()
 {
-    if (!m_project || m_project->sourcePath.isEmpty()) { showError(QStringLiteral("Choose a source first.")); return; }
-    QFileInfo source(m_project->sourcePath);
-    if (!source.exists()) { showError(QStringLiteral("Source does not exist: %1").arg(source.filePath())); return; }
-
-    QString image = m_project->imagePath;
-    if (source.isFile() && QStringList{QStringLiteral("wim"), QStringLiteral("esd"), QStringLiteral("swm")}
-            .contains(source.suffix().toLower()))
-        image = source.absoluteFilePath();
-    else if (source.isDir()) {
-        const QString wim = QDir(source.filePath()).filePath(QStringLiteral("sources/install.wim"));
-        const QString esd = QDir(source.filePath()).filePath(QStringLiteral("sources/install.esd"));
-        if (QFileInfo::exists(wim)) image = wim;
-        else if (QFileInfo::exists(esd)) image = esd;
-    }
-    if (image.isEmpty()) {
-        showError(localized(QStringLiteral("For ISO sources, extract or mount the ISO and set its sources\\install.wim path. Automatic ISO workspace extraction is available from the plan after an image is selected."),
-                            QStringLiteral("ISO 來源請先解壓或者掛載，再揀 sources\\install.wim。揀好映像之後，計劃可以自動整工作副本。")));
+    if (!m_project) {
+        showError(localized(QStringLiteral("Create or open a project before choosing a source."),
+                            QStringLiteral("請先建立或者開啟工程，先至揀來源。")));
         return;
     }
-    if (image != m_project->imagePath)
-        mutateProject(QStringLiteral("source: detect image container"), [image](ProjectConfig &p) { p.imagePath = image; });
+    if (m_inspecting) {
+        showError(localized(QStringLiteral("Source inspection is already running."),
+                            QStringLiteral("來源點貨已經進行緊。")));
+        return;
+    }
+
+    const QString sourceAtLaunch = m_project->sourcePath;
+    const ImageInspectionCommand command = ImageSourceInspector::commandFor(
+        sourceAtLaunch, m_project->imagePath);
+    if (!command.error.isEmpty()) {
+        showError(command.error);
+        return;
+    }
 
     m_inspecting = true;
-    m_statusText = QStringLiteral("Inspecting image editions");
+    m_statusText = command.isoSource
+        ? localized(QStringLiteral("Mounting the ISO read-only and inspecting editions"),
+                    QStringLiteral("以唯讀方式掛載 ISO，再檢查版本"))
+        : localized(QStringLiteral("Inspecting image editions"),
+                    QStringLiteral("檢查映像版本"));
     emit stateChanged();
     auto *process = new QProcess(this);
-    process->setProgram(QStringLiteral("dism.exe"));
-    process->setArguments({QStringLiteral("/English"), QStringLiteral("/Get-WimInfo"),
-                           QStringLiteral("/WimFile:%1").arg(image)});
+    process->setProgram(resolveExecutableForLaunch(command.program));
+    process->setArguments(command.arguments);
+    process->setProcessEnvironment(command.environment);
     process->setProcessChannelMode(QProcess::MergedChannels);
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("process.source_inspection"),
+        QStringLiteral("process.launch_requested"),
+        QStringLiteral("Starting Windows image-source inspection."),
+        QJsonObject{{QStringLiteral("argumentCount"), command.arguments.size()},
+                    {QStringLiteral("isoSource"), command.isoSource}});
     connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
-            [this, process, image](int exitCode, QProcess::ExitStatus status) {
-        const QString output = QString::fromLocal8Bit(process->readAll());
+            [this, process, command, sourceAtLaunch](int exitCode, QProcess::ExitStatus status) {
+        const QByteArray rawOutput = process->readAll();
+        const ImageInspectionResult result = ImageSourceInspector::parseOutput(
+            rawOutput, command.isoSource, command.utf8Output);
+        StructuredLogger::instance().log(
+            status == QProcess::NormalExit && exitCode == 0
+                ? LogSeverity::Info : LogSeverity::Error,
+            QStringLiteral("process.source_inspection"),
+            QStringLiteral("process.finished"),
+            QStringLiteral("Windows image-source inspection finished."),
+            QJsonObject{{QStringLiteral("argumentCount"), command.arguments.size()},
+                        {QStringLiteral("exitCode"), exitCode},
+                        {QStringLiteral("normalExit"), status == QProcess::NormalExit},
+                        {QStringLiteral("isoSource"), command.isoSource},
+                        {QStringLiteral("outputBytes"), rawOutput.size()}});
         process->deleteLater(); m_inspecting = false;
         if (status != QProcess::NormalExit || exitCode != 0) {
-            m_statusText = QStringLiteral("Image inspection failed"); showError(output.trimmed()); emit stateChanged(); return;
+            m_statusText = localized(QStringLiteral("Image inspection failed"),
+                                     QStringLiteral("映像檢查失敗"));
+            showError(result.output.trimmed().isEmpty()
+                          ? localized(QStringLiteral("Windows could not inspect the selected source."),
+                                      QStringLiteral("Windows 檢查唔到揀咗嘅來源。"))
+                          : result.output.trimmed());
+            emit stateChanged();
+            return;
         }
-        QStringList editions;
-        QRegularExpression block(QStringLiteral("Index\\s*:\\s*(\\d+)[\\s\\S]*?Name\\s*:\\s*([^\\r\\n]+)"), QRegularExpression::CaseInsensitiveOption);
-        auto match = block.globalMatch(output);
-        while (match.hasNext()) {
-            const auto item = match.next();
-            editions.append(QStringLiteral("Index %1 — %2").arg(item.captured(1), item.captured(2).trimmed()));
+        if (!m_project || cleanPath(m_project->sourcePath) != cleanPath(sourceAtLaunch)) {
+            m_statusText = localized(QStringLiteral("Source changed; inspection result was ignored"),
+                                     QStringLiteral("來源已經改咗；今次結果唔採用"));
+            emit stateChanged();
+            return;
         }
-        if (!editions.isEmpty()) m_editionNames = editions;
-        m_imageSummary = QStringLiteral("%1 edition(s) · %2").arg(m_editionNames.size()).arg(image);
-        m_statusText = QStringLiteral("Image inventory ready");
-        notify(QStringLiteral("Image inventory ready"), m_imageSummary, QStringLiteral("success"));
+        if (result.editions.isEmpty()
+            || (command.isoSource && result.relativeImagePath.isEmpty())) {
+            m_statusText = localized(QStringLiteral("Image inspection returned incomplete metadata"),
+                                     QStringLiteral("映像檢查資料唔完整"));
+            showError(localized(
+                QStringLiteral("DISM completed, but WimForge could not read an image path and edition list from its output."),
+                QStringLiteral("DISM 完成咗，但 WimForge 讀唔到映像路徑同版本清單。")));
+            emit stateChanged();
+            return;
+        }
+
+        const QString relativeImage = result.relativeImagePath;
+        const QString imageDescription = command.isoSource
+            ? QStringLiteral("%1 inside %2")
+                  .arg(relativeImage, QFileInfo(sourceAtLaunch).fileName())
+            : command.imagePath;
+        const QString summaryEn = QStringLiteral("%1 edition(s) · %2")
+                                      .arg(result.editions.size())
+                                      .arg(imageDescription);
+        const QString summaryZh = QStringLiteral("%1 個版本 · %2")
+                                      .arg(result.editions.size())
+                                      .arg(imageDescription);
+        const QJsonObject inventory{
+            {QStringLiteral("editions"), QJsonArray::fromStringList(result.editions)},
+            {QStringLiteral("summaryEn"), summaryEn},
+            {QStringLiteral("summaryZh"), summaryZh},
+        };
+        const int editionCount = static_cast<int>(result.editions.size());
+        const bool saved = mutateProject(
+            bilingualCommitMessage(
+                command.isoSource
+                    ? QStringLiteral("source: inspect image inventory inside ISO")
+                    : QStringLiteral("source: inspect image-container inventory"),
+                command.isoSource
+                    ? QStringLiteral("來源：檢查 ISO 入面嘅映像版本清單")
+                    : QStringLiteral("來源：檢查映像容器版本清單")),
+            [command, relativeImage, inventory, editionCount](ProjectConfig &project) {
+                if (command.isoSource) {
+                    project.imagePath.clear();
+                    project.options.extra.insert(QStringLiteral("imageRelativePath"),
+                                                 relativeImage);
+                } else {
+                    project.imagePath = command.imagePath;
+                    project.options.extra.remove(QStringLiteral("imageRelativePath"));
+                }
+                project.options.extra.insert(QStringLiteral("imageInventory"), inventory);
+                project.selectedImageIndex = qBound(1, project.selectedImageIndex,
+                                                    editionCount);
+            });
+        if (!saved)
+            return;
+
+        m_statusText = localized(QStringLiteral("Image inventory ready"),
+                                 QStringLiteral("映像點貨完成"));
+        notify(localized(QStringLiteral("Image inventory ready"),
+                         QStringLiteral("映像點貨完成")),
+               imageSummary(), QStringLiteral("success"));
         emit stateChanged();
     });
-    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
-        if (error == QProcess::FailedToStart) { m_inspecting = false; showError(process->errorString()); process->deleteLater(); emit stateChanged(); }
+    connect(process, &QProcess::errorOccurred, this, [this, process, command](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            m_inspecting = false;
+            StructuredLogger::instance().log(
+                LogSeverity::Error, QStringLiteral("process.source_inspection"),
+                QStringLiteral("process.failed_to_start"),
+                QStringLiteral("Windows image-source inspection could not start."),
+                QJsonObject{{QStringLiteral("argumentCount"), command.arguments.size()},
+                            {QStringLiteral("processError"), static_cast<int>(error)},
+                            {QStringLiteral("isoSource"), command.isoSource}});
+            showError(localized(
+                QStringLiteral("Could not start %1: %2").arg(command.program, process->errorString()),
+                QStringLiteral("開唔到 %1：%2").arg(command.program, process->errorString())));
+            process->deleteLater();
+            emit stateChanged();
+        }
     });
     configureProcessWithoutConsole(*process);
     process->start();
@@ -1524,22 +2458,65 @@ void AppController::inspectSource()
 
 void AppController::importHostDrivers()
 {
-    if (!m_project) { showError(QStringLiteral("Open a project first.")); return; }
+    if (!m_project) {
+        showError(localized(QStringLiteral("Open a project first."),
+                            QStringLiteral("請先開工程。")));
+        return;
+    }
     const QString destination = QDir(m_project->projectDirectory).filePath(QStringLiteral("payloads/host-drivers"));
     QDir().mkpath(destination);
     auto *process = new QProcess(this);
-    process->setProgram(QStringLiteral("dism.exe"));
+    process->setProgram(resolveExecutableForLaunch(QStringLiteral("dism.exe")));
     process->setArguments({QStringLiteral("/Online"), QStringLiteral("/Export-Driver"),
                            QStringLiteral("/Destination:%1").arg(destination)});
     process->setProcessChannelMode(QProcess::MergedChannels);
-    m_inspecting = true; m_statusText = QStringLiteral("Exporting host drivers"); emit stateChanged();
+    m_inspecting = true;
+    m_statusText = localized(QStringLiteral("Exporting host drivers"),
+                             QStringLiteral("匯出主機驅動程式中"));
+    emit stateChanged();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("process.host_driver_export"),
+        QStringLiteral("process.launch_requested"),
+        QStringLiteral("Starting host-driver export."),
+        QJsonObject{{QStringLiteral("argumentCount"), process->arguments().size()}});
     connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this, process, destination](int code, QProcess::ExitStatus status) {
         const QString output = QString::fromLocal8Bit(process->readAll()); process->deleteLater(); m_inspecting = false;
+        StructuredLogger::instance().log(
+            status == QProcess::NormalExit && code == 0
+                ? LogSeverity::Info : LogSeverity::Error,
+            QStringLiteral("process.host_driver_export"),
+            QStringLiteral("process.finished"),
+            QStringLiteral("Host-driver export finished."),
+            QJsonObject{{QStringLiteral("argumentCount"), process->arguments().size()},
+                        {QStringLiteral("exitCode"), code},
+                        {QStringLiteral("normalExit"), status == QProcess::NormalExit},
+                        {QStringLiteral("outputBytes"), output.toUtf8().size()}});
         if (status == QProcess::NormalExit && code == 0) {
             addListItem(QStringLiteral("drivers"), destination);
-            notify(QStringLiteral("Host drivers exported"), destination, QStringLiteral("success"));
+            notify(localized(QStringLiteral("Host drivers exported"),
+                             QStringLiteral("主機驅動程式已匯出")),
+                   localized(QStringLiteral("Exported to %1").arg(destination),
+                             QStringLiteral("已匯出到 %1").arg(destination)),
+                   QStringLiteral("success"));
         } else showError(output.trimmed());
+        emit stateChanged();
+    });
+    connect(process, &QProcess::errorOccurred, this,
+            [this, process, destination](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        m_inspecting = false;
+        StructuredLogger::instance().log(
+            LogSeverity::Error, QStringLiteral("process.host_driver_export"),
+            QStringLiteral("process.failed_to_start"),
+            QStringLiteral("Host-driver export could not start."),
+            QJsonObject{{QStringLiteral("argumentCount"), process->arguments().size()},
+                        {QStringLiteral("processError"), static_cast<int>(error)}});
+        showError(localized(
+            QStringLiteral("Could not start host-driver export: %1").arg(process->errorString()),
+            QStringLiteral("開唔到主機驅動匯出：%1").arg(process->errorString())));
+        process->deleteLater();
         emit stateChanged();
     });
     configureProcessWithoutConsole(*process);
@@ -1607,7 +2584,9 @@ void AppController::moveOperation(int index, int offset)
     QJsonArray order;
     for (const ServicingOperation &operation : std::as_const(m_plan))
         order.append(operation.id);
-    mutateProject(QStringLiteral("plan: reorder operation"), [order](ProjectConfig &project) {
+    mutateProject(bilingualCommitMessage(
+        QStringLiteral("plan: reorder operation"),
+        QStringLiteral("計劃：重新排列工序")), [order](ProjectConfig &project) {
         project.options.extra.insert(QStringLiteral("planOrder"), order);
     });
 }
@@ -1624,8 +2603,11 @@ void AppController::skipOperation(int index)
     }
     const QString id = m_plan.at(index).id;
     const bool willSkip = m_plan.at(index).state != OperationState::Skipped;
-    mutateProject(QStringLiteral("plan: %1 %2")
-        .arg(willSkip ? QStringLiteral("skip") : QStringLiteral("restore"), id),
+    mutateProject(bilingualCommitMessage(
+        QStringLiteral("plan: %1 %2")
+            .arg(willSkip ? QStringLiteral("skip") : QStringLiteral("restore"), id),
+        QStringLiteral("計劃：%1 %2")
+            .arg(willSkip ? QStringLiteral("略過") : QStringLiteral("恢復"), id)),
         [id, willSkip](ProjectConfig &project) {
             QJsonArray existing = project.options.extra.value(QStringLiteral("planSkipped")).toArray();
             QJsonArray updated;
@@ -1874,14 +2856,17 @@ bool AppController::restoreHistoryEvent(const QString &eventId)
     if (restoredState.isEmpty())
         restoredState = selected->forwardDiff;
     const auto restored = ProjectConfig::fromJson(restoredState, directory, &error);
-    if (!restored || !restored->save(&error, QStringLiteral("history: restore event #%1")
-                                                   .arg(selected->sequence))) {
+    if (!restored || !restored->save(&error, bilingualCommitMessage(
+            QStringLiteral("history: restore event #%1").arg(selected->sequence),
+            QStringLiteral("歷史：還原事件 #%1").arg(selected->sequence)))) {
         showError(error);
         return false;
     }
     m_project = *restored;
     ActionDraft draft;
-    draft.title = QStringLiteral("Restore history event #%1").arg(selected->sequence);
+    draft.title = bilingualCommitMessage(
+        QStringLiteral("Restore history event #%1").arg(selected->sequence),
+        QStringLiteral("還原歷程事件 #%1").arg(selected->sequence));
     draft.description = selected->title;
     draft.icon = QStringLiteral("restore");
     draft.contextKey = selected->contextKey;
@@ -2013,7 +2998,7 @@ void AppController::safeUnmountRecovery()
 
     const QString journalPath = JobEngine::journalPathForProject(m_project->projectDirectory);
     auto *process = new QProcess(this);
-    process->setProgram(QStringLiteral("dism.exe"));
+    process->setProgram(resolveExecutableForLaunch(QStringLiteral("dism.exe")));
     process->setArguments({QStringLiteral("/English"), QStringLiteral("/Unmount-Image"),
                            QStringLiteral("/MountDir:%1").arg(mountPath), QStringLiteral("/Discard")});
     process->setProcessChannelMode(QProcess::MergedChannels);
@@ -2184,7 +3169,7 @@ void AppController::search(const QString &query)
             QString::fromUtf8(feature.titleEn), QString::fromUtf8(feature.titleZh),
             enabled ? QStringLiteral("Enabled in the current project")
                     : QStringLiteral("Available Windows feature"),
-            enabled ? QStringLiteral("目前工程已啟用") : QStringLiteral("可用 Windows 功能"),
+            enabled ? QStringLiteral("而家工程已啟用") : QStringLiteral("可用 Windows 功能"),
             QString::fromLatin1(feature.keywords).split(QLatin1Char(' ')), feature.page,
             {}, QJsonObject{{QStringLiteral("featureId"), id}});
     }
@@ -2512,7 +3497,9 @@ bool AppController::applyGpoPolicy(const QString &qualifiedId,
         return false;
     }
     const bool saved = mutateProject(
-        QStringLiteral("gpo: %1 %2").arg(state, policy.displayName),
+        bilingualCommitMessage(
+            QStringLiteral("gpo: %1 %2").arg(state, policy.displayName),
+            QStringLiteral("群組原則：%1 %2").arg(state, policy.displayName)),
         [compilation](ProjectConfig &project) {
             mergeGpoPolicyCompilation(project, compilation);
         });
@@ -2581,7 +3568,9 @@ bool AppController::persistPackageProfile(const QString &message)
 void AppController::loadAiDevelopmentPackageTemplate()
 {
     m_packageProfile = PackageStudio::fullAiDevelopmentTemplate();
-    if (persistPackageProfile(QStringLiteral("packages: select Full AI Development ISO template"))) {
+    if (persistPackageProfile(bilingualCommitMessage(
+            QStringLiteral("packages: select Full AI Development ISO template"),
+            QStringLiteral("套件：選擇完整 AI 開發 ISO 範本")))) {
         notify(QStringLiteral("AI development template selected"),
                QStringLiteral("Codex, Claude Code, Claude Desktop, OpenCode, Node/npm, Python, CMake, Java, Git, VS Build Tools, VS Code and Docker are in the reproducible profile. Desktop payloads without an official package ID stay visibly optional."),
                QStringLiteral("success"));
@@ -2620,8 +3609,11 @@ void AppController::setPackageEnabled(const QString &id, bool enabled)
         for (PackageEntry &package : m_packageProfile.packages)
             if (wanted.contains(package.id)) package.enabled = true;
     }
-    persistPackageProfile(QStringLiteral("packages: %1 %2")
-        .arg(enabled ? QStringLiteral("select") : QStringLiteral("remove"), id));
+    persistPackageProfile(bilingualCommitMessage(
+        QStringLiteral("packages: %1 %2")
+            .arg(enabled ? QStringLiteral("select") : QStringLiteral("remove"), id),
+        QStringLiteral("套件：%1 %2")
+            .arg(enabled ? QStringLiteral("選擇") : QStringLiteral("移除"), id)));
     emit studioChanged();
 }
 
@@ -2634,7 +3626,9 @@ bool AppController::importPackageProfile(const QString &sourceFile)
         return false;
     }
     m_packageProfile = *profile;
-    const bool saved = persistPackageProfile(QStringLiteral("packages: import profile"));
+    const bool saved = persistPackageProfile(bilingualCommitMessage(
+        QStringLiteral("packages: import profile"),
+        QStringLiteral("套件：匯入設定檔")));
     emit studioChanged();
     return saved;
 }
@@ -2670,7 +3664,9 @@ bool AppController::stagePackageProfile()
     const QJsonObject stagingManifest = PackageStudio::generateIsoStagingManifest(
         m_packageProfile, &error);
     const QList<PackageStagedFile> stagedFiles = bundle->files;
-    const bool saved = mutateProject(QStringLiteral("packages: stage profile into image"),
+    const bool saved = mutateProject(bilingualCommitMessage(
+        QStringLiteral("packages: stage profile into image"),
+        QStringLiteral("套件：將設定檔加入映像")),
         [profileJson, stagingManifest, stagedFiles](ProjectConfig &project) {
             project.settings.insert(QStringLiteral("_packageProfile"), profileJson);
             project.settings.insert(QStringLiteral("_packageStagingManifest"), stagingManifest);
@@ -2768,7 +3764,9 @@ void AppController::loadUnattendedTemplate(const QString &templateId)
 {
     m_unattendProfile = templateId.compare(QStringLiteral("ai-development"), Qt::CaseInsensitive) == 0
         ? UnattendBuilder::aiDevelopmentTemplate() : UnattendBuilder::fullAutomationTemplate();
-    persistUnattendedProfile(QStringLiteral("unattended: select %1 template").arg(templateId));
+    persistUnattendedProfile(bilingualCommitMessage(
+        QStringLiteral("unattended: select %1 template").arg(templateId),
+        QStringLiteral("無人值守：選擇 %1 範本").arg(templateId)));
     emit studioChanged();
 }
 
@@ -2781,7 +3779,9 @@ void AppController::setComputerNameBehavior(int mode, const QString &value)
     else
         m_unattendProfile.computerName = value.trimmed();
     m_unattendProfile.applyComputerNameBehavior();
-    persistUnattendedProfile(QStringLiteral("unattended: change computer-name behavior"));
+    persistUnattendedProfile(bilingualCommitMessage(
+        QStringLiteral("unattended: change computer-name behavior"),
+        QStringLiteral("無人值守：更改電腦名稱行為")));
     emit studioChanged();
 }
 
@@ -2797,8 +3797,11 @@ void AppController::setUnattendedValue(const QString &pass,
     }
     m_unattendProfile.setValue(*parsedPass, component.trimmed(),
                                path.split(QLatin1Char('/'), Qt::SkipEmptyParts), value);
-    persistUnattendedProfile(QStringLiteral("unattended: set %1/%2/%3")
-        .arg(pass, component.trimmed(), path.trimmed()));
+    persistUnattendedProfile(bilingualCommitMessage(
+        QStringLiteral("unattended: set %1/%2/%3")
+            .arg(pass, component.trimmed(), path.trimmed()),
+        QStringLiteral("無人值守：設定 %1/%2/%3")
+            .arg(pass, component.trimmed(), path.trimmed())));
     emit studioChanged();
 }
 
@@ -2813,7 +3816,9 @@ bool AppController::importUnattended(const QString &sourceFile)
         return false;
     }
     m_unattendProfile = *profile;
-    const bool saved = persistUnattendedProfile(QStringLiteral("unattended: import answer file"));
+    const bool saved = persistUnattendedProfile(bilingualCommitMessage(
+        QStringLiteral("unattended: import answer file"),
+        QStringLiteral("無人值守：匯入答案檔")));
     emit studioChanged();
     return saved;
 }
@@ -2837,7 +3842,14 @@ void AppController::runOpenCode(const QString &prompt,
                                 const std::function<void(const QString &)> &completed)
 {
     if (prompt.trimmed().isEmpty()) {
-        showError(QStringLiteral("OpenCode needs a non-empty request."));
+        showError(localized(QStringLiteral("OpenCode needs a non-empty request."),
+                            QStringLiteral("OpenCode 需要一段唔可以留空嘅要求。")));
+        return;
+    }
+    if (!m_openCodeSetup || !m_openCodeSetup->ready()) {
+        showError(localized(
+            QStringLiteral("OpenCode host integration is not ready. Open Package Studio and select Verify / install now before using an assisted action."),
+            QStringLiteral("OpenCode host 整合未準備好。請先去 Package Studio 撳 Verify / install now，之後先用輔助動作。")));
         return;
     }
     m_openCodeRequests.enqueue({prompt, completed});
@@ -2846,44 +3858,43 @@ void AppController::runOpenCode(const QString &prompt,
 
 void AppController::processNextOpenCodeRequest()
 {
-    if (m_openCodeRequestBusy || m_openCodeReadinessPending || m_openCodeRequests.isEmpty())
+    if (m_openCodeRequestBusy || m_openCodeRequests.isEmpty())
         return;
-
-    m_openCodeReadinessPending = true;
-    m_openCodeSetup->ensureReady([this](bool ready, const QString &) {
-        m_openCodeReadinessPending = false;
-        if (!ready) {
-            m_openCodeRequests.clear();
-            emit studioChanged();
-            return;
-        }
-        if (m_openCodeRequestBusy || m_openCodeRequests.isEmpty())
-            return;
-
-        OpenCodeRequest request = m_openCodeRequests.dequeue();
-        const QString executable = m_openCodeSetup->executablePath();
-        if (executable.isEmpty()) {
-            m_openCodeRequestStatus = QStringLiteral(
-                "OpenCode was verified but its executable is no longer available.");
-            showError(m_openCodeRequestStatus);
-            m_openCodeRequests.clear();
-            emit studioChanged();
-            return;
-        }
-
-        auto *process = new QProcess(this);
-        m_openCodeProcess = process;
-        m_openCodeRequestBusy = true;
-        m_openCodeRequestTimedOut = false;
-        m_openCodeRequestStatus = localized(QStringLiteral("OpenCode is reasoning locally…"),
-                                            QStringLiteral("OpenCode 喺本機諗緊…"));
-        process->setProgram(executable);
-        process->setArguments({QStringLiteral("run"), request.prompt,
-                               QStringLiteral("--format"), QStringLiteral("json")});
-        process->setProcessChannelMode(QProcess::MergedChannels);
+    if (!m_openCodeSetup || !m_openCodeSetup->ready()) {
+        m_openCodeRequests.clear();
+        m_openCodeRequestStatus = localized(
+            QStringLiteral("OpenCode host integration lost readiness. Select Verify / install now again before retrying."),
+            QStringLiteral("OpenCode host 整合已經唔再 ready。請再撳 Verify / install now，之後先重試。"));
+        showError(m_openCodeRequestStatus);
         emit studioChanged();
+        return;
+    }
 
-        QTimer::singleShot(300'000, process, [this, process] {
+    OpenCodeRequest request = m_openCodeRequests.dequeue();
+    const QString executable = m_openCodeSetup->executablePath();
+    if (executable.isEmpty()) {
+        m_openCodeRequestStatus = localized(
+            QStringLiteral("OpenCode was verified but its executable is no longer available."),
+            QStringLiteral("OpenCode 本來已驗證，但而家搵唔到佢個執行檔。"));
+        showError(m_openCodeRequestStatus);
+        m_openCodeRequests.clear();
+        emit studioChanged();
+        return;
+    }
+
+    auto *process = new QProcess(this);
+    m_openCodeProcess = process;
+    m_openCodeRequestBusy = true;
+    m_openCodeRequestTimedOut = false;
+    m_openCodeRequestStatus = localized(QStringLiteral("OpenCode is reasoning locally…"),
+                                        QStringLiteral("OpenCode 喺本機諗緊…"));
+    process->setProgram(resolveExecutableForLaunch(executable));
+    process->setArguments({QStringLiteral("run"), request.prompt,
+                           QStringLiteral("--format"), QStringLiteral("json")});
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    emit studioChanged();
+
+    QTimer::singleShot(300'000, process, [this, process] {
             if (process != m_openCodeProcess || process->state() == QProcess::NotRunning)
                 return;
             m_openCodeRequestTimedOut = true;
@@ -2894,8 +3905,8 @@ void AppController::processNextOpenCodeRequest()
                     process->kill();
                 }
             });
-        });
-        connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+    });
+    connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this, process, request = std::move(request)](
                 int code, QProcess::ExitStatus status) mutable {
                 if (process->property("wimforgeHandled").toBool())
@@ -2909,19 +3920,26 @@ void AppController::processNextOpenCodeRequest()
                 process->deleteLater();
                 if (timedOut || status != QProcess::NormalExit || code != 0) {
                     m_openCodeRequestStatus = timedOut
-                        ? QStringLiteral("OpenCode request timed out after five minutes.")
-                        : QStringLiteral("OpenCode request failed: %1")
-                              .arg(QString::fromUtf8(output).trimmed());
+                        ? localized(
+                              QStringLiteral("OpenCode request timed out after five minutes."),
+                              QStringLiteral("OpenCode 要求等咗五分鐘都未完成，已經逾時。"))
+                        : localized(
+                              QStringLiteral("OpenCode request failed: %1")
+                                  .arg(QString::fromUtf8(output).trimmed()),
+                              QStringLiteral("OpenCode 要求失敗：%1")
+                                  .arg(QString::fromUtf8(output).trimmed()));
                     showError(m_openCodeRequestStatus);
                 } else {
-                    m_openCodeRequestStatus = QStringLiteral("OpenCode completed the request.");
+                    m_openCodeRequestStatus = localized(
+                        QStringLiteral("OpenCode completed the request."),
+                        QStringLiteral("OpenCode 已經完成要求。"));
                     if (request.completed)
                         request.completed(openCodeText(output));
                 }
                 emit studioChanged();
                 processNextOpenCodeRequest();
-            });
-        connect(process, &QProcess::errorOccurred, this,
+        });
+    connect(process, &QProcess::errorOccurred, this,
             [this, process](QProcess::ProcessError error) {
                 if (error != QProcess::FailedToStart
                     || process->property("wimforgeHandled").toBool()) {
@@ -2931,16 +3949,18 @@ void AppController::processNextOpenCodeRequest()
                 m_openCodeProcess = nullptr;
                 m_openCodeRequestBusy = false;
                 m_openCodeRequestTimedOut = false;
-                m_openCodeRequestStatus = QStringLiteral("OpenCode request could not start: %1")
-                                              .arg(process->errorString());
+                m_openCodeRequestStatus = localized(
+                    QStringLiteral("OpenCode request could not start: %1")
+                        .arg(process->errorString()),
+                    QStringLiteral("OpenCode 要求開始唔到：%1")
+                        .arg(process->errorString()));
                 process->deleteLater();
                 showError(m_openCodeRequestStatus);
                 emit studioChanged();
                 processNextOpenCodeRequest();
-            });
-        configureProcessWithoutConsole(*process);
-        process->start();
-    });
+        });
+    configureProcessWithoutConsole(*process);
+    process->start();
 }
 
 void AppController::askOpenCodeToFillUnattended(const QString &intent)
@@ -2960,20 +3980,29 @@ void AppController::askOpenCodeToFillUnattended(const QString &intent)
             QJsonParseError parseError;
             const QJsonDocument document = QJsonDocument::fromJson(unfenceJson(answer), &parseError);
             if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-                showError(QStringLiteral("OpenCode returned invalid unattended JSON: %1")
-                    .arg(parseError.errorString()));
+                showError(localized(
+                    QStringLiteral("OpenCode returned invalid unattended JSON: %1")
+                        .arg(parseError.errorString()),
+                    QStringLiteral("OpenCode 傳返嚟嘅無人值守 JSON 無效：%1")
+                        .arg(parseError.errorString())));
                 return;
             }
             QString error;
             const auto profile = UnattendProfile::fromJson(document.object(), &error);
             if (!profile) {
-                showError(QStringLiteral("OpenCode's unattended result did not validate: %1").arg(error));
+                showError(localized(
+                    QStringLiteral("OpenCode's unattended result did not validate: %1").arg(error),
+                    QStringLiteral("OpenCode 嘅無人值守結果過唔到驗證：%1").arg(error)));
                 return;
             }
             m_unattendProfile = *profile;
-            persistUnattendedProfile(QStringLiteral("unattended: apply OpenCode-assisted fill"));
-            notify(QStringLiteral("Unattended profile filled"),
-                   QStringLiteral("OpenCode's proposal was validated, written to XML and committed. Use Ctrl+Z to reverse it."),
+            persistUnattendedProfile(bilingualCommitMessage(
+                QStringLiteral("unattended: apply OpenCode-assisted fill"),
+                QStringLiteral("無人值守：套用 OpenCode 協助填寫")));
+            notify(localized(QStringLiteral("Unattended profile filled"),
+                             QStringLiteral("無人值守設定已填好")),
+                   localized(QStringLiteral("OpenCode's proposal was validated, written to XML and committed. Use Ctrl+Z to reverse it."),
+                             QStringLiteral("OpenCode 提議已通過驗證、寫入 XML 同 commit。可以用 Ctrl+Z 復原。")),
                    QStringLiteral("success"));
             emit studioChanged();
         });
@@ -3046,8 +4075,9 @@ void AppController::proposeWinForgeBridgeActions(const QString &intent)
             action.enabled = false;
             action.target = page;
             candidate.actions.append(action);
-            if (persistWinForgeBridgeRecipe(
-                    QStringLiteral("winforge: add OpenCode proposal %1").arg(page), candidate)) {
+            if (persistWinForgeBridgeRecipe(bilingualCommitMessage(
+                    QStringLiteral("winforge: add OpenCode proposal %1").arg(page),
+                    QStringLiteral("WinForge：加入 OpenCode 提議 %1").arg(page)), candidate)) {
                 m_winForgeBridgeStatus = localized(
                     QStringLiteral("OpenCode proposed '%1'. Review it, then switch it on to approve.")
                         .arg(proposal.value(QStringLiteral("title")).toString(page)),
@@ -3115,8 +4145,10 @@ bool AppController::addWinForgeBridgeAction(const QString &kind,
 
     WinForgeRecipe candidate = m_winForgeRecipe;
     candidate.actions.append(action);
-    const bool saved = persistWinForgeBridgeRecipe(
-        QStringLiteral("winforge: add %1 draft").arg(WinForgeBridge::actionKindName(*parsedKind)),
+    const QString actionKind = WinForgeBridge::actionKindName(*parsedKind);
+    const bool saved = persistWinForgeBridgeRecipe(bilingualCommitMessage(
+        QStringLiteral("winforge: add %1 draft").arg(actionKind),
+        QStringLiteral("WinForge：加入 %1 草稿").arg(actionKind)),
         candidate);
     if (saved) {
         m_winForgeBridgeStatus = localized(
@@ -3137,8 +4169,9 @@ bool AppController::removeWinForgeBridgeAction(const QString &id)
         showError(QStringLiteral("The selected WinForge action no longer exists."));
         return false;
     }
-    return persistWinForgeBridgeRecipe(QStringLiteral("winforge: remove action %1").arg(id),
-                                       candidate);
+    return persistWinForgeBridgeRecipe(bilingualCommitMessage(
+        QStringLiteral("winforge: remove action %1").arg(id),
+        QStringLiteral("WinForge：移除動作 %1").arg(id)), candidate);
 }
 
 bool AppController::setWinForgeBridgeActionEnabled(const QString &id, bool enabled)
@@ -3164,9 +4197,11 @@ bool AppController::setWinForgeBridgeActionEnabled(const QString &id, bool enabl
         }
     }
     found->enabled = enabled;
-    return persistWinForgeBridgeRecipe(
+    return persistWinForgeBridgeRecipe(bilingualCommitMessage(
         QStringLiteral("winforge: %1 action %2")
-            .arg(enabled ? QStringLiteral("approve") : QStringLiteral("disable"), id), candidate);
+            .arg(enabled ? QStringLiteral("approve") : QStringLiteral("disable"), id),
+        QStringLiteral("WinForge：%1動作 %2")
+            .arg(enabled ? QStringLiteral("批准") : QStringLiteral("停用"), id)), candidate);
 }
 
 void AppController::setWinForgeBridgeIncludeRuntime(bool enabled)
@@ -3176,7 +4211,9 @@ void AppController::setWinForgeBridgeIncludeRuntime(bool enabled)
     m_winForgeIncludeRuntime = enabled;
     m_settings.setValue(QStringLiteral("bridge/includeRuntime"), enabled);
     if (m_project) {
-        mutateProject(QStringLiteral("winforge: change self-contained runtime bundling"),
+        mutateProject(bilingualCommitMessage(
+            QStringLiteral("winforge: change self-contained runtime bundling"),
+            QStringLiteral("WinForge：更改自包含 runtime bundling")),
             [enabled](ProjectConfig &project) {
                 project.settings.insert(QStringLiteral("_winForgeIncludeRuntime"), enabled);
             });
@@ -3194,7 +4231,9 @@ void AppController::setWinForgeBridgeRuntimePath(const QString &path)
     m_winForgeRuntimeStatus = QStringLiteral("Runtime path changed; detect its contract before approval.");
     m_settings.setValue(QStringLiteral("bridge/runtimePath"), cleaned);
     if (m_project) {
-        mutateProject(QStringLiteral("winforge: select runtime folder"),
+        mutateProject(bilingualCommitMessage(
+            QStringLiteral("winforge: select runtime folder"),
+            QStringLiteral("WinForge：選擇 runtime 資料夾")),
             [cleaned](ProjectConfig &project) {
                 project.settings.insert(QStringLiteral("_winForgeRuntimePath"), cleaned);
             });
@@ -3236,8 +4275,9 @@ bool AppController::importWinForgeBridgeRecipe(const QString &sourceFile)
         showError(error);
         return false;
     }
-    const bool saved = persistWinForgeBridgeRecipe(
-        QStringLiteral("winforge: import validated recipe %1").arg(recipe->id), *recipe);
+    const bool saved = persistWinForgeBridgeRecipe(bilingualCommitMessage(
+        QStringLiteral("winforge: import validated recipe %1").arg(recipe->id),
+        QStringLiteral("WinForge：匯入已驗證 recipe %1").arg(recipe->id)), *recipe);
     if (saved)
         showSuccess(localized(QStringLiteral("WinForge recipe imported and committed."),
                               QStringLiteral("WinForge recipe 已匯入同 commit。")));
@@ -3290,7 +4330,9 @@ bool AppController::stageWinForgeBridgeIntoIso(const QString &isoStagingPath)
         {QStringLiteral("manifest"), staged->manifestPath},
         {QStringLiteral("manifestSha256"), staged->manifestSha256},
     };
-    const bool saved = mutateProject(QStringLiteral("winforge: stage approved bridge into ISO plan"),
+    const bool saved = mutateProject(bilingualCommitMessage(
+        QStringLiteral("winforge: stage approved bridge into ISO plan"),
+        QStringLiteral("WinForge：將已批准 bridge 加入 ISO 計劃")),
         [recipeJson, runtimePath, includeRuntime, stageInfo, oemSource](ProjectConfig &project) {
             project.settings.insert(QStringLiteral("_winForgeRecipe"), recipeJson);
             project.settings.insert(QStringLiteral("_winForgeRuntimePath"), runtimePath);
@@ -3389,7 +4431,7 @@ void AppController::recreateVmLab()
     if (scopeRoot.isEmpty()) {
         m_vmValidationStore.reset();
         updateVmStatus(localized(QStringLiteral("Project VM Lab identity could not be prepared safely."),
-                                 QStringLiteral("無法安全準備工程 VM 實驗室身份。")),
+                                 QStringLiteral("安全準備唔到工程 VM 實驗室身份。")),
                        QStringLiteral("error"), scopeError);
         return;
     }
@@ -3406,7 +4448,7 @@ void AppController::recreateVmLab()
     scopeRoot = QFileInfo(scopeRoot).absoluteFilePath();
     if (!QDir().mkpath(scopeRoot)) {
         updateVmStatus(localized(QStringLiteral("VM Lab storage could not be prepared."),
-                                 QStringLiteral("無法準備 VM 實驗室儲存空間。")),
+                                 QStringLiteral("準備唔到 VM 實驗室儲存空間。")),
                        QStringLiteral("error"), scopeRoot);
         return;
     }
@@ -3515,7 +4557,7 @@ void AppController::recreateVmLab()
     QString loadError;
     if (!m_vmManager->load(&loadError)) {
         updateVmStatus(localized(QStringLiteral("VM Lab catalog could not be loaded."),
-                                 QStringLiteral("無法載入 VM 實驗室目錄。")),
+                                 QStringLiteral("載入唔到 VM 實驗室目錄。")),
                        QStringLiteral("error"), loadError);
         return;
     }
@@ -3568,7 +4610,7 @@ void AppController::refreshVmLab()
     }
     if (m_vmManager->busy()) {
         updateVmStatus(localized(QStringLiteral("Wait for the active VM task before refreshing."),
-                                 QStringLiteral("等目前 VM 工作完成先重新整理。")),
+                                 QStringLiteral("等而家個 VM 工作完成先重新整理。")),
                        QStringLiteral("warning"));
         return;
     }
@@ -3587,7 +4629,7 @@ bool AppController::selectVm(const QString &providerId, const QString &id)
     if (match == machines.cend()) {
         const QString error = QStringLiteral("The selected VM is no longer in provider inventory.");
         updateVmStatus(localized(QStringLiteral("The VM selection could not be applied."),
-                                 QStringLiteral("無法套用 VM 選擇。")),
+                                 QStringLiteral("套用唔到 VM 選擇。")),
                        QStringLiteral("error"), error);
         return false;
     }
@@ -3621,7 +4663,7 @@ bool AppController::stageVmPreview(
     m_pendingVmBootId.clear();
     if (!preview) {
         updateVmStatus(localized(QStringLiteral("The provider could not produce a safe operation preview."),
-                                 QStringLiteral("供應器無法產生安全操作預覽。")),
+                                 QStringLiteral("供應器產生唔到安全操作預覽。")),
                        QStringLiteral("error"), m_vmManager->lastError());
         return false;
     }
@@ -4069,7 +5111,7 @@ bool AppController::startVmValidation(const QVariantMap &spec)
                     ? localized(QStringLiteral("Validation run started with exact SHA-256 evidence."),
                                 QStringLiteral("驗證執行已開始，並記錄確切 SHA-256 證據。"))
                     : localized(QStringLiteral("Validation run could not be started."),
-                                QStringLiteral("無法開始驗證執行。")),
+                                QStringLiteral("開始唔到驗證執行。")),
                 success ? QStringLiteral("success") : QStringLiteral("error"), error);
             if (!success && !error.isEmpty())
                 emit snackbarRequested(error, QStringLiteral("error"));
@@ -4223,7 +5265,7 @@ bool AppController::cancelVmAction()
 {
     if (m_vmValidationBusy) {
         updateVmStatus(localized(QStringLiteral("The initial SHA-256 capture finishes atomically and cannot be cancelled safely."),
-                                 QStringLiteral("初始 SHA-256 擷取會原子完成，無法安全取消。")),
+                                 QStringLiteral("初始 SHA-256 擷取會原子完成，冇辦法安全取消。")),
                        QStringLiteral("warning"));
         return false;
     }
@@ -4235,6 +5277,172 @@ QString AppController::pathFromUrl(const QUrl &url) const
     if (url.isLocalFile())
         return QDir::cleanPath(url.toLocalFile());
     return QDir::cleanPath(url.toString(QUrl::PreferLocalFile));
+}
+
+bool AppController::openWorkspacePage(int page, const QString &defaultTitle)
+{
+    QString error;
+    if (!m_workspaceTabs.openPage(page, defaultTitle, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    return true;
+}
+
+bool AppController::activateWorkspaceTab(int index)
+{
+    QString error;
+    if (!m_workspaceTabs.activate(index, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    return true;
+}
+
+bool AppController::closeWorkspaceTab(int index)
+{
+    QString error;
+    if (!m_workspaceTabs.close(index, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    return true;
+}
+
+bool AppController::moveWorkspaceTab(int from, int to)
+{
+    QString error;
+    if (!m_workspaceTabs.move(from, to, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    return true;
+}
+
+bool AppController::updateWorkspaceTab(int index, const QVariantMap &changes)
+{
+    QString error;
+    if (!m_workspaceTabs.update(index, changes, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    return true;
+}
+
+bool AppController::exportWorkspaceTabs(const QString &destinationFile)
+{
+    QString error;
+    const QString destination = cleanPath(destinationFile);
+    if (!m_workspaceTabs.exportTabs(destination, &error)) {
+        showError(error);
+        return false;
+    }
+    notify(localized(QStringLiteral("Workspace tabs exported"),
+                     QStringLiteral("工作區分頁已匯出")),
+           localized(QStringLiteral("Exported to %1").arg(destination),
+                     QStringLiteral("已匯出到 %1").arg(destination)),
+           QStringLiteral("success"));
+    showSuccess(localized(QStringLiteral("Portable workspace tabs exported."),
+                          QStringLiteral("可攜工作區分頁已匯出。")));
+    return true;
+}
+
+bool AppController::importWorkspaceTabs(const QString &sourceFile)
+{
+    QString error;
+    const QString source = cleanPath(sourceFile);
+    if (!m_workspaceTabs.importTabs(source, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    notify(localized(QStringLiteral("Workspace tabs imported"),
+                     QStringLiteral("工作區分頁已匯入")),
+           localized(QStringLiteral("Imported from %1").arg(source),
+                     QStringLiteral("已由 %1 匯入").arg(source)),
+           QStringLiteral("success"));
+    showSuccess(localized(
+        QStringLiteral("Workspace tabs imported and committed to local history."),
+        QStringLiteral("工作區分頁已匯入，亦已 commit 入本機歷史。")));
+    return true;
+}
+
+bool AppController::exportWorkspaceTabRepository(const QString &destinationFile)
+{
+    QString error;
+    const QString destination = cleanPath(destinationFile);
+    if (!m_workspaceTabs.exportRepository(destination, &error)) {
+        showError(error);
+        return false;
+    }
+    notify(localized(QStringLiteral("Complete tab repository exported"),
+                     QStringLiteral("完整分頁 repository 已匯出")),
+           localized(QStringLiteral("Exported to %1").arg(destination),
+                     QStringLiteral("已匯出到 %1").arg(destination)),
+           QStringLiteral("success"));
+    showSuccess(localized(
+        QStringLiteral("Complete Git-backed tab repository exported as one file."),
+        QStringLiteral("完整 Git-backed 分頁 repository 已匯出成單一檔案。")));
+    return true;
+}
+
+bool AppController::importWorkspaceTabRepository(const QString &sourceFile)
+{
+    QString error;
+    const QString source = cleanPath(sourceFile);
+    if (!m_workspaceTabs.importRepository(source, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    notify(localized(QStringLiteral("Complete tab repository imported"),
+                     QStringLiteral("完整分頁 repository 已匯入")),
+           localized(QStringLiteral("Imported from %1").arg(source),
+                     QStringLiteral("已由 %1 匯入").arg(source)),
+           QStringLiteral("success"));
+    showSuccess(localized(
+        QStringLiteral("Tab state and complete local Git history restored."),
+        QStringLiteral("分頁狀態同完整本機 Git 歷史已還原。")));
+    return true;
+}
+
+bool AppController::openApplicationLog()
+{
+    const QString path = StructuredLogger::instance().logPath();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("controller.action"),
+        QStringLiteral("log.open_requested"),
+        QStringLiteral("Opening the current application log."));
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
+        showError(localized(
+            QStringLiteral("Windows could not open the application log: %1").arg(path),
+            QStringLiteral("Windows 開唔到應用程式 log：%1").arg(path)));
+        return false;
+    }
+    return true;
+}
+
+bool AppController::openApplicationLogFolder()
+{
+    const QString directory = StructuredLogger::instance().logDirectory();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("controller.action"),
+        QStringLiteral("log_folder.open_requested"),
+        QStringLiteral("Opening the application log folder."));
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(directory))) {
+        showError(localized(
+            QStringLiteral("Windows could not open the application log folder: %1")
+                .arg(directory),
+            QStringLiteral("Windows 開唔到應用程式 log 資料夾：%1")
+                .arg(directory)));
+        return false;
+    }
+    return true;
 }
 
 bool AppController::loadDemoProject(QString *error)
@@ -4250,7 +5458,10 @@ bool AppController::loadDemoProject(QString *error)
     const QString image = QDir(directory).filePath(QStringLiteral("install.wim"));
     const QString driver = QDir(directory).filePath(QStringLiteral("payloads/drivers/netadapter.inf"));
     const QString update = QDir(directory).filePath(QStringLiteral("payloads/updates/KB-demo.cab"));
-    touch(iso); touch(image); touch(driver); touch(update);
+    const QString demoRuntime = QDir(directory).filePath(
+        QStringLiteral("fixtures/WinForge-runtime/WinForge.exe"));
+    QDir().mkpath(QFileInfo(demoRuntime).absolutePath());
+    touch(iso); touch(image); touch(driver); touch(update); touch(demoRuntime);
 
     ProjectConfig project;
     project.projectDirectory = directory;
@@ -4260,7 +5471,7 @@ bool AppController::loadDemoProject(QString *error)
     project.mountPath = QDir(directory).filePath(QStringLiteral("mount"));
     project.outputPath = QDir(directory).filePath(QStringLiteral("output/AI-Dev-Windows11.iso"));
     project.outputFormat = QStringLiteral("iso"); project.isoLabel = QStringLiteral("WIMFORGE_AI");
-    project.drivers = {driver}; project.packages = {update};
+    project.drivers = {driver}; project.updates = {update};
     project.featuresToEnable = {QStringLiteral("NetFx3"), QStringLiteral("Microsoft-Windows-Subsystem-Linux"), QStringLiteral("VirtualMachinePlatform")};
     project.appxPackagesToRemove = {QStringLiteral("Microsoft.BingNews_8wekyb3d8bbwe"), QStringLiteral("Microsoft.XboxGamingOverlay_8wekyb3d8bbwe")};
     project.postSetupItems = {QStringLiteral("winget install Git.Git -e --silent"), QStringLiteral("npm install -g opencode-ai@latest @openai/codex")};
@@ -4284,12 +5495,22 @@ bool AppController::loadDemoProject(QString *error)
     }
     project.settings.insert(QStringLiteral("_winForgeRecipe"),
                             WinForgeBridge::toJson(bridgeRecipe));
-    project.settings.insert(QStringLiteral("_winForgeRuntimePath"), m_winForgeRuntimePath);
+    project.settings.insert(QStringLiteral("_winForgeRuntimePath"),
+                            QFileInfo(demoRuntime).absolutePath());
     project.settings.insert(QStringLiteral("_winForgeIncludeRuntime"), true);
     project.options.cleanupComponentStore = true;
     project.options.extra.insert(QStringLiteral("mediaWorkspace"), QDir(directory).filePath(QStringLiteral("media")));
+    project.options.extra.insert(QStringLiteral("imageInventory"), QJsonObject{
+        {QStringLiteral("editions"), QJsonArray{
+             QStringLiteral("Index 1 — Windows 11 Pro"),
+             QStringLiteral("Index 2 — Windows 11 Enterprise")}},
+        {QStringLiteral("summaryEn"), QStringLiteral("2 editions · Windows 11 25H2 · amd64")},
+        {QStringLiteral("summaryZh"), QStringLiteral("2 個版本 · Windows 11 25H2 · amd64")},
+    });
     QString saveError;
-    if (!project.save(&saveError, QStringLiteral("demo: create AI development image recipe"))) {
+    if (!project.save(&saveError, bilingualCommitMessage(
+            QStringLiteral("demo: create AI development image recipe"),
+            QStringLiteral("示範：建立 AI 開發映像配方")))) {
         setError(error, saveError); return false;
     }
     ActionHistory demoHistory(directory);
@@ -4306,40 +5527,45 @@ bool AppController::loadDemoProject(QString *error)
         };
         const QList<DemoAction> actions{
             {QStringLiteral("source"), QStringLiteral("windows-11-25h2"),
-             QStringLiteral("source: select Windows 11 25H2 image"), QStringLiteral("image"),
-             QStringLiteral("Source and edition selection"), [](QJsonObject &state) {
+             QStringLiteral("source: select Windows 11 25H2 image / 來源：揀 Windows 11 25H2 映像"),
+             QStringLiteral("image"),
+             QStringLiteral("Source and edition selection / 來源同版本選擇"), [](QJsonObject &state) {
                  QJsonObject paths = state.value(QStringLiteral("paths")).toObject();
                  paths.insert(QStringLiteral("source"), QString());
                  paths.insert(QStringLiteral("image"), QString());
                  state.insert(QStringLiteral("paths"), paths);
-             }},
+            }},
             {QStringLiteral("gpo"), QStringLiteral("enable-long-paths"),
-             QStringLiteral("gpo: enable Win32 long paths"), QStringLiteral("policy"),
-             QStringLiteral("HKLM policy changed from Not Configured to Enabled"),
+             QStringLiteral("gpo: enable Win32 long paths / GPO：啟用 Win32 長路徑"),
+             QStringLiteral("policy"),
+             QStringLiteral("HKLM policy changed from Not Configured to Enabled / HKLM 原則由未設定改做啟用"),
              [](QJsonObject &state) {
                  QJsonObject settings = state.value(QStringLiteral("settings")).toObject();
                  settings.insert(QStringLiteral("enableLongPaths"), false);
                  state.insert(QStringLiteral("settings"), settings);
-             }},
+            }},
             {QStringLiteral("packages"), QStringLiteral("full-ai-development"),
-             QStringLiteral("packages: select Full AI Development ISO"),
-             QStringLiteral("inventory_2"), QStringLiteral("20 enabled tools plus optional desktop payloads"),
+             QStringLiteral("packages: select Full AI Development ISO / 套件：揀完整 AI 開發 ISO"),
+             QStringLiteral("inventory_2"),
+             QStringLiteral("20 enabled tools plus optional desktop payloads / 20 個已啟用工具，加埋可選桌面 payload"),
              [](QJsonObject &state) {
                  QJsonObject settings = state.value(QStringLiteral("settings")).toObject();
                  settings.remove(QStringLiteral("_packageProfile"));
                  state.insert(QStringLiteral("settings"), settings);
-             }},
+            }},
             {QStringLiteral("unattended"), QStringLiteral("ai-development"),
-             QStringLiteral("unattended: apply AI development template"),
-             QStringLiteral("auto_fix_high"), QStringLiteral("Answer file and prompt-safe computer naming"),
+             QStringLiteral("unattended: apply AI development template / 無人值守：套用 AI 開發範本"),
+             QStringLiteral("auto_fix_high"),
+             QStringLiteral("Answer file and prompt-safe computer naming / 回應檔同安全提示電腦命名"),
              [](QJsonObject &state) {
                  QJsonObject settings = state.value(QStringLiteral("settings")).toObject();
                  settings.remove(QStringLiteral("_unattendProfile"));
                  state.insert(QStringLiteral("settings"), settings);
-             }},
+            }},
             {QStringLiteral("winforge"), QStringLiteral("ai-tools"),
-             QStringLiteral("winforge: draft post-install AI tool pages"),
-             QStringLiteral("account_tree"), QStringLiteral("Three contract-checked page actions"),
+             QStringLiteral("winforge: draft post-install AI tool pages / WinForge：草擬安裝後 AI 工具頁"),
+             QStringLiteral("account_tree"),
+             QStringLiteral("Three contract-checked page actions / 三個已通過合約檢查嘅頁面動作"),
              [](QJsonObject &state) {
                  QJsonObject settings = state.value(QStringLiteral("settings")).toObject();
                  settings.remove(QStringLiteral("_winForgeRecipe"));
@@ -4369,17 +5595,65 @@ bool AppController::loadDemoProject(QString *error)
         }
     }
     m_project = std::move(project);
-    m_settings.setValue(QStringLiteral("project/last"), directory);
-    m_editionNames = {QStringLiteral("Index 1 — Windows 11 Pro"), QStringLiteral("Index 2 — Windows 11 Enterprise")};
-    m_imageSummary = QStringLiteral("2 editions · Windows 11 25H2 · amd64");
     loadProjectState();
     notify(QStringLiteral("Demo recipe ready"), QStringLiteral("No real image will be modified. Explore the Material UI, plan, Git history and notification actions."), QStringLiteral("success"));
     setError(error, {});
     return true;
 }
 
+void AppController::reloadPayloadCatalog(bool force)
+{
+    const QStringList driverPaths = m_project ? m_project->drivers : QStringList();
+    const QStringList updatePaths = m_project ? m_project->updates : QStringList();
+    if (!force && driverPaths == m_catalogDriverPaths
+        && updatePaths == m_catalogUpdatePaths) {
+        return;
+    }
+
+    m_catalogDriverPaths = driverPaths;
+    m_catalogUpdatePaths = updatePaths;
+    m_driverCatalogItems.clear();
+    m_updateCatalogItems.clear();
+    for (const ServicingPayloadEntry &entry : PayloadCatalog::inspectAll(
+             driverPaths, ServicingPayloadKind::Driver)) {
+        m_driverCatalogItems.append(payloadCatalogVariant(entry));
+    }
+    for (const ServicingPayloadEntry &entry : PayloadCatalog::inspectAll(
+             updatePaths, ServicingPayloadKind::Update)) {
+        m_updateCatalogItems.append(payloadCatalogVariant(entry));
+    }
+    emit payloadCatalogChanged();
+}
+
 void AppController::loadProjectState()
 {
+    m_editionNames.clear();
+    m_imageSummaryEn = QStringLiteral("Inspect a source to load edition metadata.");
+    m_imageSummaryZh = QStringLiteral("檢查來源之後，就會載入映像版本資料。");
+    if (m_project) {
+        const QJsonObject inventory = m_project->options.extra
+            .value(QStringLiteral("imageInventory")).toObject();
+        const QJsonArray editions = inventory.value(QStringLiteral("editions")).toArray();
+        for (const QJsonValue &edition : editions) {
+            if (edition.isString() && !edition.toString().trimmed().isEmpty())
+                m_editionNames.append(edition.toString());
+        }
+        if (!m_editionNames.isEmpty()) {
+            m_project->selectedImageIndex = qBound(
+                1, m_project->selectedImageIndex,
+                static_cast<int>(m_editionNames.size()));
+        }
+        const QString summaryEn = inventory.value(QStringLiteral("summaryEn"))
+                                      .toString().trimmed();
+        const QString summaryZh = inventory.value(QStringLiteral("summaryZh"))
+                                      .toString().trimmed();
+        if (!m_editionNames.isEmpty() && !summaryEn.isEmpty())
+            m_imageSummaryEn = summaryEn;
+        if (!m_editionNames.isEmpty() && !summaryZh.isEmpty())
+            m_imageSummaryZh = summaryZh;
+        else if (!m_editionNames.isEmpty())
+            m_imageSummaryZh = m_imageSummaryEn;
+    }
     if (m_project) {
         const QString notificationPath = m_project->settings
             .value(QStringLiteral("_notificationRepoPath")).toString();
@@ -4392,6 +5666,14 @@ void AppController::loadProjectState()
                 refreshNotifications();
             }
         }
+    }
+    if (m_project) {
+        QString tabError;
+        if (!m_workspaceTabs.openProject(m_project->projectDirectory, &tabError))
+            showError(localized(
+                QStringLiteral("Workspace tabs could not be opened: %1").arg(tabError),
+                QStringLiteral("開唔到工作區分頁：%1").arg(tabError)));
+        emit workspaceTabsChanged();
     }
     restoreStudioState();
     if (m_winForgeRuntimePath.isEmpty()) {
@@ -4409,6 +5691,7 @@ void AppController::loadProjectState()
                   .arg(m_winForgeRuntimeContract.capabilities.join(QStringLiteral(", ")))
             : bridgeError;
     }
+    reloadPayloadCatalog();
     refreshPlan(); refreshHistory(); refreshRecoveryState(); updateWatcher();
     recreateVmLab();
     emit stateChanged();
@@ -4449,12 +5732,25 @@ void AppController::onWatchedProjectChanged(const QString &path)
         const auto updated = ProjectConfig::load(directory, &error);
         if (!updated) { showError(error); updateWatcher(); return; }
         m_project = *updated; loadProjectState();
-        notify(QStringLiteral("External config imported"), path, QStringLiteral("info"));
+        notify(localized(QStringLiteral("External config imported"),
+                         QStringLiteral("外部設定已匯入")),
+               localized(QStringLiteral("Imported from %1").arg(path),
+                         QStringLiteral("已由 %1 匯入").arg(path)),
+               QStringLiteral("info"));
     });
 }
 
 void AppController::notify(const QString &title, const QString &message, const QString &severity)
 {
+    StructuredLogger::instance().log(
+        severity == QStringLiteral("error") ? LogSeverity::Error
+            : severity == QStringLiteral("warning") ? LogSeverity::Warning
+                                                    : LogSeverity::Info,
+        QStringLiteral("notification"), QStringLiteral("notification.created"),
+        QStringLiteral("A user-visible notification was created."),
+        QJsonObject{{QStringLiteral("titleLength"), title.size()},
+                    {QStringLiteral("messageLength"), message.size()},
+                    {QStringLiteral("notificationSeverity"), severity}});
     QString error;
     m_notificationStore.addNotification(title, message, severity, QStringLiteral("WimForge"), {}, &error);
     if (!error.isEmpty()) emit snackbarRequested(error, QStringLiteral("error"));
@@ -4464,11 +5760,19 @@ void AppController::notify(const QString &title, const QString &message, const Q
 void AppController::showError(const QString &message)
 {
     if (message.trimmed().isEmpty()) return;
+    StructuredLogger::instance().log(
+        LogSeverity::Error, QStringLiteral("controller.action"),
+        QStringLiteral("action.failed"),
+        QStringLiteral("A user-visible action failed."),
+        QJsonObject{{QStringLiteral("projectLoaded"), projectLoaded()},
+                    {QStringLiteral("messageLength"), message.trimmed().size()}});
     m_statusText = message.trimmed();
     emit snackbarRequested(message.trimmed(), QStringLiteral("error"));
     QString notificationError;
     m_notificationStore.addNotification(
-        QStringLiteral("Action needs attention"), message.trimmed(), QStringLiteral("error"),
+        localized(QStringLiteral("Action needs attention"),
+                  QStringLiteral("呢個動作要處理")),
+        message.trimmed(), QStringLiteral("error"),
         QStringLiteral("WimForge"), {}, &notificationError);
     if (notificationError.isEmpty())
         refreshNotifications();
@@ -4477,6 +5781,12 @@ void AppController::showError(const QString &message)
 
 void AppController::showSuccess(const QString &message)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("controller.action"),
+        QStringLiteral("action.succeeded"),
+        QStringLiteral("A user-visible action succeeded."),
+        QJsonObject{{QStringLiteral("projectLoaded"), projectLoaded()},
+                    {QStringLiteral("messageLength"), message.size()}});
     m_statusText = message;
     emit snackbarRequested(message, QStringLiteral("success"));
     emit stateChanged();

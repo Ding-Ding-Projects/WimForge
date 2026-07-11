@@ -105,8 +105,9 @@ public:
     [[nodiscard]] bool canRetry() const;
     [[nodiscard]] qint64 lastTransitionMs() const { return m_lastTransitionMs; }
 
-    // Calls made while an attempt is active join that attempt. A call after a
-    // failure starts exactly one fresh attempt, so retries are idempotent too.
+    // Passive readiness checks never locate, install, or launch host tools.
+    // retry() is the explicit operator-authorized entry point; calls made once
+    // that approval exists join the same bounded attempt.
     void ensureReady(Completion completed = {});
     void retry(Completion completed = {});
     void shutdown();
@@ -143,6 +144,7 @@ private:
     qint64 m_lastTransitionMs = 0;
     quint64 m_generation = 0;
     bool m_installedDuringAttempt = false;
+    bool m_explicitSetupAuthorized = false;
     bool m_shuttingDown = false;
     std::vector<Completion> m_pending;
 };

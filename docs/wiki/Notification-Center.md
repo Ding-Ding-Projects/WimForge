@@ -35,7 +35,7 @@ Undo uses `git revert` on the latest store commit. Reverting that revert perform
 
 The bell opens a Material drawer inside the application. It shows unread count, icon/text state, and actions for read/unread, dismiss, restore, and recoverable delete. The drawer does not suspend the main event loop or servicing jobs.
 
-Errors, completion, automatic OpenCode setup, and servicing status can create persistent entries. Short feedback can also appear as a snackbar. Recovery choices use in-app surfaces instead of native blocking dialogs.
+Errors, completion, operator-approved OpenCode setup, and servicing status can create persistent entries. OpenCode discovery never starts merely because the elevated desktop launched. Short feedback can also appear as a snackbar. Recovery choices use in-app surfaces instead of native blocking dialogs.
 
 The History page shows the repository path, explains tombstones, creates a test event, and can undo the latest notification change.
 
@@ -74,6 +74,10 @@ The exporter should briefly pause repository writers to capture one coherent app
 - Tombstones preserve recovery evidence; they are not secure deletion.
 - Git history can contain sensitive message/data fields. Do not put secrets in notifications.
 - Undo operates on the latest repository commit. Use the project History Time Machine for selective project actions.
+
+## 香港粵語速讀
+
+通知中心有獨立 Git，所以讀/未讀、dismiss、restore 同可復原 delete 唔會跟開緊邊個工程一齊消失。Delete 係 tombstone，唔係安全銷毀；Git 仍然可能有舊訊息，所以通知唔好放密碼、token 或 product key。條 bell drawer 同 snackbar 都係 app 內非封鎖畫面；OpenCode 亦只會在你明確批准 setup 後先會有相關通知。
 
 ---
 

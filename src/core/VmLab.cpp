@@ -1050,7 +1050,7 @@ ProcessResult ProcessCommandRunner::run(const Command &command)
     if (!command.valid(&result.error))
         return result;
     QProcess process;
-    process.setProgram(command.executable);
+    process.setProgram(resolveExecutableForLaunch(command.executable));
     process.setArguments(command.arguments);
     process.setProcessChannelMode(QProcess::SeparateChannels);
     if (!command.workingDirectory.isEmpty())

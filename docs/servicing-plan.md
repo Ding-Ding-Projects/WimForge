@@ -56,10 +56,14 @@ Directory sources copy their contents recursively to the exact destination. `una
 
 ## Interruption behavior
 
-Workspace clones and final outputs use sibling `.wimforge-partial` and `.wimforge-backup` paths. A previous backup is restored before retry, the new partial is completed first, and the destination is swapped only on success. ISO and image exports target same-volume partial files. SWM sets are built in a temporary directory and published as a complete set with rollback of prior parts. ISO mounting always dismounts in `finally`.
+Workspace clones and final outputs use sibling `.wimforge-partial` and `.wimforge-backup` paths. A previous backup is restored before retry, the new partial is completed first, and the destination is swapped only on success. ISO and image exports target same-volume partial files. SWM sets are built in a temporary directory and published as a complete set with rollback of prior parts. Read-only ISO inspection requests dismount in its `finally` cleanup path and reports failure rather than success if the image remains attached.
 
 The job engine's recovery journal records operation/dependency state. These file-level publication rules ensure a crash exposes either the prior completed artifact or a recoverable partial, rather than presenting an incomplete artifact as final.
 
 ## Test coverage
 
 `tests/servicing_plan_tests.cpp` covers ISO folders, ISO files, WIM, ESD, and SWM input; working-path consistency; source immutability; recursive image/media staging; package and unattended preservation; transitive hash gates; direct ISO write barriers; online servicing; unsafe destinations and missing inputs; quoting; atomic partial outputs; and actual execution of the generated directory-stage and self-contained SHA-256 programs.
+
+## 香港粵語速讀
+
+Servicing plan 係明確嘅依賴圖，唔係一條隱藏 shell string。原始 ISO/映像預設只讀；寫入會落去工程自己嘅 workspace。中途中斷時，`.wimforge-partial` 同 `.wimforge-backup` 會保護上一份完整輸出；ISO 唯讀檢查會在 `finally` 請求 dismount，如果 Windows 仍然顯示掛載，就會當失敗而唔係假報成功。

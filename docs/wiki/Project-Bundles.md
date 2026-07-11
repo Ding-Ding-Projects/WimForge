@@ -1,13 +1,14 @@
 # Project Bundles
 
-A `.wimforge` file is the complete portable save format. It carries working trees and hidden `.git` directories—not just `project.json`—so project actions, notification actions, undo commits, refs, reflogs, tags, objects, local repository settings, and hooks survive export/import.
+A `.wimforge` file is the complete portable save format. It carries working trees and hidden `.git` directories—not just `project.json`—so project actions, notification actions, undo commits, refs, reflogs, tags, and objects survive export/import. Project and notification repository settings/hooks are preserved; the app-owned nested tab repository is deliberately hardened on open as described below.
 
-In the desktop app, contextual action history lives inside the project repository and the notification center is a second repository. Both are included. The core format can also represent additional repository roles and standalone support files.
+In the desktop app, contextual action history lives inside the project repository, browser-style workspace tabs live in the nested `.wimforge/tabs` Git repository, and the notification center is a separate per-user repository. A complete save carries all of them: the tab repository is captured as part of the project tree, while the notification repository is carried as its own bundle role. When the restored project opens, tab working-tree contents are restricted to `tabs.json` and imported hooks, executable configuration, index, and alternate-object controls are neutralized before any elevated commit. The core format can also represent additional repository roles and standalone support files.
 
 ## What is preserved
 
 - ordinary project files and `.wimforge/action-history.jsonl`;
 - complete project `.git` directory;
+- workspace tab state and complete nested `.wimforge/tabs/.git` directory;
 - notification state, events, and complete notification `.git` directory;
 - repository roles and relative roots;
 - standalone supporting files selected by the caller;
@@ -69,7 +70,7 @@ Unknown versions and nonzero flags fail closed.
 
 - **Export:** use Complete save or enter a destination ending in `.wimforge`.
 - **Import:** provide the `.wimforge` path and a destination directory in Open/Import Project.
-- WimForge validates and restores both repositories, then reconnects the project, contextual history, and notification ledger.
+- WimForge validates and restores the project tree, nested tab history, and notification repository, then reconnects contextual history and the notification ledger.
 
 A legacy `.json` project export/import is still available for configuration interchange, but it is not a complete history save.
 
@@ -92,6 +93,10 @@ A legacy `.json` project export/import is still available for configuration inte
 Use `--overwrite` only after reviewing the destination. The safe importer protects the old destination, but a retained backup still consumes disk space and must be handled deliberately.
 
 Implementation detail lives in [`docs/project-bundles.md`](https://github.com/codingmachineedge/WimForge/blob/main/docs/project-bundles.md).
+
+## 香港粵語重點
+
+Complete save `.wimforge` 會打包工程工作樹同 Git、工程內 `.wimforge/tabs` 分頁 Git，以及獨立通知 Git；普通 `.json` 匯入就只係設定交換，唔包歷史。安全 importer 會拒絕走出目的地嘅路徑、link/reparse point、collision 同唔完整 Git 宣告；匯入分頁 repo 還會清 hooks、attributes、index、alternate objects 同可執行 config。格式保留 Git 拓撲，但唔保證 NTFS ACL、ADS 或 sparse allocation 一樣；放秘密入 Git 之前請當佢會長久保留。
 
 ---
 

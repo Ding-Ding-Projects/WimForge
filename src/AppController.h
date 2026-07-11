@@ -14,6 +14,7 @@
 #include "core/VmLabManager.h"
 #include "core/VmValidationStore.h"
 #include "core/WinForgeBridge.h"
+#include "core/WorkspaceTabs.h"
 
 #include <QFileSystemWatcher>
 #include <QObject>
@@ -37,10 +38,12 @@ class AppController final : public QObject
 
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool projectLoaded READ projectLoaded NOTIFY stateChanged)
+    Q_PROPERTY(QVariantList recentProjects READ recentProjects NOTIFY recentProjectsChanged)
     Q_PROPERTY(QString projectName READ projectName NOTIFY stateChanged)
     Q_PROPERTY(QString projectRoot READ projectRoot NOTIFY stateChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath NOTIFY stateChanged)
     Q_PROPERTY(QString imagePath READ imagePath NOTIFY stateChanged)
+    Q_PROPERTY(QString imageRelativePath READ imageRelativePath NOTIFY stateChanged)
     Q_PROPERTY(QString mountPath READ mountPath NOTIFY stateChanged)
     Q_PROPERTY(QString outputPath READ outputPath NOTIFY stateChanged)
     Q_PROPERTY(QString outputFormat READ outputFormat NOTIFY stateChanged)
@@ -51,10 +54,17 @@ class AppController final : public QObject
     Q_PROPERTY(QString imageSummary READ imageSummary NOTIFY stateChanged)
 
     Q_PROPERTY(QStringList drivers READ drivers NOTIFY stateChanged)
+    Q_PROPERTY(QStringList updates READ updates NOTIFY stateChanged)
     Q_PROPERTY(QStringList packages READ packages NOTIFY stateChanged)
+    Q_PROPERTY(QVariantList driverCatalog READ driverCatalog NOTIFY payloadCatalogChanged)
+    Q_PROPERTY(QVariantList updateCatalog READ updateCatalog NOTIFY payloadCatalogChanged)
     Q_PROPERTY(QStringList features READ features NOTIFY stateChanged)
+    Q_PROPERTY(QStringList featureDisables READ featureDisables NOTIFY stateChanged)
+    Q_PROPERTY(QVariantList capabilityChanges READ capabilityChanges NOTIFY stateChanged)
     Q_PROPERTY(QStringList appRemovals READ appRemovals NOTIFY stateChanged)
+    Q_PROPERTY(QStringList appProvisions READ appProvisions NOTIFY stateChanged)
     Q_PROPERTY(QStringList componentRemovals READ componentRemovals NOTIFY stateChanged)
+    Q_PROPERTY(QVariantList scheduledTaskChanges READ scheduledTaskChanges NOTIFY stateChanged)
     Q_PROPERTY(QStringList unattendedFiles READ unattendedFiles NOTIFY stateChanged)
     Q_PROPERTY(QStringList postSetupItems READ postSetupItems NOTIFY stateChanged)
 
@@ -72,6 +82,7 @@ class AppController final : public QObject
     Q_PROPERTY(QString notificationRepoPath READ notificationRepoPath CONSTANT)
 
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
+    Q_PROPERTY(bool sourceInspectionBusy READ sourceInspectionBusy NOTIFY stateChanged)
     Q_PROPERTY(double progress READ progress NOTIFY stateChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(int runningJobCount READ runningJobCount NOTIFY stateChanged)
@@ -130,6 +141,10 @@ class AppController final : public QObject
     Q_PROPERTY(QString currentOutput READ currentOutput NOTIFY stateChanged)
     Q_PROPERTY(QString searchQuery READ searchQuery NOTIFY searchChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchChanged)
+    Q_PROPERTY(QVariantList workspaceTabs READ workspaceTabs NOTIFY workspaceTabsChanged)
+    Q_PROPERTY(int activeWorkspaceTab READ activeWorkspaceTab NOTIFY workspaceTabsChanged)
+    Q_PROPERTY(QString workspaceTabRepository READ workspaceTabRepository NOTIFY workspaceTabsChanged)
+    Q_PROPERTY(QString applicationLogPath READ applicationLogPath CONSTANT)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -137,10 +152,12 @@ public:
 
     [[nodiscard]] QString version() const;
     [[nodiscard]] bool projectLoaded() const;
+    [[nodiscard]] QVariantList recentProjects() const;
     [[nodiscard]] QString projectName() const;
     [[nodiscard]] QString projectRoot() const;
     [[nodiscard]] QString sourcePath() const;
     [[nodiscard]] QString imagePath() const;
+    [[nodiscard]] QString imageRelativePath() const;
     [[nodiscard]] QString mountPath() const;
     [[nodiscard]] QString outputPath() const;
     [[nodiscard]] QString outputFormat() const;
@@ -150,10 +167,17 @@ public:
     [[nodiscard]] QStringList editionNames() const;
     [[nodiscard]] QString imageSummary() const;
     [[nodiscard]] QStringList drivers() const;
+    [[nodiscard]] QStringList updates() const;
     [[nodiscard]] QStringList packages() const;
+    [[nodiscard]] QVariantList driverCatalog() const;
+    [[nodiscard]] QVariantList updateCatalog() const;
     [[nodiscard]] QStringList features() const;
+    [[nodiscard]] QStringList featureDisables() const;
+    [[nodiscard]] QVariantList capabilityChanges() const;
     [[nodiscard]] QStringList appRemovals() const;
+    [[nodiscard]] QStringList appProvisions() const;
     [[nodiscard]] QStringList componentRemovals() const;
+    [[nodiscard]] QVariantList scheduledTaskChanges() const;
     [[nodiscard]] QStringList unattendedFiles() const;
     [[nodiscard]] QStringList postSetupItems() const;
     [[nodiscard]] QVariantList operationPlan() const;
@@ -168,6 +192,7 @@ public:
     [[nodiscard]] int notificationUnreadCount() const;
     [[nodiscard]] QString notificationRepoPath() const;
     [[nodiscard]] bool busy() const;
+    [[nodiscard]] bool sourceInspectionBusy() const;
     [[nodiscard]] double progress() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] int runningJobCount() const;
@@ -238,12 +263,18 @@ public:
     [[nodiscard]] QString currentOutput() const;
     [[nodiscard]] QString searchQuery() const;
     [[nodiscard]] QVariantList searchResults() const;
+    [[nodiscard]] QVariantList workspaceTabs() const;
+    [[nodiscard]] int activeWorkspaceTab() const;
+    [[nodiscard]] QString workspaceTabRepository() const;
+    [[nodiscard]] QString applicationLogPath() const;
 
     Q_INVOKABLE void requestNewProject();
     Q_INVOKABLE void requestOpenProject();
     Q_INVOKABLE bool createProject(const QString &directory, const QString &name);
     Q_INVOKABLE bool openProject(const QString &directory);
     Q_INVOKABLE bool importProject(const QString &sourceFile, const QString &destinationDirectory);
+    Q_INVOKABLE void removeRecentProject(const QString &directory);
+    Q_INVOKABLE void clearRecentProjects();
     Q_INVOKABLE bool exportProject(const QString &destinationFile);
     Q_INVOKABLE bool exportScript(const QString &destinationFile);
     Q_INVOKABLE void requestExportProject();
@@ -253,8 +284,22 @@ public:
     Q_INVOKABLE void setProjectBool(const QString &field, bool value);
     Q_INVOKABLE void setProjectNumber(const QString &field, int value);
     Q_INVOKABLE void addListItem(const QString &category, const QString &value);
+    Q_INVOKABLE bool tryAddListItem(const QString &category, const QString &value);
     Q_INVOKABLE void removeListItem(const QString &category, int index);
+    Q_INVOKABLE bool addPayloadFiles(const QString &category, const QVariantList &files);
+    Q_INVOKABLE bool addPayloadDirectory(const QString &category, const QUrl &directory);
+    Q_INVOKABLE void refreshPayloadCatalog();
+    Q_INVOKABLE void openMicrosoftUpdateCatalog(const QString &query = {});
     Q_INVOKABLE void setFeature(const QString &name, bool enabled);
+    Q_INVOKABLE int featureState(const QString &name) const;
+    Q_INVOKABLE bool setFeatureState(const QString &name, int state);
+    Q_INVOKABLE int capabilityState(const QString &name) const;
+    Q_INVOKABLE bool setCapabilityState(const QString &name, int state);
+    Q_INVOKABLE bool addAppxProvisionFiles(const QVariantList &files);
+    Q_INVOKABLE bool setScheduledTaskChange(const QString &taskPath,
+                                            const QString &disposition,
+                                            bool compatibilityOverride = false);
+    Q_INVOKABLE bool removeScheduledTaskChange(int index);
     Q_INVOKABLE void setSetting(const QString &name, bool enabled);
     Q_INVOKABLE bool settingEnabled(const QString &name) const;
 
@@ -354,10 +399,23 @@ public:
     Q_INVOKABLE bool cancelVmAction();
     Q_INVOKABLE QString pathFromUrl(const QUrl &url) const;
 
+    Q_INVOKABLE bool openWorkspacePage(int page, const QString &defaultTitle = {});
+    Q_INVOKABLE bool activateWorkspaceTab(int index);
+    Q_INVOKABLE bool closeWorkspaceTab(int index);
+    Q_INVOKABLE bool moveWorkspaceTab(int from, int to);
+    Q_INVOKABLE bool updateWorkspaceTab(int index, const QVariantMap &changes);
+    Q_INVOKABLE bool exportWorkspaceTabs(const QString &destinationFile);
+    Q_INVOKABLE bool importWorkspaceTabs(const QString &sourceFile);
+    Q_INVOKABLE bool exportWorkspaceTabRepository(const QString &destinationFile);
+    Q_INVOKABLE bool importWorkspaceTabRepository(const QString &sourceFile);
+    Q_INVOKABLE bool openApplicationLog();
+    Q_INVOKABLE bool openApplicationLogFolder();
+
     bool loadDemoProject(QString *error = nullptr);
 
 signals:
     void stateChanged();
+    void recentProjectsChanged();
     void preferencesChanged();
     void notificationsChanged();
     void studioChanged();
@@ -371,15 +429,20 @@ signals:
     void recoveryReviewRequested();
     void searchRequested(const QString &query);
     void searchChanged();
+    void payloadCatalogChanged();
     void searchNavigationRequested(int page, const QString &focusId, const QString &query);
     void vmLabChanged();
     void vmPreviewReady();
+    void workspaceTabsChanged();
 
 private:
     using ProjectMutation = std::function<void(wimforge::ProjectConfig &)>;
 
     bool mutateProject(const QString &message, const ProjectMutation &mutation);
     bool saveProject(const QString &message);
+    void loadRecentProjects();
+    void rememberRecentProject(const QString &directory, const QString &name);
+    void persistRecentProjects();
     void loadProjectState();
     void refreshNotifications();
     void refreshRecoveryState();
@@ -390,6 +453,7 @@ private:
     void showSuccess(const QString &message);
     [[nodiscard]] QString localized(const QString &en, const QString &zh) const;
     [[nodiscard]] QStringList *listForCategory(wimforge::ProjectConfig &project, const QString &category);
+    void reloadPayloadCatalog(bool force = false);
     void restoreStudioState();
     bool persistPackageProfile(const QString &message);
     bool persistUnattendedProfile(const QString &message, bool writeXml = true);
@@ -423,6 +487,7 @@ private:
     wimforge::PackageProfile m_packageProfile;
     wimforge::UnattendProfile m_unattendProfile;
     wimforge::WinForgeRecipe m_winForgeRecipe;
+    wimforge::WorkspaceTabs m_workspaceTabs;
     wimforge::WinForgeRuntimeContract m_winForgeRuntimeContract;
     std::unique_ptr<wimforge::OpenCodeSetup> m_openCodeSetup;
     std::unique_ptr<wimforge::vmlab::VmLabManager> m_vmManager;
@@ -430,15 +495,16 @@ private:
     std::jthread m_vmValidationWorker;
     QFileSystemWatcher m_watcher;
     QSettings m_settings;
-    QStringList m_editionNames{QStringLiteral("Index 1 — Windows edition")};
-    QString m_imageSummary = QStringLiteral("Inspect a source to load edition metadata.");
+    QVariantList m_recentProjects;
+    QStringList m_editionNames;
+    QString m_imageSummaryEn = QStringLiteral("Inspect a source to load edition metadata.");
+    QString m_imageSummaryZh = QStringLiteral("檢查來源之後，就會載入映像版本資料。");
     QString m_statusText = QStringLiteral("Ready — no active servicing jobs");
     QJsonObject m_recoveryJournal;
     bool m_pendingRecovery = false;
     bool m_recoveryUnmountBusy = false;
     bool m_inspecting = false;
     bool m_gpoLoaded = false;
-    bool m_openCodeReadinessPending = false;
     bool m_openCodeRequestBusy = false;
     bool m_openCodeRequestTimedOut = false;
     QProcess *m_openCodeProcess = nullptr;
@@ -450,6 +516,10 @@ private:
     QString m_winForgeBridgeStatus = QStringLiteral("Recipe is ready for review.");
     QString m_searchQuery;
     QVariantList m_searchResults;
+    QVariantList m_driverCatalogItems;
+    QVariantList m_updateCatalogItems;
+    QStringList m_catalogDriverPaths;
+    QStringList m_catalogUpdatePaths;
     QVariantList m_vmValidationItems;
     QVariantMap m_vmPendingPreview;
     QString m_vmStatusMessage;

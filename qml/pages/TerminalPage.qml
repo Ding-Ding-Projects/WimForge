@@ -2,7 +2,9 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
+import "../components"
 
 Item {
     id: root
@@ -11,11 +13,14 @@ Item {
     required property var terminal
     required property var tr
 
-    readonly property color cardColor: Material.theme === Material.Dark ? "#211F26" : "#FFFBFE"
-    readonly property color outlineColor: Material.theme === Material.Dark ? "#49454F" : "#E7E0EC"
-    readonly property color secondaryText: Material.theme === Material.Dark ? "#CAC4D0" : "#625B71"
-    readonly property color successText: Material.theme === Material.Dark ? "#A8D5A2" : "#386A20"
-    readonly property color errorText: Material.theme === Material.Dark ? "#FFB4AB" : "#BA1A1A"
+    required property bool dark
+    Material.theme: dark ? Material.Dark : Material.Light
+    readonly property color surfaceForeground: DesignTokens.onSurface(root.dark)
+    readonly property color surfaceVariantForeground: DesignTokens.onSurfaceVariant(root.dark)
+    readonly property color outlineVariant: DesignTokens.outlineVariant(root.dark)
+    readonly property color success: DesignTokens.success(root.dark)
+    readonly property color error: DesignTokens.error(root.dark)
+    readonly property bool compactHeight: height < 560
     readonly property int terminalColumns: Math.max(40, Math.floor(Math.max(360, terminalOutput.width) / 8.2))
     readonly property int terminalRows: Math.max(12, Math.floor(Math.max(220, terminalOutput.height) / 18))
 
@@ -24,7 +29,7 @@ Item {
 
     function statusText() {
         if (root.terminal.running)
-            return root.tr("Running inside WimForge", "正在 WimForge 內運行")
+            return root.tr("Running inside WimForge", "喺 WimForge 入面執行緊")
         if (root.terminal.errorString.length > 0)
             return root.terminal.errorString
         if (root.terminal.exitStatus !== 0) {
@@ -121,81 +126,99 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 10
+        spacing: root.compactHeight ? DesignTokens.spacing8 : DesignTokens.spacing12
 
-        GridLayout {
+        WfPageHeader {
             Layout.fillWidth: true
-            columns: width >= 760 ? 2 : 1
-            columnSpacing: 16
-            rowSpacing: 4
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
-                Label {
-                    Layout.fillWidth: true
-                    text: root.tr("Embedded terminal", "內嵌終端機")
-                    font.pixelSize: 26
-                    font.weight: Font.Bold
-                    wrapMode: Text.Wrap
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: root.tr("An interactive Windows shell hosted by ConPTY. Output stays in the app; no external console window is created.",
-                                  "由 ConPTY 承載嘅互動式 Windows shell。輸出會留喺應用程式內，唔會建立外部主控台視窗。")
-                    color: root.secondaryText
-                    wrapMode: Text.Wrap
-                }
+            dark: root.dark
+            eyebrow: root.compactHeight ? "" : root.tr("Administrator session", "系統管理員工作階段")
+            title: root.tr("Embedded terminal", "內嵌終端機")
+            description: root.compactHeight ? "" : root.tr(
+                             "Interactive PowerShell or Command Prompt hosted by ConPTY, without an external console window.",
+                             "由 ConPTY 承載嘅互動式 PowerShell 或命令提示字元，唔會開外部主控台視窗。")
+            WfStatusChip {
+                dark: root.dark
+                tone: root.terminal.running ? "info"
+                      : root.terminal.errorString.length > 0 ? "error" : "neutral"
+                uppercase: false
+                text: root.statusText()
             }
+        }
 
-            Pane {
-                Layout.fillWidth: true
-                padding: 10
-                background: Rectangle {
-                    radius: 12
-                    color: root.cardColor
-                    border.color: root.outlineColor
+        WfCard {
+            visible: !root.compactHeight || root.terminal.errorString.length > 0
+                     || root.terminal.transcriptTruncated || root.terminal.droppedOutputBytes > 0
+            Layout.fillWidth: true
+            dark: root.dark
+            fillColor: root.terminal.errorString.length > 0
+                     ? DesignTokens.errorContainer(root.dark)
+                     : root.terminal.running
+                       ? DesignTokens.secondaryContainer(root.dark)
+                       : DesignTokens.surfaceLow(root.dark)
+            outlineColor: root.terminal.errorString.length > 0
+                        ? DesignTokens.error(root.dark)
+                        : root.terminal.running
+                          ? DesignTokens.secondary(root.dark) : root.outlineVariant
+            padding: DesignTokens.spacing12
+            RowLayout {
+                anchors.fill: parent
+                spacing: DesignTokens.spacing12
+                Rectangle {
+                    Layout.preferredWidth: 8
+                    Layout.preferredHeight: 8
+                    radius: 4
+                    color: root.terminal.errorString.length > 0
+                           ? DesignTokens.error(root.dark)
+                           : root.terminal.running
+                             ? DesignTokens.secondary(root.dark) : root.surfaceVariantForeground
                 }
-                contentItem: ColumnLayout {
-                    spacing: 3
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: DesignTokens.spacing4
                     Label {
                         Layout.fillWidth: true
-                        text: (root.terminal.running ? "● " : "○ ") + root.statusText()
-                        color: root.terminal.running ? root.successText
-                              : root.terminal.errorString.length > 0 ? root.errorText
-                              : root.secondaryText
-                        font.weight: Font.DemiBold
+                        text: root.statusText()
+                        color: root.terminal.errorString.length > 0
+                               ? DesignTokens.onErrorContainer(root.dark)
+                               : root.terminal.running
+                                 ? DesignTokens.onSecondaryContainer(root.dark) : root.surfaceForeground
+                        font.family: DesignTokens.fontBody
+                        font.pixelSize: 13
+                        font.weight: Font.Bold
                         wrapMode: Text.WrapAnywhere
                     }
                     Label {
                         Layout.fillWidth: true
                         visible: root.terminal.transcriptTruncated || root.terminal.droppedOutputBytes > 0
-                        text: root.tr("Bounded output protection is active. %1 byte(s) were discarded under backpressure.",
-                                      "有界輸出保護已啟用。因背壓已捨棄 %1 bytes。")
-                              .arg(root.terminal.droppedOutputBytes)
-                        color: root.errorText
+                        text: root.tr("Bounded output protection discarded %1 byte(s) under backpressure.",
+                                      "有界輸出保護因背壓捨棄咗 %1 bytes。")
+                                  .arg(root.terminal.droppedOutputBytes)
+                        color: root.error
+                        font.family: DesignTokens.fontBody
+                        font.pixelSize: 11
                         wrapMode: Text.Wrap
                     }
                 }
             }
         }
 
-        Pane {
+        WfCard {
             Layout.fillWidth: true
-            padding: 10
-            background: Rectangle {
-                radius: 12
-                color: root.cardColor
-                border.color: root.outlineColor
-            }
-            contentItem: GridLayout {
-                columns: width >= 920 ? 6 : width >= 620 ? 3 : 1
-                columnSpacing: 8
-                rowSpacing: 8
+            dark: root.dark
+            surfaceLevel: "low"
+            padding: DesignTokens.spacing12
+
+            GridLayout {
+                id: terminalControls
+                anchors.fill: parent
+                columns: root.width >= 1120 ? 5 : root.width >= 620 ? 2 : 1
+                columnSpacing: DesignTokens.spacing8
+                rowSpacing: DesignTokens.spacing8
 
                 ComboBox {
                     id: shellChoice
                     Layout.fillWidth: true
+                    Layout.preferredHeight: DesignTokens.controlHeight
                     enabled: !root.terminal.running
                     textRole: "label"
                     valueRole: "value"
@@ -206,32 +229,42 @@ Item {
                     ]
                     Accessible.name: root.tr("Embedded terminal shell", "內嵌終端機 shell")
                 }
+
                 TextField {
                     id: workingDirectory
                     Layout.fillWidth: true
-                    Layout.columnSpan: width >= 920 ? 2 : 1
+                    Layout.preferredHeight: DesignTokens.fieldHeight
                     enabled: !root.terminal.running
-                    placeholderText: root.tr("Working directory (project when empty)", "工作目錄（留空時使用專案）")
+                    placeholderText: root.tr("Working directory (project when empty)", "工作目錄（留空時使用工程）")
                     Accessible.name: root.tr("Terminal working directory", "終端機工作目錄")
                     selectByMouse: true
+                    font.family: DesignTokens.fontMono
+                    font.pixelSize: 11
                 }
-                Button {
-                    Layout.fillWidth: true
+
+                WfButton {
+                    Layout.fillWidth: root.width < 1120
+                    Layout.columnSpan: terminalControls.columns === 2 ? 2 : 1
+                    dark: root.dark
+                    variant: "filled"
                     text: root.tr("Start", "啟動")
-                    highlighted: true
                     enabled: !root.terminal.running
                     Accessible.name: root.tr("Start the embedded terminal", "啟動內嵌終端機")
                     onClicked: root.startSession()
                 }
-                Button {
-                    Layout.fillWidth: true
+                WfButton {
+                    Layout.fillWidth: root.width < 1120
+                    dark: root.dark
+                    variant: "outlined"
                     text: root.tr("Stop", "停止")
                     enabled: root.terminal.running
                     Accessible.name: root.tr("Gracefully stop the embedded terminal", "正常停止內嵌終端機")
                     onClicked: root.terminal.stopGracefully(3000)
                 }
-                Button {
-                    Layout.fillWidth: true
+                WfButton {
+                    Layout.fillWidth: root.width < 1120
+                    dark: root.dark
+                    variant: "destructive"
                     text: root.tr("Force stop", "強制停止")
                     enabled: root.terminal.running
                     Accessible.name: root.tr("Force stop the embedded terminal process tree", "強制停止內嵌終端機程序樹")
@@ -240,31 +273,45 @@ Item {
             }
         }
 
-        Pane {
+        WfCard {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: root.compactHeight ? 170 : 260
+            dark: true
             padding: 0
-            background: Rectangle {
-                radius: 12
-                color: "#0D1117"
-                border.color: root.terminal.running ? "#6750A4" : "#30363D"
-            }
-            contentItem: ColumnLayout {
+            fillColor: "#0B0F14"
+            outlineColor: root.terminal.running ? DesignTokens.secondary(true) : "#3B424C"
+
+            ColumnLayout {
+                anchors.fill: parent
                 spacing: 0
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.margins: 8
+                    Layout.leftMargin: DesignTokens.spacing12
+                    Layout.rightMargin: DesignTokens.spacing8
+                    Layout.topMargin: DesignTokens.spacing8
+                    Layout.bottomMargin: DesignTokens.spacing8
+                    spacing: DesignTokens.spacing8
+                    Rectangle {
+                        Layout.preferredWidth: 8
+                        Layout.preferredHeight: 8
+                        radius: 4
+                        color: root.terminal.running ? DesignTokens.secondary(true) : "#7D8590"
+                    }
                     Label {
                         Layout.fillWidth: true
                         text: root.tr("Administrator shell · %1 columns × %2 rows",
                                       "系統管理員 shell · %1 欄 × %2 行")
-                              .arg(root.terminalColumns).arg(root.terminalRows)
-                        color: "#8B949E"
-                        font.family: "Cascadia Mono"
+                                  .arg(root.terminalColumns).arg(root.terminalRows)
+                        color: "#9DA7B3"
+                        font.family: DesignTokens.fontMono
                         font.pixelSize: 10
                     }
-                    ToolButton {
+                    WfButton {
+                        dark: true
+                        compact: true
+                        variant: "text"
                         text: root.tr("Copy", "複製")
                         enabled: terminalOutput.length > 0
                         Accessible.name: root.tr("Copy terminal output", "複製終端機輸出")
@@ -274,7 +321,10 @@ Item {
                             terminalOutput.deselect()
                         }
                     }
-                    ToolButton {
+                    WfButton {
+                        dark: true
+                        compact: true
+                        variant: "text"
                         text: root.tr("Clear", "清除")
                         enabled: terminalOutput.length > 0
                         Accessible.name: root.tr("Clear retained terminal output", "清除保留嘅終端機輸出")
@@ -298,30 +348,33 @@ Item {
                         selectByMouse: true
                         wrapMode: TextEdit.WrapAnywhere
                         color: "#E6EDF3"
-                        selectionColor: "#6750A4"
+                        selectionColor: "#315FAD"
                         selectedTextColor: "#FFFFFF"
-                        font.family: "Cascadia Mono"
+                        font.family: DesignTokens.fontMono
                         font.pixelSize: 12
                         background: null
-                        leftPadding: 12
-                        rightPadding: 12
-                        topPadding: 10
-                        bottomPadding: 10
+                        leftPadding: DesignTokens.spacing12
+                        rightPadding: DesignTokens.spacing12
+                        topPadding: DesignTokens.spacing8
+                        bottomPadding: DesignTokens.spacing8
                         Accessible.name: root.tr("Embedded terminal output", "內嵌終端機輸出")
                     }
                 }
 
                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#30363D" }
 
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    Layout.margins: 8
-                    spacing: 6
+                    Layout.margins: DesignTokens.spacing8
+                    columns: root.width >= 620 ? 4 : 2
+                    columnSpacing: DesignTokens.spacing8
+                    rowSpacing: DesignTokens.spacing8
 
                     Label {
                         text: ">"
-                        color: root.terminal.running ? "#FFB4AB" : "#8B949E"
-                        font.family: "Cascadia Mono"
+                        color: root.terminal.running ? DesignTokens.secondary(true) : "#7D8590"
+                        font.family: DesignTokens.fontMono
+                        font.pixelSize: 13
                         font.bold: true
                     }
                     TextField {
@@ -332,7 +385,12 @@ Item {
                                          ? root.tr("Type a command and press Enter", "輸入命令再按 Enter")
                                          : root.tr("Start a session to enter commands", "啟動工作階段後先可以輸入命令")
                         Accessible.name: root.tr("Embedded terminal command input", "內嵌終端機命令輸入")
-                        font.family: "Cascadia Mono"
+                        color: "#E6EDF3"
+                        placeholderTextColor: "#7D8590"
+                        selectionColor: "#315FAD"
+                        selectedTextColor: "#FFFFFF"
+                        font.family: DesignTokens.fontMono
+                        font.pixelSize: 12
                         selectByMouse: true
                         onAccepted: root.sendInput()
                         Keys.onUpPressed: function(event) {
@@ -343,14 +401,26 @@ Item {
                             root.showNextCommand()
                             event.accepted = true
                         }
+                        background: Rectangle {
+                            radius: DesignTokens.radiusControl
+                            color: "#111820"
+                            border.width: terminalInput.activeFocus ? 2 : 1
+                            border.color: terminalInput.activeFocus ? "#79D6EC" : "#3B424C"
+                        }
                     }
-                    ToolButton {
+                    WfButton {
+                        dark: true
+                        compact: true
+                        variant: "outlined"
                         text: "Ctrl+C"
                         enabled: root.terminal.running
                         Accessible.name: root.tr("Send interrupt to terminal", "傳送中斷到終端機")
                         onClicked: root.terminal.writeInput("\u0003")
                     }
-                    Button {
+                    WfButton {
+                        dark: true
+                        compact: true
+                        variant: "tonal"
                         text: root.tr("Send", "傳送")
                         enabled: root.terminal.running && terminalInput.text.length > 0
                         Accessible.name: root.tr("Send command to embedded terminal", "傳送命令到內嵌終端機")
@@ -360,13 +430,35 @@ Item {
             }
         }
 
-        Label {
+        WfCard {
             Layout.fillWidth: true
-            text: "⚠ " + root.tr("WimForge is elevated by default, so terminal commands also run as administrator. Review every command before sending it. The backend uses the documented Windows ConPTY API—the same pseudoconsole infrastructure used by open-source Windows Terminal; it does not vendor or embed Windows Terminal source.",
-                                      "WimForge 預設會提升權限，所以終端機命令亦會以系統管理員身份運行。傳送前請審閱每個命令。後端使用 Windows 文件記載嘅 ConPTY API，即開源 Windows Terminal 所用嘅同一偽主控台基礎設施；並冇包含或嵌入 Windows Terminal 原始碼。")
-            color: root.secondaryText
-            font.pixelSize: 10
-            wrapMode: Text.Wrap
+            dark: root.dark
+            fillColor: DesignTokens.errorContainer(root.dark)
+            outlineColor: DesignTokens.error(root.dark)
+            padding: root.compactHeight ? DesignTokens.spacing8 : DesignTokens.spacing12
+            RowLayout {
+                anchors.fill: parent
+                spacing: DesignTokens.spacing8
+                Label {
+                    text: root.tr("ADMIN", "管理員")
+                    color: DesignTokens.onErrorContainer(root.dark)
+                    font.family: DesignTokens.fontMono
+                    font.pixelSize: 10
+                    font.weight: Font.Bold
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: root.compactHeight
+                          ? root.tr("Administrator mode: review every command before sending.",
+                                    "管理員模式：傳送前請先檢查每個指令。")
+                          : root.tr("WimForge is elevated by default, so every terminal command runs as administrator. Review the command before sending it. The backend uses the documented Windows ConPTY API and does not embed Windows Terminal source.",
+                                    "WimForge 預設會提升權限，所以每個終端機命令都會用系統管理員身份執行。傳送前請先檢查指令。後端使用 Windows 文件記載嘅 ConPTY API，並冇嵌入 Windows Terminal 原始碼。")
+                    color: DesignTokens.onErrorContainer(root.dark)
+                    font.family: DesignTokens.fontBody
+                    font.pixelSize: 10
+                    wrapMode: Text.Wrap
+                }
+            }
         }
     }
 
@@ -384,6 +476,9 @@ Item {
             width: parent.width
             text: root.tr("This immediately terminates the shell and every process it started. Unsaved command work can be lost.",
                           "呢個操作會即時終止 shell 同由佢啟動嘅所有程序。未儲存嘅命令工作可能會遺失。")
+            color: root.surfaceForeground
+            font.family: DesignTokens.fontBody
+            font.pixelSize: 13
             wrapMode: Text.Wrap
         }
         onAccepted: root.terminal.forceStop()

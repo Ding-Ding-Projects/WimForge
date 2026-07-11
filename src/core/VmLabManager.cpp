@@ -1,6 +1,7 @@
 #include "VmLabManager.h"
 
 #include "ProcessLaunch.h"
+#include "StructuredLogger.h"
 #include "VmLabVmx.h"
 
 #include <QDir>
@@ -41,12 +42,70 @@ void drainProcess(QProcess &process, ProcessResult &result)
                   &result.standardErrorTruncated);
 }
 
+class ProviderCommandTelemetry final
+{
+public:
+    ProviderCommandTelemetry(const Command &command, const ProcessResult &result)
+        : m_result(result)
+    {
+        m_elapsed.start();
+        StructuredLogger::instance().log(
+            LogSeverity::Debug, QStringLiteral("vmlab"),
+            QStringLiteral("vmlab.provider-command.started"),
+            QStringLiteral("A VM provider command started. / VM 提供者命令已經開始。"),
+            QJsonObject{
+                // Executable names, paths, arguments, working directories,
+                // and stream contents are deliberately excluded.
+                {QStringLiteral("argumentCount"), command.arguments.size()},
+                {QStringLiteral("detached"), command.detached},
+                {QStringLiteral("interruptible"), command.interruptible},
+                {QStringLiteral("timeoutMs"), command.timeoutMs},
+                {QStringLiteral("workingDirectoryProvided"),
+                 !command.workingDirectory.isEmpty()},
+            });
+    }
+
+    ~ProviderCommandTelemetry()
+    {
+        StructuredLogger::instance().log(
+            m_result.ok() ? LogSeverity::Debug : LogSeverity::Error,
+            QStringLiteral("vmlab"),
+            QStringLiteral("vmlab.provider-command.completed"),
+            m_result.ok()
+                ? QStringLiteral("A VM provider command completed. / VM 提供者命令已經完成。")
+                : QStringLiteral("A VM provider command failed. / VM 提供者命令失敗。"),
+            QJsonObject{
+                {QStringLiteral("started"), m_result.started},
+                {QStringLiteral("succeeded"), m_result.ok()},
+                {QStringLiteral("timedOut"), m_result.timedOut},
+                {QStringLiteral("deadlineExceeded"),
+                 m_result.deadlineExceeded},
+                {QStringLiteral("exitCode"), m_result.exitCode},
+                {QStringLiteral("elapsedMs"), m_elapsed.elapsed()},
+                {QStringLiteral("errorPresent"), !m_result.error.isEmpty()},
+                {QStringLiteral("standardOutputBytes"),
+                 static_cast<qint64>(m_result.standardOutput.size())},
+                {QStringLiteral("standardErrorBytes"),
+                 static_cast<qint64>(m_result.standardError.size())},
+                {QStringLiteral("standardOutputTruncated"),
+                 m_result.standardOutputTruncated},
+                {QStringLiteral("standardErrorTruncated"),
+                 m_result.standardErrorTruncated},
+            });
+    }
+
+private:
+    const ProcessResult &m_result;
+    QElapsedTimer m_elapsed;
+};
+
 class BoundedProcessRunner final : public CancelableCommandRunner
 {
 public:
     ProcessResult run(const Command &command) override
     {
         ProcessResult result;
+        [[maybe_unused]] const ProviderCommandTelemetry telemetry(command, result);
         if (!command.valid(&result.error))
             return result;
         if (m_cancelled.load(std::memory_order_acquire)
@@ -58,7 +117,7 @@ public:
             m_mutationStarted = true;
 
         QProcess process;
-        process.setProgram(command.executable);
+        process.setProgram(resolveExecutableForLaunch(command.executable));
         process.setArguments(command.arguments);
         process.setProcessChannelMode(QProcess::SeparateChannels);
         if (!command.workingDirectory.isEmpty())
@@ -1207,10 +1266,21 @@ VmLabManager::VmLabManager(
 {
     qRegisterMetaType<ManagerState>();
     qRegisterMetaType<OperationEvidence>();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.lifecycle.created"),
+        QStringLiteral("VM Lab manager was created. / VM Lab 管理員已經建立。"),
+        QJsonObject{{QStringLiteral("state"), managerStateName(d->state)}});
 }
 
 VmLabManager::~VmLabManager()
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.lifecycle.stopping"),
+        QStringLiteral("VM Lab manager is stopping. / VM Lab 管理員而家停止。"),
+        QJsonObject{{QStringLiteral("state"), managerStateName(d->state)},
+                    {QStringLiteral("busy"), busy()}});
     {
         const std::lock_guard lock(d->runnerMutex);
         if (d->activeRunner)
@@ -1218,6 +1288,10 @@ VmLabManager::~VmLabManager()
     }
     if (d->worker.joinable())
         d->worker.join();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.lifecycle.stopped"),
+        QStringLiteral("VM Lab manager stopped. / VM Lab 管理員已經停止。"));
 }
 
 ManagerState VmLabManager::state() const { return d->state; }
@@ -1266,6 +1340,13 @@ bool VmLabManager::autoRefresh() const { return d->autoRefresh; }
 
 bool VmLabManager::load(QString *error)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.catalog.load.started"),
+        QStringLiteral("VM Lab catalog loading started. / VM Lab 目錄載入已經開始。"),
+        QJsonObject{{QStringLiteral("busy"), busy()},
+                    {QStringLiteral("managedRootAbsolute"),
+                     QFileInfo(d->managedRoot).isAbsolute()}});
     if (busy()) {
         const QString message = QStringLiteral("The VM manager is busy.");
         if (error)
@@ -1316,11 +1397,21 @@ bool VmLabManager::load(QString *error)
     emit snapshotsChanged();
     if (error)
         error->clear();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.catalog.load.completed"),
+        QStringLiteral("VM Lab catalog loaded. / VM Lab 目錄已經載入。"),
+        QJsonObject{{QStringLiteral("machineCount"), d->machines.size()}});
     return true;
 }
 
 bool VmLabManager::selectMachine(const QString &providerId, const QString &id)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Debug, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.selection.requested"),
+        QStringLiteral("A VM selection was requested. / 已經要求選取一部 VM。"),
+        QJsonObject{{QStringLiteral("busy"), busy()}});
     if (busy()) {
         setError(QStringLiteral("Wait for the current VM Lab task before changing selection."));
         return false;
@@ -1340,6 +1431,10 @@ bool VmLabManager::selectMachine(const QString &providerId, const QString &id)
     clearReviewedPlan();
     emit selectionChanged();
     emit snapshotsChanged();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.selection.changed"),
+        QStringLiteral("The selected VM changed. / 已選 VM 已經改變。"));
     return true;
 }
 
@@ -1352,12 +1447,24 @@ void VmLabManager::clearSelection()
     clearReviewedPlan();
     emit selectionChanged();
     emit snapshotsChanged();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.selection.cleared"),
+        QStringLiteral("The VM selection was cleared. / VM 選取已經清除。"));
 }
 
 bool VmLabManager::startAsync(const QString &action,
                               ManagerState stateValue,
                               AsyncWork work)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.action.requested"),
+        QStringLiteral("A VM Lab action was requested. / 已經要求執行 VM Lab 動作。"),
+        QJsonObject{{QStringLiteral("action"), action},
+                    {QStringLiteral("requestedState"),
+                     managerStateName(stateValue)},
+                    {QStringLiteral("busy"), busy()}});
     if (busy()) {
         setError(QStringLiteral("A VM Lab task is already running."));
         return false;
@@ -1381,6 +1488,14 @@ bool VmLabManager::startAsync(const QString &action,
     setState(stateValue);
     const QUuid evidenceId = QUuid::createUuid();
     const QDateTime startedAt = QDateTime::currentDateTimeUtc();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.action.started"),
+        QStringLiteral("A VM Lab action started. / VM Lab 動作已經開始。"),
+        QJsonObject{{QStringLiteral("action"), action},
+                    {QStringLiteral("evidenceId"),
+                     evidenceId.toString(QUuid::WithoutBraces)},
+                    {QStringLiteral("state"), managerStateName(stateValue)}});
     d->worker = std::jthread(
         [this, runner, work = std::move(work), action, evidenceId, startedAt] {
             RecordingRunner recording(*runner);
@@ -1535,6 +1650,10 @@ bool VmLabManager::cancel()
         return false;
     runner->requestCancel();
     setState(ManagerState::Cancelling);
+    StructuredLogger::instance().log(
+        LogSeverity::Warning, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.action.cancel-requested"),
+        QStringLiteral("Cancellation was requested for the VM Lab action. / 已經要求取消 VM Lab 動作。"));
     return true;
 }
 
@@ -1669,6 +1788,31 @@ void VmLabManager::finishAsync(const std::shared_ptr<AsyncResult> &result)
     emit evidenceAdded(result->evidence);
     emit taskFinished(result->evidence);
 
+    StructuredLogger::instance().log(
+        result->success ? LogSeverity::Info
+                        : (result->cancelled ? LogSeverity::Warning
+                                             : LogSeverity::Error),
+        QStringLiteral("vmlab"), QStringLiteral("vmlab.action.completed"),
+        result->success
+            ? QStringLiteral("The VM Lab action completed. / VM Lab 動作已經完成。")
+            : (result->cancelled
+                   ? QStringLiteral("The VM Lab action was cancelled. / VM Lab 動作已經取消。")
+                   : QStringLiteral("The VM Lab action failed. / VM Lab 動作失敗。")),
+        QJsonObject{
+            {QStringLiteral("action"), result->evidence.action},
+            {QStringLiteral("evidenceId"),
+             result->evidence.id.toString(QUuid::WithoutBraces)},
+            {QStringLiteral("success"), result->success},
+            {QStringLiteral("cancelled"), result->cancelled},
+            {QStringLiteral("errorPresent"), !d->lastError.isEmpty()},
+            {QStringLiteral("durationMs"),
+             result->evidence.startedAt.msecsTo(result->evidence.finishedAt)},
+            {QStringLiteral("providerCommandCount"),
+             result->evidence.commands.size()},
+            {QStringLiteral("verifiedFileCount"),
+             result->evidence.files.size()},
+        });
+
     if (queueRefresh) {
         QMetaObject::invokeMethod(
             this, [this] { refreshInventory(); }, Qt::QueuedConnection);
@@ -1686,8 +1830,15 @@ void VmLabManager::setState(ManagerState stateValue)
 void VmLabManager::setError(const QString &error)
 {
     d->lastError = error;
-    if (!error.isEmpty())
+    if (!error.isEmpty()) {
+        StructuredLogger::instance().log(
+            LogSeverity::Warning, QStringLiteral("vmlab"),
+            QStringLiteral("vmlab.request.rejected"),
+            QStringLiteral("A VM Lab request was rejected; diagnostic contents were omitted from logging. / VM Lab 要求被拒絕；記錄已經省略診斷內容。"),
+            QJsonObject{{QStringLiteral("state"), managerStateName(d->state)},
+                        {QStringLiteral("diagnosticPresent"), true}});
         emit errorOccurred(error);
+    }
 }
 
 std::optional<ProviderInfo> VmLabManager::provider(const QString &id) const
@@ -1702,6 +1853,13 @@ std::optional<ProviderInfo> VmLabManager::provider(const QString &id) const
 
 std::optional<OperationPreview> VmLabManager::review(OperationRequest request)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.review.requested"),
+        QStringLiteral("A VM Lab operation review was requested. / 已經要求檢視 VM Lab 操作。"),
+        QJsonObject{{QStringLiteral("action"), managerActionName(request.action)},
+                    {QStringLiteral("loaded"), d->loaded},
+                    {QStringLiteral("busy"), busy()}});
     if (!d->loaded) {
         setError(QStringLiteral("Load the VM catalog before reviewing operations."));
         return std::nullopt;
@@ -1740,6 +1898,20 @@ std::optional<OperationPreview> VmLabManager::review(OperationRequest request)
     d->reviewedRequest = request;
     d->lastError.clear();
     emit reviewedPlanChanged();
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.review.completed"),
+        QStringLiteral("The VM Lab operation preview is ready. / VM Lab 操作預覽已經準備好。"),
+        QJsonObject{{QStringLiteral("action"), managerActionName(request.action)},
+                    {QStringLiteral("previewId"),
+                     plan.preview.id.toString(QUuid::WithoutBraces)},
+                    {QStringLiteral("risk"), riskName(plan.preview.risk)},
+                    {QStringLiteral("providerCommandCount"),
+                     plan.preview.commands.size()},
+                    {QStringLiteral("warningCount"),
+                     plan.preview.warnings.size()},
+                    {QStringLiteral("confirmationRequired"),
+                     !plan.preview.confirmation.isEmpty()}});
     return plan.preview;
 }
 
@@ -2005,6 +2177,14 @@ std::optional<OperationPreview> VmLabManager::reviewDelete()
 bool VmLabManager::executeReviewed(const QUuid &previewId,
                                    const QString &typedConfirmation)
 {
+    StructuredLogger::instance().log(
+        LogSeverity::Info, QStringLiteral("vmlab"),
+        QStringLiteral("vmlab.execution.requested"),
+        QStringLiteral("Execution of a reviewed VM Lab operation was requested. / 已經要求執行檢視過嘅 VM Lab 操作。"),
+        QJsonObject{{QStringLiteral("previewIdPresent"), !previewId.isNull()},
+                    {QStringLiteral("confirmationProvided"),
+                     !typedConfirmation.isEmpty()},
+                    {QStringLiteral("reviewedPlanPresent"), d->reviewed.has_value()}});
     if (!d->reviewed || !d->reviewedRequest
         || previewId.isNull() || d->reviewed->preview.id != previewId) {
         setError(QStringLiteral("Execute only the exact operation preview currently under review."));
