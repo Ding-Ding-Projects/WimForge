@@ -22,6 +22,8 @@ namespace {
 
 constexpr auto UnattendNamespace = "urn:schemas-microsoft-com:unattend";
 constexpr auto WcmNamespace = "http://schemas.microsoft.com/WMIConfig/2002/State";
+constexpr auto InternalIdentityAttribute = "_wimforgeInternalIdentity";
+constexpr auto GeneratedComputerNameIdentity = "generated-computer-name";
 
 void setError(QString *target, const QString &value)
 {
@@ -124,6 +126,8 @@ void writeNode(QXmlStreamWriter &writer, const TreeNode &node)
 {
     writer.writeStartElement(node.name);
     for (auto it = node.attributes.cbegin(); it != node.attributes.cend(); ++it) {
+        if (it.key() == QString::fromLatin1(InternalIdentityAttribute))
+            continue;
         if (it.key().startsWith(QStringLiteral("wcm:")))
             writer.writeAttribute(QString::fromLatin1(WcmNamespace), it.key().mid(4), it.value());
         else
@@ -164,24 +168,121 @@ bool isFirstLogonCommandSetting(const UnattendSetting &setting)
         && setting.path.at(1).name == QStringLiteral("SynchronousCommand");
 }
 
-void removeGeneratedComputerNameCommand(UnattendProfile &profile)
+bool hasGeneratedComputerNameIdentity(const UnattendSetting &setting)
 {
-    QList<QMap<QString, QString>> generatedCommandAttributes;
+    return isFirstLogonCommandSetting(setting)
+        && setting.path.at(1).attributes.value(
+               QString::fromLatin1(InternalIdentityAttribute))
+            == QString::fromLatin1(GeneratedComputerNameIdentity);
+}
+
+bool isComputerNameSetting(const UnattendSetting &setting)
+{
+    return (setting.pass == SetupPass::OfflineServicing
+            || setting.pass == SetupPass::Specialize)
+        && setting.component == QStringLiteral("Microsoft-Windows-Shell-Setup")
+        && setting.path.size() == 1
+        && setting.path.first().name == QStringLiteral("ComputerName");
+}
+
+bool isValidFixedComputerName(const QString &name)
+{
+    const QByteArray bytes = name.toUtf8();
+    static const QRegularExpression allowed(QStringLiteral("^[A-Za-z0-9-]+$"));
+    return !bytes.isEmpty() && bytes.size() <= 15 && allowed.match(name).hasMatch()
+        && !name.startsWith(QLatin1Char('-')) && !name.endsWith(QLatin1Char('-'))
+        && !name.contains(QRegularExpression(QStringLiteral("^[0-9]+$")));
+}
+
+void inferComputerNameIntentFromXml(UnattendProfile &profile)
+{
+    QString fixedName;
     for (const UnattendSetting &setting : std::as_const(profile.settings)) {
-        if (isFirstLogonCommandSetting(setting)
-            && setting.path.at(2).name == QStringLiteral("Description")
-            && (setting.value == QStringLiteral("WimForge computer-name prompt")
-                || setting.value == QStringLiteral("WimForge serial-number computer name"))) {
-            generatedCommandAttributes.append(setting.path.at(1).attributes);
+        if (!isComputerNameSetting(setting)
+            || setting.value.isEmpty() || setting.value == QStringLiteral("*")) {
+            continue;
+        }
+        if (fixedName.isEmpty())
+            fixedName = setting.value;
+    }
+    if (!fixedName.isEmpty()) {
+        profile.computerNameMode = ComputerNameMode::Fixed;
+        profile.computerName = fixedName;
+    }
+}
+
+void markLegacyGeneratedComputerNameCommands(UnattendProfile &profile)
+{
+    const QString internalKey = QString::fromLatin1(InternalIdentityAttribute);
+    for (qsizetype descriptionIndex = 0;
+         descriptionIndex < profile.settings.size();
+         ++descriptionIndex) {
+        const UnattendSetting &description = profile.settings.at(descriptionIndex);
+        if (!isFirstLogonCommandSetting(description)
+            || description.path.at(2).name != QStringLiteral("Description")
+            || description.path.at(1).attributes.value(internalKey)
+                == QString::fromLatin1(GeneratedComputerNameIdentity)
+            || (description.value != QStringLiteral("WimForge computer-name prompt")
+                && description.value
+                    != QStringLiteral("WimForge serial-number computer name"))) {
+            continue;
+        }
+
+        const QMap<QString, QString> commandAttributes = description.path.at(1).attributes;
+        QList<qsizetype> commandSettings;
+        QMap<QString, qsizetype> leafCounts;
+        QMap<QString, QString> leafValues;
+        for (qsizetype index = 0; index < profile.settings.size(); ++index) {
+            const UnattendSetting &candidate = profile.settings.at(index);
+            if (!isFirstLogonCommandSetting(candidate)
+                || candidate.architecture != description.architecture
+                || candidate.publicKeyToken != description.publicKeyToken
+                || candidate.language != description.language
+                || candidate.versionScope != description.versionScope
+                || candidate.path.at(1).attributes != commandAttributes) {
+                continue;
+            }
+            const QString leaf = candidate.path.at(2).name;
+            commandSettings.append(index);
+            leafCounts[leaf] += 1;
+            leafValues.insert(leaf, candidate.value);
+        }
+
+        const bool hasOneOfEachLeaf = commandSettings.size() == 4
+            && leafCounts.value(QStringLiteral("Order")) == 1
+            && leafCounts.value(QStringLiteral("Description")) == 1
+            && leafCounts.value(QStringLiteral("CommandLine")) == 1
+            && leafCounts.value(QStringLiteral("RequiresUserInput")) == 1;
+        if (!hasOneOfEachLeaf || leafValues.value(QStringLiteral("Order")) != QStringLiteral("1"))
+            continue;
+
+        const QString commandLine = leafValues.value(QStringLiteral("CommandLine"));
+        const QString requiresInput = leafValues.value(QStringLiteral("RequiresUserInput"));
+        const bool promptSignature = description.value
+                == QStringLiteral("WimForge computer-name prompt")
+            && commandLine == UnattendBuilder::computerNamePromptCommand()
+            && requiresInput == QStringLiteral("true");
+        const bool serialSignature = description.value
+                == QStringLiteral("WimForge serial-number computer name")
+            && commandLine.contains(QStringLiteral("Get-CimInstance Win32_BIOS"))
+            && commandLine.contains(QStringLiteral("Rename-Computer"))
+            && requiresInput == QStringLiteral("false");
+        if (!promptSignature && !serialSignature)
+            continue;
+
+        for (const qsizetype index : std::as_const(commandSettings)) {
+            profile.settings[index].path[1].attributes.insert(
+                internalKey, QString::fromLatin1(GeneratedComputerNameIdentity));
         }
     }
+}
 
+void removeGeneratedComputerNameCommand(UnattendProfile &profile)
+{
     for (qsizetype index = profile.settings.size(); index > 0; --index) {
         const UnattendSetting &setting = profile.settings.at(index - 1);
-        if (isFirstLogonCommandSetting(setting)
-            && generatedCommandAttributes.contains(setting.path.at(1).attributes)) {
+        if (hasGeneratedComputerNameIdentity(setting))
             profile.settings.removeAt(index - 1);
-        }
     }
 }
 
@@ -192,7 +293,9 @@ void setGeneratedComputerNameCommandValue(UnattendProfile &profile,
     const QList<UnattendPathSegment> path{
         segment(QStringLiteral("FirstLogonCommands")),
         segment(QStringLiteral("SynchronousCommand"),
-                {{QStringLiteral("wcm:action"), QStringLiteral("add")}}),
+                {{QStringLiteral("wcm:action"), QStringLiteral("add")},
+                 {QString::fromLatin1(InternalIdentityAttribute),
+                  QString::fromLatin1(GeneratedComputerNameIdentity)}}),
         segment(leaf),
     };
     const QString wanted = pathKey(path);
@@ -335,11 +438,27 @@ std::optional<UnattendProfile> UnattendProfile::fromJson(const QJsonObject &json
     profile.dualArchitecture = placement.value(QStringLiteral("dualArchitecture")).toBool(false);
     profile.promptEditionSelection = placement.value(QStringLiteral("promptEditionSelection")).toBool(false);
     const QJsonObject computer = json.value(QStringLiteral("computerName")).toObject();
-    const int mode = computer.value(QStringLiteral("mode")).toInt(0);
-    if (mode < 0 || mode > static_cast<int>(ComputerNameMode::SerialNumber))
-        errors.append(QStringLiteral("Unknown computer-name mode."));
-    else
-        profile.computerNameMode = static_cast<ComputerNameMode>(mode);
+    const QJsonValue modeValue = computer.value(QStringLiteral("mode"));
+    if (modeValue.isUndefined()) {
+        // Schema-v1 profiles created before computer-name modes were serialized
+        // relied on Random being the default. Preserve that compatibility while
+        // still rejecting malformed values when the property is present.
+        profile.computerNameMode = ComputerNameMode::Random;
+    } else if (!modeValue.isDouble()) {
+        errors.append(QStringLiteral("computerName.mode must be an integer."));
+    } else {
+        const double numericMode = modeValue.toDouble();
+        if (numericMode < 0.0
+            || numericMode > static_cast<double>(ComputerNameMode::SerialNumber)) {
+            errors.append(QStringLiteral("Unknown computer-name mode."));
+        } else {
+            const int mode = static_cast<int>(numericMode);
+            if (numericMode != static_cast<double>(mode))
+                errors.append(QStringLiteral("computerName.mode must be an integer."));
+            else
+                profile.computerNameMode = static_cast<ComputerNameMode>(mode);
+        }
+    }
     profile.computerName = computer.value(QStringLiteral("value")).toString();
     profile.serialPrefix = computer.value(QStringLiteral("serialPrefix")).toString();
     profile.metadata = json.value(QStringLiteral("metadata")).toObject();
@@ -348,6 +467,7 @@ std::optional<UnattendProfile> UnattendProfile::fromJson(const QJsonObject &json
         setError(error, errors.join(QLatin1Char('\n')));
         return std::nullopt;
     }
+    markLegacyGeneratedComputerNameCommands(profile);
     setError(error, {});
     return profile;
 }
@@ -369,6 +489,7 @@ std::optional<UnattendProfile> UnattendProfile::importXml(const QString &path, Q
     QString language = QStringLiteral("neutral");
     QString scope = QStringLiteral("nonSxS");
     QList<UnattendPathSegment> pathStack;
+    qsizetype firstLogonCommandOrdinal = 0;
 
     while (!reader.atEnd()) {
         reader.readNext();
@@ -391,6 +512,14 @@ std::optional<UnattendProfile> UnattendProfile::importXml(const QString &path, Q
                         ? attribute.name().toString()
                         : prefix + QLatin1Char(':') + attribute.name().toString();
                     attributes.insert(key, attribute.value().toString());
+                }
+                if (name == QStringLiteral("SynchronousCommand")
+                    && !pathStack.isEmpty()
+                    && pathStack.back().name == QStringLiteral("FirstLogonCommands")) {
+                    attributes.insert(
+                        QString::fromLatin1(InternalIdentityAttribute),
+                        QStringLiteral("imported-first-logon-%1")
+                            .arg(++firstLogonCommandOrdinal));
                 }
                 pathStack.append(UnattendPathSegment{name, attributes});
             }
@@ -417,6 +546,8 @@ std::optional<UnattendProfile> UnattendProfile::importXml(const QString &path, Q
                             .arg(reader.lineNumber()).arg(reader.errorString()));
         return std::nullopt;
     }
+    inferComputerNameIntentFromXml(profile);
+    markLegacyGeneratedComputerNameCommands(profile);
     setError(error, {});
     return profile;
 }
@@ -514,16 +645,15 @@ UnattendValidation UnattendProfile::validate() const
     if (!copyToMediaRoot && !copyToInstallImage && !copyToBootImage)
         result.warnings.append(QStringLiteral("The answer file has no configured deployment destination."));
     if (computerNameMode == ComputerNameMode::Fixed) {
-        const QByteArray bytes = computerName.toUtf8();
-        const QRegularExpression allowed(QStringLiteral("^[A-Za-z0-9-]+$"));
-        if (bytes.isEmpty() || bytes.size() > 15 || !allowed.match(computerName).hasMatch()
-            || computerName.startsWith(QLatin1Char('-')) || computerName.endsWith(QLatin1Char('-'))
-            || computerName.contains(QRegularExpression(QStringLiteral("^[0-9]+$")))) {
+        if (!isValidFixedComputerName(computerName)) {
             result.errors.append(QStringLiteral("Fixed computer name must be 1-15 bytes, use only letters, numbers and hyphens, not be numeric-only, and not begin/end with a hyphen."));
         }
     }
     if (computerName == QStringLiteral("[Prompt]"))
         result.errors.append(QStringLiteral("[Prompt] is an editor convention, not a valid Microsoft ComputerName value. Use Prompt mode."));
+
+    bool hasComputerNameSetting = false;
+    bool computerNameMismatchReported = false;
     for (qsizetype index = 0; index < settings.size(); ++index) {
         const UnattendSetting &setting = settings.at(index);
         if (setting.component.trimmed().isEmpty() || setting.path.isEmpty())
@@ -531,7 +661,34 @@ UnattendValidation UnattendProfile::validate() const
         for (const UnattendPathSegment &entry : setting.path)
             if (entry.name.trimmed().isEmpty())
                 result.errors.append(QStringLiteral("Setting %1 contains an empty path segment.").arg(index));
+
+        if (!isComputerNameSetting(setting))
+            continue;
+        hasComputerNameSetting = true;
+        const bool generatedName = setting.value.isEmpty()
+            || setting.value == QStringLiteral("*");
+        if (!generatedName && setting.value == QStringLiteral("[Prompt]")) {
+            result.errors.append(QStringLiteral(
+                "ComputerName setting %1 contains [Prompt], which is an editor convention rather than a Microsoft value.")
+                                     .arg(index));
+        } else if (!generatedName && !isValidFixedComputerName(setting.value)) {
+            result.errors.append(QStringLiteral(
+                "ComputerName setting %1 must be *, empty, or a valid fixed computer name.")
+                                     .arg(index));
+        }
+
+        const bool matchesIntent = computerNameMode == ComputerNameMode::Fixed
+            ? setting.value == computerName
+            : generatedName;
+        if (!matchesIntent && !computerNameMismatchReported) {
+            result.errors.append(QStringLiteral(
+                "Computer-name intent does not match the effective Microsoft ComputerName setting."));
+            computerNameMismatchReported = true;
+        }
     }
+    if (computerNameMode == ComputerNameMode::Fixed && !hasComputerNameSetting)
+        result.errors.append(QStringLiteral(
+            "Fixed computer-name mode requires an effective Microsoft ComputerName setting."));
     return result;
 }
 
@@ -577,15 +734,20 @@ void UnattendProfile::applyComputerNameBehavior()
 {
     const QString shell = QStringLiteral("Microsoft-Windows-Shell-Setup");
     removeGeneratedComputerNameCommand(*this);
+    const QString effectiveName = computerNameMode == ComputerNameMode::Fixed
+        ? computerName : QStringLiteral("*");
+    setValue(SetupPass::Specialize, shell,
+             {QStringLiteral("ComputerName")}, effectiveName);
+    for (UnattendSetting &setting : settings) {
+        if (isComputerNameSetting(setting))
+            setting.value = effectiveName;
+    }
     switch (computerNameMode) {
     case ComputerNameMode::Random:
-        setValue(SetupPass::Specialize, shell, {QStringLiteral("ComputerName")}, QStringLiteral("*"));
         break;
     case ComputerNameMode::Fixed:
-        setValue(SetupPass::Specialize, shell, {QStringLiteral("ComputerName")}, computerName);
         break;
     case ComputerNameMode::Prompt:
-        setValue(SetupPass::Specialize, shell, {QStringLiteral("ComputerName")}, QStringLiteral("*"));
         setGeneratedComputerNameCommandValue(*this, QStringLiteral("Order"), QStringLiteral("1"));
         setGeneratedComputerNameCommandValue(
             *this, QStringLiteral("Description"), QStringLiteral("WimForge computer-name prompt"));
@@ -595,7 +757,6 @@ void UnattendProfile::applyComputerNameBehavior()
             *this, QStringLiteral("RequiresUserInput"), QStringLiteral("true"));
         break;
     case ComputerNameMode::SerialNumber:
-        setValue(SetupPass::Specialize, shell, {QStringLiteral("ComputerName")}, QStringLiteral("*"));
         setGeneratedComputerNameCommandValue(*this, QStringLiteral("Order"), QStringLiteral("1"));
         setGeneratedComputerNameCommandValue(
             *this, QStringLiteral("Description"), QStringLiteral("WimForge serial-number computer name"));

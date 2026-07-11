@@ -125,6 +125,48 @@ int firstLogonCommandSettingCount(const UnattendProfile &profile)
     return result;
 }
 
+void appendFirstLogonCommand(UnattendProfile &profile,
+                             const QString &order,
+                             const QString &description,
+                             const QString &commandLine,
+                             const QString &requiresUserInput)
+{
+    const auto appendLeaf = [&](const QString &leaf, const QString &value) {
+        profile.settings.append(setting(
+            SetupPass::OobeSystem,
+            QStringLiteral("Microsoft-Windows-Shell-Setup"),
+            {
+                {QStringLiteral("FirstLogonCommands"), {}},
+                {QStringLiteral("SynchronousCommand"),
+                 {{QStringLiteral("wcm:action"), QStringLiteral("add")}}},
+                {leaf, {}},
+            },
+            value));
+    };
+    appendLeaf(QStringLiteral("Order"), order);
+    appendLeaf(QStringLiteral("Description"), description);
+    appendLeaf(QStringLiteral("CommandLine"), commandLine);
+    appendLeaf(QStringLiteral("RequiresUserInput"), requiresUserInput);
+}
+
+bool hasFirstLogonLeafValue(const UnattendProfile &profile,
+                            const QString &leaf,
+                            const QString &value)
+{
+    for (const UnattendSetting &candidate : profile.settings) {
+        if (candidate.pass == SetupPass::OobeSystem
+            && candidate.component == QStringLiteral("Microsoft-Windows-Shell-Setup")
+            && candidate.path.size() == 3
+            && candidate.path.at(0).name == QStringLiteral("FirstLogonCommands")
+            && candidate.path.at(1).name == QStringLiteral("SynchronousCommand")
+            && candidate.path.at(2).name == leaf
+            && candidate.value == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void testPasses(TestRun &test, const QString &temporaryRoot)
 {
     struct PassCase {
@@ -334,11 +376,124 @@ void testJsonAndXmlPreservation(TestRun &test, const QString &temporaryRoot)
                QStringLiteral("JSON import rejects unknown setup passes"));
 }
 
+void testComputerNameJsonAndXmlCoherence(TestRun &test, const QString &temporaryRoot)
+{
+    QString error;
+    const QJsonObject validJson = UnattendBuilder::fullAutomationTemplate().toJson();
+    const auto rejectMode = [&](const QJsonValue &mode,
+                                const QString &expectedError,
+                                const QString &context) {
+        QJsonObject candidate = validJson;
+        QJsonObject computer = candidate.value(QStringLiteral("computerName")).toObject();
+        computer.insert(QStringLiteral("mode"), mode);
+        candidate.insert(QStringLiteral("computerName"), computer);
+        const auto imported = UnattendProfile::fromJson(candidate, &error);
+        test.check(!imported && error.contains(expectedError, Qt::CaseInsensitive), context);
+    };
+    rejectMode(QStringLiteral("fixed"), QStringLiteral("integer"),
+               QStringLiteral("JSON rejects a string computer-name mode"));
+    rejectMode(QJsonValue::Null, QStringLiteral("integer"),
+               QStringLiteral("JSON rejects an explicit null computer-name mode"));
+    rejectMode(1.5, QStringLiteral("integer"),
+               QStringLiteral("JSON rejects a fractional computer-name mode"));
+    rejectMode(4, QStringLiteral("unknown computer-name mode"),
+               QStringLiteral("JSON rejects an out-of-range computer-name mode"));
+
+    QJsonObject legacyJson = validJson;
+    QJsonObject legacyComputer = legacyJson.value(QStringLiteral("computerName")).toObject();
+    legacyComputer.remove(QStringLiteral("mode"));
+    legacyJson.insert(QStringLiteral("computerName"), legacyComputer);
+    const auto legacyProfile = UnattendProfile::fromJson(legacyJson, &error);
+    test.check(legacyProfile
+                   && legacyProfile->computerNameMode == ComputerNameMode::Random,
+               QStringLiteral("schema-v1 JSON without computerName.mode retains the Random default"));
+
+    QJsonObject minimalLegacyJson = validJson;
+    minimalLegacyJson.remove(QStringLiteral("computerName"));
+    const auto minimalLegacyProfile = UnattendProfile::fromJson(minimalLegacyJson, &error);
+    test.check(minimalLegacyProfile
+                   && minimalLegacyProfile->computerNameMode == ComputerNameMode::Random,
+               QStringLiteral("schema-v1 JSON without computerName retains the Random default"));
+
+    QJsonObject mismatchedJson = validJson;
+    QJsonObject computer = mismatchedJson.value(QStringLiteral("computerName")).toObject();
+    computer.insert(QStringLiteral("mode"), static_cast<int>(ComputerNameMode::Fixed));
+    computer.insert(QStringLiteral("value"), QStringLiteral("JSON-FIXED"));
+    mismatchedJson.insert(QStringLiteral("computerName"), computer);
+    const auto mismatched = UnattendProfile::fromJson(mismatchedJson, &error);
+    test.check(mismatched.has_value(),
+               QStringLiteral("structurally valid mismatched JSON still imports for diagnosis"));
+    if (mismatched) {
+        const UnattendValidation validation = mismatched->validate();
+        test.check(!validation.ok() && hasError(validation, QStringLiteral("intent")),
+                   QStringLiteral("fixed JSON cannot silently retain an effective random name"));
+        test.check(mismatched->toXml(&error).isEmpty()
+                       && error.contains(QStringLiteral("intent"), Qt::CaseInsensitive),
+                   QStringLiteral("a fixed-name intent mismatch cannot reach XML"));
+    }
+
+    const auto answerXml = [](const QByteArray &computerName) {
+        return QByteArrayLiteral(
+                   "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                   "<unattend xmlns=\"urn:schemas-microsoft-com:unattend\">"
+                   "<settings pass=\"specialize\">"
+                   "<component name=\"Microsoft-Windows-Shell-Setup\" "
+                   "processorArchitecture=\"amd64\" publicKeyToken=\"31bf3856ad364e35\" "
+                   "language=\"neutral\" versionScope=\"nonSxS\">"
+                   "<ComputerName>")
+            + computerName
+            + QByteArrayLiteral("</ComputerName></component></settings></unattend>");
+    };
+
+    const QString fixedXmlPath = QDir(temporaryRoot).filePath(
+        QStringLiteral("computer-name/imported-fixed.xml"));
+    test.check(writeFile(fixedXmlPath, answerXml(QByteArrayLiteral("IMPORTED-PC"))),
+               QStringLiteral("fixed-name XML fixture is writable"));
+    const auto fixedXml = UnattendProfile::importXml(fixedXmlPath, &error);
+    test.check(fixedXml && fixedXml->computerNameMode == ComputerNameMode::Fixed
+                   && fixedXml->computerName == QStringLiteral("IMPORTED-PC")
+                   && fixedXml->validate().ok(),
+               QStringLiteral("XML import infers a coherent fixed computer-name intent: %1")
+                   .arg(error));
+    if (fixedXml) {
+        const QByteArray exported = fixedXml->toXml(&error);
+        test.check(exported.contains(QByteArrayLiteral("<ComputerName>IMPORTED-PC")),
+                   QStringLiteral("an imported fixed name remains exportable"));
+    }
+
+    const QString randomXmlPath = QDir(temporaryRoot).filePath(
+        QStringLiteral("computer-name/imported-random.xml"));
+    test.check(writeFile(randomXmlPath, answerXml(QByteArrayLiteral("*"))),
+               QStringLiteral("random-name XML fixture is writable"));
+    const auto randomXml = UnattendProfile::importXml(randomXmlPath, &error);
+    test.check(randomXml && randomXml->computerNameMode == ComputerNameMode::Random
+                   && randomXml->validate().ok(),
+               QStringLiteral("legitimate random-name XML retains normal import behavior: %1")
+                   .arg(error));
+
+    const QString invalidXmlPath = QDir(temporaryRoot).filePath(
+        QStringLiteral("computer-name/imported-literal-prompt.xml"));
+    test.check(writeFile(invalidXmlPath, answerXml(QByteArrayLiteral("[Prompt]"))),
+               QStringLiteral("invalid computer-name XML fixture is writable"));
+    const auto invalidXml = UnattendProfile::importXml(invalidXmlPath, &error);
+    test.check(invalidXml && invalidXml->computerNameMode == ComputerNameMode::Fixed
+                   && invalidXml->computerName == QStringLiteral("[Prompt]"),
+               QStringLiteral("XML import exposes the invalid literal as fixed intent"));
+    if (invalidXml) {
+        const UnattendValidation validation = invalidXml->validate();
+        test.check(!validation.ok() && hasError(validation, QStringLiteral("editor convention")),
+                   QStringLiteral("an imported [Prompt] literal is caught by validation"));
+        test.check(invalidXml->toXml(&error).isEmpty(),
+                   QStringLiteral("an imported invalid ComputerName cannot be re-exported"));
+    }
+}
+
 UnattendValidation validateFixedName(const QString &name)
 {
     UnattendProfile profile;
     profile.computerNameMode = ComputerNameMode::Fixed;
     profile.computerName = name;
+    profile.applyComputerNameBehavior();
     return profile.validate();
 }
 
@@ -434,6 +589,28 @@ void testComputerNameModes(TestRun &test)
     test.check(firstLogonCommandSettingCount(fixed) == 0,
                QStringLiteral("Fixed mode does not add a rename command"));
 
+    UnattendProfile multiPass;
+    multiPass.setValue(SetupPass::OfflineServicing, shell,
+                       {QStringLiteral("ComputerName")}, QStringLiteral("OLD-NAME"));
+    multiPass.computerNameMode = ComputerNameMode::Fixed;
+    multiPass.computerName = QStringLiteral("NEW-NAME");
+    multiPass.applyComputerNameBehavior();
+    test.check(multiPass.validate().ok()
+                   && multiPass.value(SetupPass::OfflineServicing, shell,
+                                      {QStringLiteral("ComputerName")})
+                       == QStringLiteral("NEW-NAME")
+                   && multiPass.value(SetupPass::Specialize, shell,
+                                      {QStringLiteral("ComputerName")})
+                       == QStringLiteral("NEW-NAME"),
+               QStringLiteral("mode changes keep offlineServicing and specialize names coherent"));
+    multiPass.computerNameMode = ComputerNameMode::Random;
+    multiPass.applyComputerNameBehavior();
+    test.check(multiPass.validate().ok()
+                   && multiPass.value(SetupPass::OfflineServicing, shell,
+                                      {QStringLiteral("ComputerName")})
+                       == QStringLiteral("*"),
+               QStringLiteral("Random mode also clears a stale offline fixed name"));
+
     UnattendProfile prompt;
     prompt.computerNameMode = ComputerNameMode::Prompt;
     prompt.applyComputerNameBehavior();
@@ -505,6 +682,93 @@ void testComputerNameModes(TestRun &test)
                             {QStringLiteral("ComputerName")}) == QStringLiteral("*")
                    && firstLogonCommandSettingCount(serial) == 0,
                QStringLiteral("switching Serial to Random removes the generated serial command"));
+}
+
+void testGeneratedCommandIsolation(TestRun &test, const QString &temporaryRoot)
+{
+    const QString unrelatedDescription = QStringLiteral("Keep this deployment command");
+    const QString unrelatedCommand = QStringLiteral("cmd.exe /c echo unrelated-command");
+
+    UnattendProfile profile;
+    profile.applyComputerNameBehavior();
+    appendFirstLogonCommand(profile, QStringLiteral("7"), unrelatedDescription,
+                            unrelatedCommand, QStringLiteral("false"));
+
+    profile.computerNameMode = ComputerNameMode::Prompt;
+    profile.applyComputerNameBehavior();
+    test.check(firstLogonCommandSettingCount(profile) == 8
+                   && hasFirstLogonLeafValue(profile, QStringLiteral("Description"),
+                                             unrelatedDescription)
+                   && hasFirstLogonLeafValue(profile, QStringLiteral("CommandLine"),
+                                             unrelatedCommand)
+                   && hasFirstLogonLeafValue(
+                       profile, QStringLiteral("Description"),
+                       QStringLiteral("WimForge computer-name prompt")),
+               QStringLiteral("Prompt mode remains isolated from an unrelated first-logon command"));
+
+    QString error;
+    const QByteArray promptXml = profile.toXml(&error);
+    test.check(!promptXml.isEmpty() && error.isEmpty()
+                   && promptXml.count(QByteArrayLiteral("<SynchronousCommand")) == 2
+                   && promptXml.contains(unrelatedDescription.toUtf8())
+                   && promptXml.contains(QByteArrayLiteral("WimForge computer-name prompt"))
+                   && !promptXml.contains(QByteArrayLiteral("_wimforgeInternalIdentity")),
+               QStringLiteral("XML renders generated and unrelated commands as distinct clean siblings"));
+
+    const QString promptXmlPath = QDir(temporaryRoot).filePath(
+        QStringLiteral("computer-name/two-first-logon-commands.xml"));
+    test.check(writeFile(promptXmlPath, promptXml),
+               QStringLiteral("multi-command XML fixture is writable"));
+    const auto imported = UnattendProfile::importXml(promptXmlPath, &error);
+    test.check(imported && firstLogonCommandSettingCount(*imported) == 8
+                   && hasFirstLogonLeafValue(*imported, QStringLiteral("Description"),
+                                             unrelatedDescription),
+               QStringLiteral("XML import keeps indistinguishable-at-schema-level command siblings: %1")
+                   .arg(error));
+    if (imported) {
+        UnattendProfile fixedAfterImport = *imported;
+        fixedAfterImport.computerNameMode = ComputerNameMode::Fixed;
+        fixedAfterImport.computerName = QStringLiteral("AFTER-IMPORT");
+        fixedAfterImport.applyComputerNameBehavior();
+        const QByteArray fixedXml = fixedAfterImport.toXml(&error);
+        test.check(fixedAfterImport.validate().ok()
+                       && firstLogonCommandSettingCount(fixedAfterImport) == 4
+                       && hasFirstLogonLeafValue(
+                           fixedAfterImport, QStringLiteral("Description"),
+                           unrelatedDescription)
+                       && !hasFirstLogonLeafValue(
+                           fixedAfterImport, QStringLiteral("Description"),
+                           QStringLiteral("WimForge computer-name prompt"))
+                       && fixedXml.count(QByteArrayLiteral("<SynchronousCommand")) == 1
+                       && fixedXml.contains(unrelatedDescription.toUtf8()),
+                   QStringLiteral("switching imported Prompt XML to Fixed removes only WimForge's command"));
+    }
+
+    profile.computerNameMode = ComputerNameMode::SerialNumber;
+    profile.serialPrefix = QStringLiteral("LAB");
+    profile.applyComputerNameBehavior();
+    test.check(firstLogonCommandSettingCount(profile) == 8
+                   && hasFirstLogonLeafValue(profile, QStringLiteral("Description"),
+                                             unrelatedDescription)
+                   && hasFirstLogonLeafValue(
+                       profile, QStringLiteral("Description"),
+                       QStringLiteral("WimForge serial-number computer name"))
+                   && !hasFirstLogonLeafValue(
+                       profile, QStringLiteral("Description"),
+                       QStringLiteral("WimForge computer-name prompt")),
+               QStringLiteral("Serial mode replaces only WimForge's generated command"));
+
+    profile.computerNameMode = ComputerNameMode::Fixed;
+    profile.computerName = QStringLiteral("FINAL-PC");
+    profile.applyComputerNameBehavior();
+    const QByteArray fixedXml = profile.toXml(&error);
+    test.check(profile.validate().ok()
+                   && firstLogonCommandSettingCount(profile) == 4
+                   && hasFirstLogonLeafValue(profile, QStringLiteral("Description"),
+                                             unrelatedDescription)
+                   && fixedXml.count(QByteArrayLiteral("<SynchronousCommand")) == 1
+                   && fixedXml.contains(unrelatedCommand.toUtf8()),
+               QStringLiteral("Fixed mode removes generated naming while preserving unrelated setup"));
 }
 
 void testTemplates(TestRun &test)
@@ -633,8 +897,10 @@ int main(int argc, char **argv)
 
     testPasses(test, temporary.path());
     testJsonAndXmlPreservation(test, temporary.path());
+    testComputerNameJsonAndXmlCoherence(test, temporary.path());
     testValidationAndNamingRules(test, temporary.path());
     testComputerNameModes(test);
+    testGeneratedCommandIsolation(test, temporary.path());
     testTemplates(test);
     testGvlkCatalog(test);
     return test.result();
