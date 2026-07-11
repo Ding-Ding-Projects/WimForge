@@ -79,6 +79,52 @@ int main(int argc, char *argv[])
                    && styled.value(QStringLiteral("strikeout")).toBool(),
                QStringLiteral("rename and all requested font styles persist"));
 
+    // The navigate/new-tab/close-many behaviors run on an isolated workspace so
+    // they do not perturb the shared linear fixture used by later assertions.
+    {
+        const QString navProject = QDir(temporary.path()).filePath(QStringLiteral("navigation"));
+        QDir().mkpath(navProject);
+        wimforge::WorkspaceTabs nav;
+        QString navError;
+        test.check(nav.openProject(navProject, &navError), navError);
+        test.check(nav.openPage(2, QStringLiteral("Customize"), &navError), navError);
+
+        // Pressing a navigation entry must retarget the active tab, not spawn one.
+        const int navBefore = nav.tabs().size();
+        test.check(nav.navigateActiveTab(4, QStringLiteral("Unattended Studio"), &navError), navError);
+        test.check(nav.tabs().size() == navBefore,
+                   QStringLiteral("navigating the active tab does not open a new tab"));
+        test.check(tab(nav, nav.activeIndex()).value(QStringLiteral("page")).toInt() == 4,
+                   QStringLiteral("the active tab now shows the navigated page"));
+
+        // A tab the user renamed (custom) keeps its title across navigation.
+        test.check(nav.update(nav.activeIndex(),
+                              {{QStringLiteral("title"), QStringLiteral("Keeper")},
+                               {QStringLiteral("custom"), true}}, &navError), navError);
+        test.check(nav.navigateActiveTab(5, QStringLiteral("Package Studio"), &navError), navError);
+        test.check(tab(nav, nav.activeIndex()).value(QStringLiteral("title")).toString()
+                           == QStringLiteral("Keeper")
+                       && tab(nav, nav.activeIndex()).value(QStringLiteral("page")).toInt() == 5,
+                   QStringLiteral("a custom tab title survives navigation while its page changes"));
+
+        // The explicit new-tab action always appends a fresh tab.
+        const int navBeforeNew = nav.tabs().size();
+        test.check(nav.openNewTab(0, QStringLiteral("Overview"), &navError), navError);
+        test.check(nav.tabs().size() == navBeforeNew + 1 && nav.activeIndex() == navBeforeNew,
+                   QStringLiteral("openNewTab appends and activates a fresh tab"));
+
+        // closeMany removes several tabs atomically but never the entire workspace.
+        QList<int> navEvery;
+        for (int index = 0; index < nav.tabs().size(); ++index)
+            navEvery.append(index);
+        test.check(!nav.closeMany(navEvery, &navError),
+                   QStringLiteral("closeMany refuses to close every workspace tab"));
+        const int navBeforeClose = nav.tabs().size();
+        test.check(nav.closeMany({0, 1}, &navError), navError);
+        test.check(nav.tabs().size() == navBeforeClose - 2,
+                   QStringLiteral("closeMany removes exactly the requested tabs"));
+    }
+
     QString historyError;
     const QList<wimforge::GitCommit> tabHistory =
         wimforge::GitHistory(first.repositoryPath(), {QStringLiteral("tabs.json")})

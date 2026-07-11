@@ -65,8 +65,31 @@ ApplicationWindow {
         var bounded = Math.max(0, Math.min(page, navigationItems.length - 1))
         currentPage = bounded
         if (app.projectLoaded
-                && !app.openWorkspacePage(bounded, tr2(navigationItems[bounded].en, navigationItems[bounded].zh)))
+                && !app.navigateActiveWorkspaceTab(bounded, tr2(navigationItems[bounded].en, navigationItems[bounded].zh)))
             syncActiveWorkspaceTab()
+    }
+
+    function openPageInNewTab(page) {
+        var bounded = Math.max(0, Math.min(page, navigationItems.length - 1))
+        currentPage = bounded
+        if (app.projectLoaded
+                && !app.openWorkspaceTabForPage(bounded, tr2(navigationItems[bounded].en, navigationItems[bounded].zh)))
+            syncActiveWorkspaceTab()
+    }
+
+    function tabTitleMatches(title, pattern, useRegex, caseSensitive) {
+        if (!pattern || pattern.length === 0)
+            return false
+        if (useRegex) {
+            try {
+                return new RegExp(pattern, caseSensitive ? "" : "i").test(title)
+            } catch (error) {
+                return false
+            }
+        }
+        var haystack = caseSensitive ? title : title.toLowerCase()
+        var needle = caseSensitive ? pattern : pattern.toLowerCase()
+        return haystack.indexOf(needle) >= 0
     }
 
     function syncActiveWorkspaceTab() {
@@ -748,6 +771,14 @@ ApplicationWindow {
                                         }
                                         HoverHandler { id: tabHover }
                                         TapHandler { onTapped: app.activateWorkspaceTab(workspaceTab.index) }
+                                        TapHandler {
+                                            acceptedButtons: Qt.RightButton
+                                            onTapped: {
+                                                app.activateWorkspaceTab(workspaceTab.index)
+                                                tabContextMenu.targetIndex = workspaceTab.index
+                                                tabContextMenu.popup()
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -766,7 +797,7 @@ ApplicationWindow {
                                         required property var modelData
                                         required property int index
                                         text: root.tr2(modelData.en, modelData.zh)
-                                        onTriggered: root.navigateToPage(index)
+                                        onTriggered: root.openPageInNewTab(index)
                                     }
                                     onObjectAdded: (index, object) => newTabMenu.insertItem(index, object)
                                     onObjectRemoved: (index, object) => newTabMenu.removeItem(object)
@@ -968,11 +999,48 @@ ApplicationWindow {
                     Label { text: root.tr2("Size", "大小") }
                     SpinBox { id: fontSize; Layout.fillWidth: true; from: 8; to: 48; editable: true }
                 }
-                TextField {
-                    id: fontColor
+                RowLayout {
                     Layout.fillWidth: true
-                    placeholderText: root.tr2("Font color, e.g. #2F6FED", "字色，例如 #2F6FED")
-                    maximumLength: 9
+                    spacing: 8
+                    Label { text: root.tr2("Color", "顏色") }
+                    TextField {
+                        id: fontColor
+                        Layout.fillWidth: true
+                        placeholderText: root.tr2("Font color, e.g. #2F6FED", "字色，例如 #2F6FED")
+                        maximumLength: 9
+                    }
+                    Rectangle {
+                        Layout.preferredWidth: 46
+                        Layout.preferredHeight: 38
+                        radius: DesignTokens.radiusControl
+                        color: fontColor.text.length > 0 ? fontColor.text : DesignTokens.surfaceContainer(root.darkTheme)
+                        border.width: 1
+                        border.color: DesignTokens.outline(root.darkTheme)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: root.tr2("Pick font color", "揀字色")
+                        Label {
+                            anchors.centerIn: parent
+                            visible: fontColor.text.length === 0
+                            text: root.tr2("Pick", "揀色")
+                            font.pixelSize: 11
+                            color: DesignTokens.onSurfaceVariant(root.darkTheme)
+                        }
+                        TapHandler {
+                            onTapped: {
+                                fontColorDialog.selectedColor = fontColor.text.length > 0
+                                    ? fontColor.text : root.secondaryTextColor
+                                fontColorDialog.open()
+                            }
+                        }
+                    }
+                    WfIconButton {
+                        glyph: "×"
+                        buttonSize: 30
+                        visible: fontColor.text.length > 0
+                        accessibleName: root.tr2("Clear font color", "清除字色")
+                        toolTip: accessibleName
+                        onClicked: fontColor.text = ""
+                    }
                 }
                 RowLayout {
                     Layout.fillWidth: true
@@ -1018,8 +1086,217 @@ ApplicationWindow {
                             fontColor: fontColor.text.trim(),
                             bold: fontBold.checked,
                             italic: fontItalic.checked,
-                            strikeout: fontStrikeout.checked
+                            strikeout: fontStrikeout.checked,
+                            custom: true
                         })) tabEditor.close()
+                    }
+                }
+            }
+        }
+    }
+
+    ColorDialog {
+        id: fontColorDialog
+        title: root.tr2("Font color", "字色")
+        onAccepted: fontColor.text = selectedColor.toString().toUpperCase()
+    }
+
+    Menu {
+        id: tabContextMenu
+        property int targetIndex: -1
+        MenuItem {
+            text: root.tr2("Close tabs to the right", "關閉右邊嘅分頁")
+            enabled: tabContextMenu.targetIndex >= 0
+                     && tabContextMenu.targetIndex < app.workspaceTabs.length - 1
+            onTriggered: {
+                var indices = []
+                for (var i = tabContextMenu.targetIndex + 1; i < app.workspaceTabs.length; i++)
+                    indices.push(i)
+                app.closeWorkspaceTabsByIndices(indices)
+            }
+        }
+        MenuItem {
+            text: root.tr2("Close tabs to the left", "關閉左邊嘅分頁")
+            enabled: tabContextMenu.targetIndex > 0
+            onTriggered: {
+                var indices = []
+                for (var i = 0; i < tabContextMenu.targetIndex; i++)
+                    indices.push(i)
+                app.closeWorkspaceTabsByIndices(indices)
+            }
+        }
+        MenuItem {
+            text: root.tr2("Close other tabs", "關閉其他分頁")
+            enabled: app.workspaceTabs.length > 1 && tabContextMenu.targetIndex >= 0
+            onTriggered: {
+                var indices = []
+                for (var i = 0; i < app.workspaceTabs.length; i++)
+                    if (i !== tabContextMenu.targetIndex)
+                        indices.push(i)
+                app.closeWorkspaceTabsByIndices(indices)
+            }
+        }
+        MenuItem {
+            text: root.tr2("Close this tab", "關閉呢個分頁")
+            enabled: app.workspaceTabs.length > 1 && tabContextMenu.targetIndex >= 0
+            onTriggered: app.closeWorkspaceTab(tabContextMenu.targetIndex)
+        }
+        MenuSeparator { }
+        MenuItem {
+            text: root.tr2("Close tabs containing name…", "關閉含指定名稱嘅分頁…")
+            onTriggered: closeByNameDialog.open()
+        }
+    }
+
+    Popup {
+        id: closeByNameDialog
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(580, root.width - 32)
+        modal: true
+        dim: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+        padding: 22
+        onOpened: patternField.forceActiveFocus()
+        background: Rectangle {
+            radius: DesignTokens.radiusCard
+            color: DesignTokens.surfaceLowest(root.darkTheme)
+            border.color: DesignTokens.outlineVariant(root.darkTheme)
+            border.width: 1
+        }
+        readonly property bool regexValid: {
+            if (!useRegexCheck.checked || patternField.text.length === 0)
+                return true
+            try {
+                new RegExp(patternField.text)
+                return true
+            } catch (error) {
+                return false
+            }
+        }
+        readonly property var matches: {
+            var probe = patternField.text + "|" + useRegexCheck.checked + "|" + caseSensitiveCheck.checked
+            var result = []
+            var tabs = app.workspaceTabs
+            for (var i = 0; i < tabs.length; i++) {
+                if (root.tabTitleMatches(tabs[i].title, patternField.text,
+                                         useRegexCheck.checked, caseSensitiveCheck.checked))
+                    result.push({ index: i, title: tabs[i].title })
+            }
+            return result
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                text: root.tr2("Close tabs containing name", "關閉含指定名稱嘅分頁")
+                font.pixelSize: 20; font.bold: true
+                color: DesignTokens.onSurface(root.darkTheme)
+            }
+            Label {
+                Layout.fillWidth: true
+                text: root.tr2("Enter text or a regular expression; matching tabs close together.",
+                               "輸入文字或正規表示式，符合嘅分頁會一齊關閉。")
+                color: DesignTokens.onSurfaceVariant(root.darkTheme)
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
+            TextField {
+                id: patternField
+                Layout.fillWidth: true
+                color: DesignTokens.onSurface(root.darkTheme)
+                placeholderText: useRegexCheck.checked
+                                 ? root.tr2("Pattern, e.g. ^Source|Studio$", "式樣，例如 ^Source|Studio$")
+                                 : root.tr2("Text contained in the tab name", "分頁名內含嘅文字")
+            }
+            Flow {
+                Layout.fillWidth: true
+                visible: useRegexCheck.checked
+                spacing: 6
+                Repeater {
+                    model: [
+                        { label: ".*", insert: ".*" },
+                        { label: "\\d+", insert: "\\d+" },
+                        { label: "start ^", insert: "^" },
+                        { label: "$ end", insert: "$" },
+                        { label: "a|b", insert: "|" },
+                        { label: "[set]", insert: "[]" },
+                        { label: "\\bword\\b", insert: "\\b\\b" }
+                    ]
+                    delegate: WfButton {
+                        required property var modelData
+                        variant: "tonal"
+                        compact: true
+                        text: modelData.label
+                        onClicked: {
+                            patternField.insert(patternField.cursorPosition, modelData.insert)
+                            patternField.forceActiveFocus()
+                        }
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                CheckBox { id: useRegexCheck; text: root.tr2("Use regular expression", "用正規表示式") }
+                CheckBox { id: caseSensitiveCheck; text: root.tr2("Case sensitive", "區分大小寫") }
+            }
+            Label {
+                visible: !closeByNameDialog.regexValid
+                text: root.tr2("The regular expression is not valid.", "正規表示式唔正確。")
+                color: DesignTokens.error(root.darkTheme)
+                font.pixelSize: 12
+            }
+            Label {
+                Layout.fillWidth: true
+                text: closeByNameDialog.matches.length === 0
+                      ? root.tr2("No tabs match yet.", "暫時冇分頁符合。")
+                      : root.tr2("Matching tabs: ", "符合嘅分頁：") + closeByNameDialog.matches.length
+                color: DesignTokens.onSurfaceVariant(root.darkTheme)
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 118
+                radius: 10
+                color: DesignTokens.surfaceContainer(root.darkTheme)
+                border.color: DesignTokens.outlineVariant(root.darkTheme)
+                ScrollView {
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    clip: true
+                    Column {
+                        width: parent.width
+                        spacing: 2
+                        Repeater {
+                            model: closeByNameDialog.matches
+                            delegate: Label {
+                                required property var modelData
+                                width: parent.width
+                                text: "• " + modelData.title
+                                elide: Text.ElideRight
+                                color: DesignTokens.onSurface(root.darkTheme)
+                                font.pixelSize: 12
+                            }
+                        }
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                WfButton {
+                    variant: "text"
+                    text: root.tr2("Cancel", "取消")
+                    onClicked: closeByNameDialog.close()
+                }
+                WfButton {
+                    variant: "destructive"
+                    text: root.tr2("Close matching", "關閉符合項") + " (" + closeByNameDialog.matches.length + ")"
+                    enabled: closeByNameDialog.matches.length > 0 && closeByNameDialog.regexValid
+                    onClicked: {
+                        var indices = closeByNameDialog.matches.map(function(entry) { return entry.index })
+                        if (app.closeWorkspaceTabsByIndices(indices))
+                            closeByNameDialog.close()
                     }
                 }
             }

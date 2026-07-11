@@ -25,8 +25,16 @@ public:
     [[nodiscard]] int activeIndex() const;
 
     bool openPage(int page, const QString &defaultTitle, QString *error = nullptr);
+    // Retarget the active tab to a different page instead of spawning a new
+    // tab, so pressing a navigation entry navigates the current view.
+    bool navigateActiveTab(int page, const QString &defaultTitle, QString *error = nullptr);
+    // Always append a fresh tab for the page (the explicit "new tab" action).
+    bool openNewTab(int page, const QString &defaultTitle, QString *error = nullptr);
     bool activate(int index, QString *error = nullptr);
     bool close(int index, QString *error = nullptr);
+    // Close every listed index in one atomic, Git-committed operation. Used by
+    // the tab context menu's close-right/left/others/by-name actions.
+    bool closeMany(const QList<int> &indices, QString *error = nullptr);
     bool move(int from, int to, QString *error = nullptr);
     bool update(int index, const QVariantMap &changes, QString *error = nullptr);
 

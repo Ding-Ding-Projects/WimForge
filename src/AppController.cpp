@@ -5291,10 +5291,51 @@ bool AppController::openWorkspacePage(int page, const QString &defaultTitle)
     return true;
 }
 
+bool AppController::navigateActiveWorkspaceTab(int page, const QString &defaultTitle)
+{
+    QString error;
+    if (!m_workspaceTabs.navigateActiveTab(page, defaultTitle, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    return true;
+}
+
+bool AppController::openWorkspaceTabForPage(int page, const QString &defaultTitle)
+{
+    QString error;
+    if (!m_workspaceTabs.openNewTab(page, defaultTitle, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    return true;
+}
+
 bool AppController::activateWorkspaceTab(int index)
 {
     QString error;
     if (!m_workspaceTabs.activate(index, &error)) {
+        showError(error);
+        return false;
+    }
+    emit workspaceTabsChanged();
+    return true;
+}
+
+bool AppController::closeWorkspaceTabsByIndices(const QVariantList &indices)
+{
+    QList<int> resolved;
+    resolved.reserve(indices.size());
+    for (const QVariant &value : indices) {
+        bool ok = false;
+        const int index = value.toInt(&ok);
+        if (ok)
+            resolved.append(index);
+    }
+    QString error;
+    if (!m_workspaceTabs.closeMany(resolved, &error)) {
         showError(error);
         return false;
     }

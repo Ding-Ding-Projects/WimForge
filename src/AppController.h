@@ -400,8 +400,11 @@ public:
     Q_INVOKABLE QString pathFromUrl(const QUrl &url) const;
 
     Q_INVOKABLE bool openWorkspacePage(int page, const QString &defaultTitle = {});
+    Q_INVOKABLE bool navigateActiveWorkspaceTab(int page, const QString &defaultTitle = {});
+    Q_INVOKABLE bool openWorkspaceTabForPage(int page, const QString &defaultTitle = {});
     Q_INVOKABLE bool activateWorkspaceTab(int index);
     Q_INVOKABLE bool closeWorkspaceTab(int index);
+    Q_INVOKABLE bool closeWorkspaceTabsByIndices(const QVariantList &indices);
     Q_INVOKABLE bool moveWorkspaceTab(int from, int to);
     Q_INVOKABLE bool updateWorkspaceTab(int index, const QVariantMap &changes);
     Q_INVOKABLE bool exportWorkspaceTabs(const QString &destinationFile);

@@ -79,6 +79,9 @@ QJsonObject makeTab(int page, const QString &title)
         {QStringLiteral("bold"), false},
         {QStringLiteral("italic"), false},
         {QStringLiteral("strikeout"), false},
+        // A tab keeps its own title only once the user renames it; otherwise
+        // navigating the tab refreshes the title to the new page's name.
+        {QStringLiteral("custom"), false},
     };
 }
 
@@ -358,7 +361,8 @@ bool WorkspaceTabs::validateAndNormalize(QJsonObject *tab, QString *error) const
     tab->insert(QStringLiteral("fontFamily"), family);
     tab->insert(QStringLiteral("fontSize"), qBound(8, tab->value(QStringLiteral("fontSize")).toInt(13), 48));
     tab->insert(QStringLiteral("fontColor"), color.toUpper());
-    for (const QString &key : {QStringLiteral("bold"), QStringLiteral("italic"), QStringLiteral("strikeout")})
+    for (const QString &key : {QStringLiteral("bold"), QStringLiteral("italic"),
+                               QStringLiteral("strikeout"), QStringLiteral("custom")})
         tab->insert(key, tab->value(key).toBool(false));
     return true;
 }
@@ -526,6 +530,58 @@ bool WorkspaceTabs::openPage(int page, const QString &defaultTitle, QString *err
     return true;
 }
 
+bool WorkspaceTabs::navigateActiveTab(int page, const QString &defaultTitle, QString *error)
+{
+    if (page < 0 || page > 11)
+        return fail(error, bilingual(QStringLiteral("Unknown workspace page."),
+                                     QStringLiteral("唔識呢個工作空間頁面。")));
+    ensureActiveIndex();
+    QJsonObject tab = m_tabs.at(m_activeIndex);
+    const bool custom = tab.value(QStringLiteral("custom")).toBool(false);
+    const int oldPage = tab.value(QStringLiteral("page")).toInt();
+    const QString newTitle = defaultTitle.trimmed().isEmpty()
+        ? defaultTitleForPage(page) : defaultTitle.trimmed();
+    if (oldPage == page && (custom || tab.value(QStringLiteral("title")).toString() == newTitle)) {
+        setError(error, {});
+        return true;
+    }
+    const QList<QJsonObject> previousTabs = m_tabs;
+    const int previousActive = m_activeIndex;
+    tab.insert(QStringLiteral("page"), page);
+    if (!custom)
+        tab.insert(QStringLiteral("title"), newTitle);
+    m_tabs[m_activeIndex] = tab;
+    if (!save(bilingual(QStringLiteral("tabs: navigate to %1").arg(defaultTitleForPage(page)),
+                        QStringLiteral("tabs：切換到 %1").arg(defaultTitleForPage(page))), error)) {
+        m_tabs = previousTabs;
+        m_activeIndex = previousActive;
+        return false;
+    }
+    return true;
+}
+
+bool WorkspaceTabs::openNewTab(int page, const QString &defaultTitle, QString *error)
+{
+    if (page < 0 || page > 11)
+        return fail(error, bilingual(QStringLiteral("Unknown workspace page."),
+                                     QStringLiteral("唔識呢個工作空間頁面。")));
+    if (m_tabs.size() >= 200)
+        return fail(error, bilingual(
+            QStringLiteral("Close a tab before opening another; the 200-tab limit was reached."),
+            QStringLiteral("已經到 200 個分頁上限；請關一個先再開。")));
+    const QList<QJsonObject> previousTabs = m_tabs;
+    const int previousActive = m_activeIndex;
+    m_tabs.append(makeTab(page, defaultTitle));
+    m_activeIndex = m_tabs.size() - 1;
+    if (!save(bilingual(QStringLiteral("tabs: open %1 in a new tab").arg(defaultTitleForPage(page)),
+                        QStringLiteral("tabs：喺新分頁開啟 %1").arg(defaultTitleForPage(page))), error)) {
+        m_tabs = previousTabs;
+        m_activeIndex = previousActive;
+        return false;
+    }
+    return true;
+}
+
 bool WorkspaceTabs::activate(int index, QString *error)
 {
     if (index < 0 || index >= m_tabs.size())
@@ -562,6 +618,46 @@ bool WorkspaceTabs::close(int index, QString *error)
     ensureActiveIndex();
     if (!save(bilingual(QStringLiteral("tabs: close %1").arg(title),
                         QStringLiteral("tabs：關閉 %1").arg(title)), error)) {
+        m_tabs = previousTabs;
+        m_activeIndex = previousActive;
+        return false;
+    }
+    return true;
+}
+
+bool WorkspaceTabs::closeMany(const QList<int> &indices, QString *error)
+{
+    QSet<int> toRemove;
+    for (const int index : indices) {
+        if (index >= 0 && index < m_tabs.size())
+            toRemove.insert(index);
+    }
+    if (toRemove.isEmpty()) {
+        setError(error, {});
+        return true;
+    }
+    if (toRemove.size() >= m_tabs.size())
+        return fail(error, bilingual(QStringLiteral("At least one workspace tab must stay open."),
+                                     QStringLiteral("至少要保留一個工作分頁。")));
+    const QList<QJsonObject> previousTabs = m_tabs;
+    const int previousActive = m_activeIndex;
+    const QString activeId = m_tabs.at(m_activeIndex).value(QStringLiteral("id")).toString();
+    QList<QJsonObject> kept;
+    for (qsizetype index = 0; index < m_tabs.size(); ++index) {
+        if (!toRemove.contains(static_cast<int>(index)))
+            kept.append(m_tabs.at(index));
+    }
+    m_tabs = std::move(kept);
+    m_activeIndex = 0;
+    for (qsizetype index = 0; index < m_tabs.size(); ++index) {
+        if (m_tabs.at(index).value(QStringLiteral("id")).toString() == activeId) {
+            m_activeIndex = static_cast<int>(index);
+            break;
+        }
+    }
+    ensureActiveIndex();
+    if (!save(bilingual(QStringLiteral("tabs: close %1 tabs").arg(toRemove.size()),
+                        QStringLiteral("tabs：關閉 %1 個分頁").arg(toRemove.size())), error)) {
         m_tabs = previousTabs;
         m_activeIndex = previousActive;
         return false;
@@ -607,7 +703,7 @@ bool WorkspaceTabs::update(int index, const QVariantMap &changes, QString *error
     QJsonObject tab = m_tabs.at(index);
     static const QSet<QString> allowed{QStringLiteral("title"), QStringLiteral("fontFamily"),
         QStringLiteral("fontSize"), QStringLiteral("fontColor"), QStringLiteral("bold"),
-        QStringLiteral("italic"), QStringLiteral("strikeout")};
+        QStringLiteral("italic"), QStringLiteral("strikeout"), QStringLiteral("custom")};
     for (auto iterator = changes.cbegin(); iterator != changes.cend(); ++iterator) {
         if (allowed.contains(iterator.key()))
             tab.insert(iterator.key(), QJsonValue::fromVariant(iterator.value()));
