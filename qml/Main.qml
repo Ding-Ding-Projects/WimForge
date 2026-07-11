@@ -286,7 +286,9 @@ ApplicationWindow {
                                 required property var modelData
                                 required property int index
                                 width: parent.width
-                                implicitHeight: DesignTokens.rowHeight
+                                implicitHeight: root.compactNavigation
+                                                ? DesignTokens.rowHeight
+                                                : Math.max(DesignTokens.rowHeight, navigationLabels.implicitHeight + 14)
                                 leftPadding: root.compactNavigation ? Math.max(0, (width - 20) / 2) : 12
                                 rightPadding: root.compactNavigation ? Math.max(0, (width - 20) / 2) : 12
                                 readonly property bool selected: root.currentPage === index
@@ -320,18 +322,39 @@ ApplicationWindow {
                                             Accessible.ignored: true
                                         }
                                     }
-                                    Label {
+                                    Column {
+                                        id: navigationLabels
                                         visible: !root.compactNavigation
                                         Layout.fillWidth: true
-                                        text: root.tr2(navigationDelegate.modelData.en, navigationDelegate.modelData.zh)
-                                        color: navigationDelegate.selected
-                                               ? DesignTokens.onSecondaryContainer(root.darkTheme)
-                                               : DesignTokens.navOn(root.darkTheme)
-                                        font.family: DesignTokens.fontBody
-                                        font.pixelSize: 13
-                                        font.weight: navigationDelegate.selected ? Font.DemiBold : Font.Medium
-                                        verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
+                                        Layout.alignment: Qt.AlignVCenter
+                                        spacing: 0
+                                        Label {
+                                            width: parent.width
+                                            visible: app.languageMode !== 1
+                                            text: navigationDelegate.modelData.en
+                                            color: navigationDelegate.selected
+                                                   ? DesignTokens.onSecondaryContainer(root.darkTheme)
+                                                   : DesignTokens.navOn(root.darkTheme)
+                                            font.family: DesignTokens.fontBody
+                                            font.pixelSize: 12
+                                            font.weight: navigationDelegate.selected ? Font.DemiBold : Font.Medium
+                                            elide: Text.ElideRight
+                                        }
+                                        Label {
+                                            width: parent.width
+                                            visible: app.languageMode !== 0
+                                            text: navigationDelegate.modelData.zh
+                                            color: navigationDelegate.selected
+                                                   ? DesignTokens.onSecondaryContainer(root.darkTheme)
+                                                   : (app.languageMode === 1
+                                                      ? DesignTokens.navOn(root.darkTheme)
+                                                      : DesignTokens.onSurfaceVariant(root.darkTheme))
+                                            font.family: DesignTokens.fontBody
+                                            font.pixelSize: app.languageMode === 1 ? 12 : 10
+                                            font.weight: navigationDelegate.selected && app.languageMode === 1
+                                                         ? Font.DemiBold : Font.Medium
+                                            elide: Text.ElideRight
+                                        }
                                     }
                                 }
                             }
