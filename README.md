@@ -194,7 +194,7 @@ Every push to `main` (and a manual release-workflow run launched from `main`) bu
 | Workflow | WimForge status | Important difference |
 | --- | --- | --- |
 | Source/index inspection | Implemented for ISO/media/WIM/ESD/SWM | Native source pickers; raw ISO is mounted read-only for inventory and dismounted before its stable internal image path is saved |
-| Driver, update and package integration | Implemented as reviewed DISM operations | Payload acquisition is the user's responsibility |
+| Driver, update and package integration | Implemented as reviewed DISM operations | Payload acquisition is the user's responsibility, except updates and drivers fetched via the in-app Microsoft Update Catalog |
 | Features and capabilities | Implemented | Uses Windows identities; no curated compatibility recommendations |
 | Appx provisioning/removal | Implemented | No store browser or live application inventory equivalent |
 | Component removal | Low-level identifier workflow | No NTLite-equivalent component database, dependency intelligence, or compatibility guarantees |
@@ -204,7 +204,8 @@ Every push to `main` (and a manual release-workflow run launched from `main`) bu
 | Live/online servicing | Core plan supports `/Online` operations | Desktop workflow is primarily designed around offline, cloned media |
 | Presets/project portability | Git-backed JSON plus complete `.wimforge` saves | Bundle format is WimForge-specific and deliberately uncompressed |
 | Undo/history | Event-sourced project configuration and notification history | Cannot undo external bytes after they are committed/applied |
-| Integrated update downloader, host refresh, compatibility database | Not implemented | Supply payloads and validate applicability yourself |
+| Integrated update downloader | In-app Microsoft Update Catalog search and download | Restricted to trusted Microsoft hosts; files land in the reviewed update/driver queue; no applicability resolver or persistent cache yet |
+| Host refresh, compatibility database | Not implemented | Validate applicability yourself |
 | Licensing | MIT open source | NTLite uses its own commercial/free licensing model |
 
 Read the expanded [NTLite Feature Comparison](docs/wiki/NTLite-Feature-Comparison.md). NTLite's current product claims belong to its [official feature page](https://www.ntlite.com/features/) and [documentation](https://www.ntlite.com/docs/); consult those sources rather than treating this table as purchasing advice.

@@ -4,7 +4,16 @@
 #include "core/PayloadCatalog.h"
 #include "core/ProcessLaunch.h"
 #include "core/StructuredLogger.h"
+#include "core/UpdateCatalog.h"
 #include "core/VmLabScope.h"
+
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUuid>
+
+#include <functional>
+#include <memory>
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -2027,18 +2036,333 @@ void AppController::refreshPayloadCatalog()
 
 void AppController::openMicrosoftUpdateCatalog(const QString &query)
 {
-    QUrl url(query.trimmed().isEmpty()
-                 ? QStringLiteral("https://www.catalog.update.microsoft.com/Home.aspx")
-                 : QStringLiteral("https://www.catalog.update.microsoft.com/Search.aspx"));
-    if (!query.trimmed().isEmpty()) {
-        QUrlQuery parameters;
-        parameters.addQueryItem(QStringLiteral("q"), query.trimmed());
-        url.setQuery(parameters);
+    // Everything stays inside WimForge: the Microsoft Update Catalog is searched
+    // in-app instead of handing the query to an external web browser.
+    searchUpdateCatalog(query);
+}
+
+QVariantList AppController::updateCatalogResults() const { return m_updateCatalogResults; }
+QString AppController::updateCatalogStatus() const { return m_updateCatalogStatus; }
+bool AppController::updateCatalogBusy() const { return m_updateCatalogBusy; }
+double AppController::updateCatalogDownloadProgress() const { return m_updateCatalogDownloadProgress; }
+
+void AppController::cancelUpdateCatalog()
+{
+    if (!m_catalogReply) {
+        // Even with no in-flight reply (e.g. an empty-query state), make sure a
+        // stray busy flag can never soft-lock the sheet.
+        if (m_updateCatalogBusy) {
+            m_updateCatalogBusy = false;
+            m_updateCatalogDownloadProgress = 0.0;
+            emit updateCatalogChanged();
+        }
+        return;
     }
-    if (!QDesktopServices::openUrl(url)) {
-        showError(localized(QStringLiteral("Windows could not open the Microsoft Update Catalog."),
-                            QStringLiteral("Windows 開唔到 Microsoft Update Catalog。")));
+    QNetworkReply *reply = m_catalogReply;
+    m_catalogReply = nullptr;
+    reply->abort();
+    // abort() may deliver finished() synchronously; whether or not it did, every
+    // phase (search, resolve, download) must leave a consistent idle state.
+    if (m_updateCatalogBusy) {
+        m_updateCatalogBusy = false;
+        m_updateCatalogDownloadProgress = 0.0;
+        m_updateCatalogStatus = localized(QStringLiteral("Canceled."),
+                                          QStringLiteral("已取消。"));
+        emit updateCatalogChanged();
     }
+}
+
+void AppController::searchUpdateCatalog(const QString &query)
+{
+    const QString trimmed = query.trimmed();
+    if (trimmed.isEmpty()) {
+        m_updateCatalogResults.clear();
+        m_updateCatalogBusy = false;
+        m_updateCatalogDownloadProgress = 0.0;
+        m_updateCatalogStatus = localized(
+            QStringLiteral("Enter a KB number or update name to search."),
+            QStringLiteral("輸入 KB 編號或更新名稱嚟搜尋。"));
+        emit updateCatalogChanged();
+        return;
+    }
+    if (!m_catalogNetwork)
+        m_catalogNetwork = new QNetworkAccessManager(this);
+    cancelUpdateCatalog();
+    m_updateCatalogBusy = true;
+    m_updateCatalogDownloadProgress = 0.0;
+    m_updateCatalogStatus = localized(
+        QStringLiteral("Searching the Microsoft Update Catalog…"),
+        QStringLiteral("正搜尋 Microsoft Update Catalog…"));
+    emit updateCatalogChanged();
+
+    QNetworkRequest request(UpdateCatalog::searchUrl(trimmed));
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) WimForge"));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(30000);
+    QNetworkReply *reply = m_catalogNetwork->get(request);
+    m_catalogReply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (reply->error() == QNetworkReply::OperationCanceledError) {
+            reply->deleteLater();
+            return;
+        }
+        if (m_catalogReply == reply)
+            m_catalogReply = nullptr;
+        m_updateCatalogBusy = false;
+        if (reply->error() != QNetworkReply::NoError) {
+            m_updateCatalogStatus = localized(
+                QStringLiteral("Could not reach the Microsoft Update Catalog: %1").arg(reply->errorString()),
+                QStringLiteral("連唔到 Microsoft Update Catalog：%1").arg(reply->errorString()));
+            emit updateCatalogChanged();
+            reply->deleteLater();
+            return;
+        }
+        const QString html = QString::fromUtf8(reply->readAll());
+        reply->deleteLater();
+        const QList<UpdateCatalogEntry> entries = UpdateCatalog::parseSearchResults(html);
+        m_updateCatalogResults.clear();
+        for (const UpdateCatalogEntry &entry : entries) {
+            m_updateCatalogResults.append(QVariantMap{
+                {QStringLiteral("updateId"), entry.updateId},
+                {QStringLiteral("title"), entry.title},
+                {QStringLiteral("product"), entry.product},
+                {QStringLiteral("classification"), entry.classification},
+                {QStringLiteral("lastUpdated"), entry.lastUpdated},
+                {QStringLiteral("version"), entry.version},
+                {QStringLiteral("sizeText"), entry.sizeText},
+                {QStringLiteral("sizeBytes"), static_cast<double>(entry.sizeBytes)},
+            });
+        }
+        m_updateCatalogStatus = entries.isEmpty()
+            ? localized(QStringLiteral("No updates matched that search."),
+                        QStringLiteral("冇更新符合呢個搜尋。"))
+            : localized(
+                  QStringLiteral("Found %1 updates. Every download stays inside WimForge.").arg(entries.size()),
+                  QStringLiteral("搵到 %1 個更新。所有下載都喺 WimForge 內完成。").arg(entries.size()));
+        emit updateCatalogChanged();
+    });
+}
+
+void AppController::downloadUpdateCatalogItem(const QString &updateId, const QString &title,
+                                              const QString &category, double sizeBytes)
+{
+    Q_UNUSED(title)
+    if (!UpdateCatalog::isValidUpdateId(updateId)) {
+        showError(localized(QStringLiteral("That update cannot be downloaded."),
+                            QStringLiteral("呢個更新下載唔到。")));
+        return;
+    }
+    if (!projectLoaded()) {
+        showError(localized(QStringLiteral("Open a project before downloading updates."),
+                            QStringLiteral("下載更新之前請先開啟工程。")));
+        return;
+    }
+    // The catalog serves updates (.msu/.cab) and drivers (.cab); route each into
+    // the queue the surface asked for so drivers are never filed as updates.
+    const QString safeCategory = category == QStringLiteral("drivers")
+        ? QStringLiteral("drivers") : QStringLiteral("updates");
+    if (!m_catalogNetwork)
+        m_catalogNetwork = new QNetworkAccessManager(this);
+    cancelUpdateCatalog();
+    m_updateCatalogBusy = true;
+    m_updateCatalogDownloadProgress = 0.0;
+    m_updateCatalogStatus = localized(QStringLiteral("Resolving the download link…"),
+                                      QStringLiteral("正解析下載連結…"));
+    emit updateCatalogChanged();
+
+    // No single downloaded file may exceed the update's published total size plus
+    // a margin; fall back to a generous ceiling when the size is unknown.
+    const qint64 perFileByteCap = sizeBytes > 0.0
+        ? static_cast<qint64>(sizeBytes) + 64LL * 1024 * 1024
+        : 8LL * 1024 * 1024 * 1024;
+    const QString destinationDir = QDir(projectRoot())
+        .filePath(QStringLiteral("payloads/") + safeCategory);
+
+    QNetworkRequest request(UpdateCatalog::downloadDialogUrl());
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) WimForge"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(30000);
+    QNetworkReply *dialog = m_catalogNetwork->post(request, UpdateCatalog::downloadDialogBody(updateId));
+    m_catalogReply = dialog;
+    connect(dialog, &QNetworkReply::finished, this,
+            [this, dialog, safeCategory, destinationDir, perFileByteCap]() {
+        if (dialog->error() == QNetworkReply::OperationCanceledError) {
+            dialog->deleteLater();
+            return;
+        }
+        if (m_catalogReply == dialog)
+            m_catalogReply = nullptr;
+        if (dialog->error() != QNetworkReply::NoError) {
+            m_updateCatalogBusy = false;
+            m_updateCatalogStatus = localized(
+                QStringLiteral("Could not resolve the download: %1").arg(dialog->errorString()),
+                QStringLiteral("解析唔到下載：%1").arg(dialog->errorString()));
+            emit updateCatalogChanged();
+            dialog->deleteLater();
+            return;
+        }
+        const QString response = QString::fromUtf8(dialog->readAll());
+        dialog->deleteLater();
+        const QStringList urls = UpdateCatalog::parseDownloadUrls(response);
+        if (urls.isEmpty()) {
+            m_updateCatalogBusy = false;
+            m_updateCatalogStatus = localized(
+                QStringLiteral("No trusted Microsoft download link was returned."),
+                QStringLiteral("冇收到可信嘅 Microsoft 下載連結。"));
+            emit updateCatalogChanged();
+            return;
+        }
+        if (!QDir().mkpath(destinationDir)) {
+            m_updateCatalogBusy = false;
+            m_updateCatalogStatus = localized(
+                QStringLiteral("Could not create the project payload folder."),
+                QStringLiteral("整唔到工程 payload 資料夾。"));
+            emit updateCatalogChanged();
+            return;
+        }
+        beginCatalogFileDownloads(urls, safeCategory, destinationDir, perFileByteCap);
+    });
+}
+
+void AppController::beginCatalogFileDownloads(const QStringList &urls, const QString &category,
+                                              const QString &destinationDir, qint64 perFileByteCap)
+{
+    struct DownloadState
+    {
+        QStringList urls;
+        int index = 0;
+        QString category;
+        QString destinationDir;
+        qint64 cap = 0;
+        int imported = 0;
+    };
+    auto state = std::make_shared<DownloadState>();
+    state->urls = urls;
+    state->category = category;
+    state->destinationDir = destinationDir;
+    state->cap = perFileByteCap;
+
+    auto step = std::make_shared<std::function<void()>>();
+    *step = [this, state, step]() {
+        if (state->index >= state->urls.size()) {
+            m_updateCatalogBusy = false;
+            m_updateCatalogDownloadProgress = state->imported > 0 ? 1.0 : 0.0;
+            const bool drivers = state->category == QStringLiteral("drivers");
+            if (state->imported == 0) {
+                m_updateCatalogStatus = localized(
+                    QStringLiteral("Downloaded the files but could not add them to the queue."),
+                    QStringLiteral("下載咗檔案，但加唔到入隊列。"));
+            } else {
+                m_updateCatalogStatus = drivers
+                    ? localized(QStringLiteral("Added %1 file(s) to the driver queue.").arg(state->imported),
+                                QStringLiteral("已將 %1 個檔案加入驅動程式隊列。").arg(state->imported))
+                    : localized(QStringLiteral("Added %1 file(s) to the update queue.").arg(state->imported),
+                                QStringLiteral("已將 %1 個檔案加入更新隊列。").arg(state->imported));
+            }
+            emit updateCatalogChanged();
+            return;
+        }
+
+        const QUrl fileUrl(state->urls.at(state->index));
+        QString fileName = QFileInfo(fileUrl.path()).fileName();
+        if (fileName.isEmpty())
+            fileName = QStringLiteral("update-%1.msu").arg(state->index);
+        const QString destinationPath = QDir(state->destinationDir).filePath(fileName);
+        QFile::remove(destinationPath);
+        auto *file = new QFile(destinationPath);
+        if (!file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            delete file;
+            // Skip a file we cannot write and continue with the rest.
+            state->index += 1;
+            (*step)();
+            return;
+        }
+        m_updateCatalogStatus = localized(
+            QStringLiteral("Downloading %1…").arg(fileName),
+            QStringLiteral("正下載 %1…").arg(fileName));
+        emit updateCatalogChanged();
+
+        QNetworkRequest fileRequest(fileUrl);
+        fileRequest.setHeader(QNetworkRequest::UserAgentHeader,
+                              QStringLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) WimForge"));
+        fileRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                                 QNetworkRequest::NoLessSafeRedirectPolicy);
+        fileRequest.setTransferTimeout(60000);
+        QNetworkReply *download = m_catalogNetwork->get(fileRequest);
+        m_catalogReply = download;
+        // Tie the QFile lifetime to the reply so an abnormal teardown (app exit
+        // mid-download) frees it instead of leaking.
+        file->setParent(download);
+        auto written = std::make_shared<qint64>(0);
+        auto safetyAborted = std::make_shared<bool>(false);
+
+        // Re-validate every redirect hop; the trust check on the parsed URL does
+        // not cover where a redirect actually lands.
+        connect(download, &QNetworkReply::redirected, this,
+                [download, safetyAborted](const QUrl &target) {
+            if (!UpdateCatalog::isTrustedDownloadUrl(target)) {
+                *safetyAborted = true;
+                download->abort();
+            }
+        });
+        connect(download, &QNetworkReply::readyRead, this,
+                [download, file, written, safetyAborted, state]() {
+            if (*safetyAborted)
+                return;
+            const QByteArray chunk = download->readAll();
+            *written += chunk.size();
+            if (*written > state->cap) {
+                *safetyAborted = true;
+                download->abort();
+                return;
+            }
+            file->write(chunk);
+        });
+        connect(download, &QNetworkReply::downloadProgress, this,
+                [this](qint64 received, qint64 total) {
+            m_updateCatalogDownloadProgress = total > 0 ? double(received) / double(total) : 0.0;
+            emit updateCatalogChanged();
+        });
+        connect(download, &QNetworkReply::finished, this,
+                [this, download, file, destinationPath, state, step, safetyAborted]() {
+            const bool userCanceled =
+                download->error() == QNetworkReply::OperationCanceledError && !*safetyAborted;
+            if (m_catalogReply == download)
+                m_catalogReply = nullptr;
+            if (!*safetyAborted)
+                file->write(download->readAll());
+            file->flush();
+            file->close();
+            const bool trustedFinalHost = UpdateCatalog::isTrustedDownloadUrl(download->url());
+            const bool ok = download->error() == QNetworkReply::NoError
+                && trustedFinalHost && !*safetyAborted;
+            if (ok && addPayloadFiles(state->category, {QUrl::fromLocalFile(destinationPath)})) {
+                state->imported += 1;
+            } else {
+                // Never leave a partial, untrusted, or unqueued file behind.
+                QFile::remove(destinationPath);
+            }
+            download->deleteLater();  // also destroys the parented QFile
+
+            if (userCanceled) {
+                m_updateCatalogBusy = false;
+                m_updateCatalogDownloadProgress = 0.0;
+                m_updateCatalogStatus = localized(QStringLiteral("Download canceled."),
+                                                  QStringLiteral("已取消下載。"));
+                emit updateCatalogChanged();
+                return;
+            }
+            state->index += 1;
+            (*step)();
+        });
+    };
+    (*step)();
 }
 
 void AppController::setFeature(const QString &name, bool enabled)

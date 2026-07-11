@@ -31,6 +31,8 @@
 #include <thread>
 
 class QProcess;
+class QNetworkAccessManager;
+class QNetworkReply;
 
 class AppController final : public QObject
 {
@@ -115,6 +117,10 @@ class AppController final : public QObject
     Q_PROPERTY(int selectedPackageCount READ selectedPackageCount NOTIFY studioChanged)
     Q_PROPERTY(QVariantList unattendedSettings READ unattendedSettings NOTIFY studioChanged)
     Q_PROPERTY(bool unattendedNarratorAutostart READ unattendedNarratorAutostart NOTIFY studioChanged)
+    Q_PROPERTY(QVariantList updateCatalogResults READ updateCatalogResults NOTIFY updateCatalogChanged)
+    Q_PROPERTY(QString updateCatalogStatus READ updateCatalogStatus NOTIFY updateCatalogChanged)
+    Q_PROPERTY(bool updateCatalogBusy READ updateCatalogBusy NOTIFY updateCatalogChanged)
+    Q_PROPERTY(double updateCatalogDownloadProgress READ updateCatalogDownloadProgress NOTIFY updateCatalogChanged)
     Q_PROPERTY(QVariantList microsoftProductKeys READ microsoftProductKeys CONSTANT)
     Q_PROPERTY(int computerNameMode READ computerNameMode NOTIFY studioChanged)
     Q_PROPERTY(QString computerNameValue READ computerNameValue NOTIFY studioChanged)
@@ -238,6 +244,10 @@ public:
     [[nodiscard]] int selectedPackageCount() const;
     [[nodiscard]] QVariantList unattendedSettings() const;
     [[nodiscard]] bool unattendedNarratorAutostart() const;
+    [[nodiscard]] QVariantList updateCatalogResults() const;
+    [[nodiscard]] QString updateCatalogStatus() const;
+    [[nodiscard]] bool updateCatalogBusy() const;
+    [[nodiscard]] double updateCatalogDownloadProgress() const;
     [[nodiscard]] QVariantList microsoftProductKeys() const;
     [[nodiscard]] int computerNameMode() const;
     [[nodiscard]] QString computerNameValue() const;
@@ -292,6 +302,11 @@ public:
     Q_INVOKABLE bool addPayloadDirectory(const QString &category, const QUrl &directory);
     Q_INVOKABLE void refreshPayloadCatalog();
     Q_INVOKABLE void openMicrosoftUpdateCatalog(const QString &query = {});
+    Q_INVOKABLE void searchUpdateCatalog(const QString &query);
+    Q_INVOKABLE void downloadUpdateCatalogItem(const QString &updateId, const QString &title,
+                                               const QString &category = QStringLiteral("updates"),
+                                               double sizeBytes = 0.0);
+    Q_INVOKABLE void cancelUpdateCatalog();
     Q_INVOKABLE void setFeature(const QString &name, bool enabled);
     Q_INVOKABLE int featureState(const QString &name) const;
     Q_INVOKABLE bool setFeatureState(const QString &name, int state);
@@ -428,6 +443,7 @@ signals:
     void preferencesChanged();
     void notificationsChanged();
     void studioChanged();
+    void updateCatalogChanged();
     void snackbarRequested(const QString &message, const QString &tone);
     void newProjectRequested();
     void openProjectRequested();
@@ -461,6 +477,10 @@ private:
     void showError(const QString &message);
     void showSuccess(const QString &message);
     [[nodiscard]] QString localized(const QString &en, const QString &zh) const;
+    // Download every resolved catalog file URL sequentially into the project's
+    // own payload folder and queue each one; used by downloadUpdateCatalogItem.
+    void beginCatalogFileDownloads(const QStringList &urls, const QString &category,
+                                   const QString &destinationDir, qint64 perFileByteCap);
     [[nodiscard]] QStringList *listForCategory(wimforge::ProjectConfig &project, const QString &category);
     void reloadPayloadCatalog(bool force = false);
     void restoreStudioState();
@@ -529,6 +549,12 @@ private:
     QVariantList m_updateCatalogItems;
     QStringList m_catalogDriverPaths;
     QStringList m_catalogUpdatePaths;
+    QNetworkAccessManager *m_catalogNetwork = nullptr;
+    QNetworkReply *m_catalogReply = nullptr;
+    QVariantList m_updateCatalogResults;
+    QString m_updateCatalogStatus;
+    bool m_updateCatalogBusy = false;
+    double m_updateCatalogDownloadProgress = 0.0;
     QVariantList m_vmValidationItems;
     QVariantMap m_vmPendingPreview;
     QString m_vmStatusMessage;

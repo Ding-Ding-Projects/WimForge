@@ -30,7 +30,7 @@ Status meanings:
 | --- | --- | --- |
 | Driver integration | **Implemented** | Driver files/folders, DISM plan, and host-driver export helper |
 | Update/CAB/MSU integration | **Implemented** | User supplies payloads; hashing and dependency gates apply |
-| Integrated update downloader/cache | **Not implemented** | No Windows Update catalog downloader or applicability resolver |
+| Integrated update downloader | **Implemented** | In-app Microsoft Update Catalog search and download, restricted to trusted Microsoft hosts and queued for review; no applicability resolver or persistent cache yet |
 | Optional features enable/disable | **Implemented** | Tri-state Enable/Disable/Unchanged desktop controls and Windows feature identities through DISM |
 | Capabilities/FOD add/remove | **Implemented** | Add/Remove/Unchanged desktop editor; exact build-specific identity/payload correctness remains the user's responsibility |
 | Provisioned Appx remove/provision | **Implemented** | Separate package-name removal and signed Appx/MSIX file picker; no Store browser or dependency resolver |

@@ -346,10 +346,21 @@ Item {
                             id: sourceButton
                             Layout.fillWidth: payloadPage.width < 700
                             text: payloadPage.tr("Search Microsoft Update Catalog", "搜尋 Microsoft Update Catalog")
-                            onClicked: payloadPage.app.openMicrosoftUpdateCatalog(sourceSearch.text.trim())
+                            onClicked: {
+                                updateCatalogSheet.searchFor(sourceSearch.text.trim())
+                                payloadPage.app.openMicrosoftUpdateCatalog(sourceSearch.text.trim())
+                            }
                         }
                     }
                 }
+            }
+
+            UpdateCatalogSheet {
+                id: updateCatalogSheet
+                app: payloadPage.app
+                tr: payloadPage.tr
+                dark: root.dark
+                category: payloadPage.category
             }
 
             GridLayout {

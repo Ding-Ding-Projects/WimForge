@@ -113,7 +113,7 @@ That boundary ends at external behavior. DISM may have committed bytes, an insta
 
 The current architecture does **not** imply that these are complete:
 
-- a compatibility database or integrated update downloader;
+- a compatibility database or update applicability resolver (the in-app Microsoft Update Catalog downloader is implemented, but it does not resolve applicability or cache across projects);
 - broad live-host inventory/refresh parity with mature commercial products;
 - a VMware/VirtualBox VM lab and recorded validation-run manager;
 - globally applied interface-density scaling and complete responsive/accessibility automation;

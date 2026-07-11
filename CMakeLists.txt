@@ -30,7 +30,7 @@ option(WIMFORGE_CLI_ONLY
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
 if(NOT WIMFORGE_CLI_ONLY)
     find_package(Qt6 6.8 REQUIRED COMPONENTS
-        Gui Qml Quick QuickControls2 QuickDialogs2)
+        Gui Qml Quick QuickControls2 QuickDialogs2 Network)
 endif()
 
 qt_standard_project_setup(REQUIRES 6.8)
@@ -74,6 +74,8 @@ set(WIMFORGE_CORE_SOURCES
     src/core/SearchIndex.h
     src/core/UnattendBuilder.cpp
     src/core/UnattendBuilder.h
+    src/core/UpdateCatalog.cpp
+    src/core/UpdateCatalog.h
     src/core/VmLab.cpp
     src/core/VmLab.h
     src/core/VmLabCliService.cpp
@@ -148,6 +150,7 @@ if(NOT WIMFORGE_CLI_ONLY)
             qml/components/WfField.qml
             qml/components/WfIconButton.qml
             qml/components/WfIcon.qml
+            qml/components/UpdateCatalogSheet.qml
             qml/components/ProjectStartPage.qml
             qml/components/MetricCard.qml
             qml/components/NotificationCenter.qml
@@ -199,6 +202,7 @@ if(NOT WIMFORGE_CLI_ONLY)
         Qt6::Quick
         Qt6::QuickControls2
         Qt6::QuickDialogs2
+        Qt6::Network
     )
     if(WIN32)
         target_link_libraries(WimForge PRIVATE advapi32 shell32)

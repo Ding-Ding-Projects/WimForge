@@ -88,6 +88,11 @@ wimforge_add_core_test(unattend_builder_tests
     CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/UnattendBuilder.cpp
 )
 
+wimforge_add_core_test(update_catalog_tests
+    SOURCES update_catalog_tests.cpp
+    CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/UpdateCatalog.cpp
+)
+
 wimforge_add_core_test(gpo_catalog_tests
     SOURCES gpo_catalog_tests.cpp
     CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/GpoCatalog.cpp

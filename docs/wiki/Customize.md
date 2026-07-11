@@ -61,7 +61,7 @@ Before enabling, disabling, or removing an item:
 
 ## Payload responsibility
 
-WimForge does not acquire general driver, update, or application payloads for this page. The operator is responsible for source, architecture, applicability, licensing, redistribution, integrity, and signer review. Package Studio adds provider-aware first-logon profiles and trust metadata, but it also does not bypass vendor authentication, subscriptions, hardware requirements, or terms. See [Package Studio](Package-Studio).
+Update and driver payloads can now be acquired in-app from the Microsoft Update Catalog: the **Search Microsoft Update Catalog** control opens an in-app sheet that searches, downloads (only from trusted Microsoft hosts), and adds the `.msu`/`.cab` straight into the reviewed update or driver queue — no external browser. WimForge still does not acquire general application payloads for this page, does not resolve SSU/LCU applicability, and does not judge whether an update fits the target build. The operator remains responsible for source, architecture, applicability, licensing, redistribution, integrity, and signer review. Package Studio adds provider-aware first-logon profiles and trust metadata, but it also does not bypass vendor authentication, subscriptions, hardware requirements, or terms. See [Package Studio](Package-Studio).
 
 ## Answer files and post-setup work
 
@@ -83,7 +83,7 @@ After customization:
 
 ## 香港粵語重點
 
-Updates 同 Drivers 唔再係空白清單：可以用 picker 加 CAB/MSU、INF 或驅動資料夾，清單會顯示 KB、大小、provider、class 同 driver version。Microsoft Update Catalog 連結只幫你搜尋；WimForge 唔會估 SSU/LCU 依賴，亦唔會估某個 update 啱唔啱目標 build。Features 而家係真正三態，capability 可以加入／移除／回復不變；Apps 分開套件名移除同已簽署 bundle file picker。Scheduled Tasks 用 typed `enable` / `disable` / `remove` 變更，會做離線 XML 安全檢查；`remove` 一定要明確 compatibility override 同 checkpoint，而且仍然冇內置 task inventory 或 build-specific 建議。所有項目都要去 Review & Run 對指令同 destructive marker 先執行。
+Updates 同 Drivers 唔再係空白清單：可以用 picker 加 CAB/MSU、INF 或驅動資料夾，清單會顯示 KB、大小、provider、class 同 driver version。Microsoft Update Catalog 而家可以喺 app 內搜尋、下載（只限可信 Microsoft 主機）再自動加入更新／驅動程式隊列，唔使開瀏覽器；不過 WimForge 唔會估 SSU/LCU 依賴，亦唔會估某個 update 啱唔啱目標 build。Features 而家係真正三態，capability 可以加入／移除／回復不變；Apps 分開套件名移除同已簽署 bundle file picker。Scheduled Tasks 用 typed `enable` / `disable` / `remove` 變更，會做離線 XML 安全檢查；`remove` 一定要明確 compatibility override 同 checkpoint，而且仍然冇內置 task inventory 或 build-specific 建議。所有項目都要去 Review & Run 對指令同 destructive marker 先執行。
 
 ---
 
