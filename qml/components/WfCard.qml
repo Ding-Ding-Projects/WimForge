@@ -13,7 +13,7 @@ Pane {
     property color fillColor: DesignTokens.surfaceForLevel(surfaceLevel, dark)
     property color outlineColor: DesignTokens.outlineVariant(dark)
 
-    padding: DesignTokens.spacing16
+    padding: DesignTokens.spacing20
     focusPolicy: Qt.NoFocus
 
     background: Rectangle {

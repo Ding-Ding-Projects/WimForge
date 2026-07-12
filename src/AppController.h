@@ -94,6 +94,7 @@ class AppController final : public QObject
 
     Q_PROPERTY(int languageMode READ languageMode WRITE setLanguageMode NOTIFY preferencesChanged)
     Q_PROPERTY(int themeMode READ themeMode WRITE setThemeMode NOTIFY preferencesChanged)
+    Q_PROPERTY(int colorScheme READ colorScheme WRITE setColorScheme NOTIFY preferencesChanged)
     Q_PROPERTY(double interfaceScale READ interfaceScale WRITE setInterfaceScale NOTIFY preferencesChanged)
     Q_PROPERTY(bool motionEnabled READ motionEnabled WRITE setMotionEnabled NOTIFY preferencesChanged)
     Q_PROPERTY(int maxParallelJobs READ maxParallelJobs WRITE setMaxParallelJobs NOTIFY preferencesChanged)
@@ -211,6 +212,8 @@ public:
     void setLanguageMode(int value);
     [[nodiscard]] int themeMode() const;
     void setThemeMode(int value);
+    [[nodiscard]] int colorScheme() const;
+    void setColorScheme(int value);
     [[nodiscard]] double interfaceScale() const;
     void setInterfaceScale(double value);
     [[nodiscard]] bool motionEnabled() const;
@@ -568,6 +571,7 @@ private:
 
     int m_languageMode = 2;
     int m_themeMode = 0;
+    int m_colorScheme = 1;
     double m_interfaceScale = 1.0;
     bool m_motionEnabled = true;
     int m_maxParallelJobs = 4;

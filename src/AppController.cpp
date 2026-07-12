@@ -860,6 +860,7 @@ AppController::AppController(QObject *parent)
 
     m_languageMode = qBound(0, m_settings.value(QStringLiteral("ui/language"), 2).toInt(), 2);
     m_themeMode = qBound(0, m_settings.value(QStringLiteral("ui/theme"), 0).toInt(), 2);
+    m_colorScheme = qBound(0, m_settings.value(QStringLiteral("ui/colorScheme"), 1).toInt(), 2);
     m_interfaceScale = qBound(0.8, m_settings.value(QStringLiteral("ui/scale"), 1.0).toDouble(), 1.25);
     m_motionEnabled = m_settings.value(QStringLiteral("ui/motion"), true).toBool();
     m_maxParallelJobs = qBound(1, m_settings.value(QStringLiteral("jobs/parallel"), 4).toInt(), 16);
@@ -1148,6 +1149,7 @@ QString AppController::recoverySummary() const
 QString AppController::recoveryPath() const { return JobEngine::defaultRecoveryRoot(); }
 int AppController::languageMode() const { return m_languageMode; }
 int AppController::themeMode() const { return m_themeMode; }
+int AppController::colorScheme() const { return m_colorScheme; }
 double AppController::interfaceScale() const { return m_interfaceScale; }
 bool AppController::motionEnabled() const { return m_motionEnabled; }
 int AppController::maxParallelJobs() const { return m_maxParallelJobs; }
@@ -1430,6 +1432,7 @@ void AppController::setLanguageMode(int value)
     emit preferencesChanged(); emit stateChanged(); emit notificationsChanged();
 }
 void AppController::setThemeMode(int value) { value = qBound(0, value, 2); if (m_themeMode == value) return; m_themeMode = value; m_settings.setValue(QStringLiteral("ui/theme"), value); emit preferencesChanged(); }
+void AppController::setColorScheme(int value) { value = qBound(0, value, 2); if (m_colorScheme == value) return; m_colorScheme = value; m_settings.setValue(QStringLiteral("ui/colorScheme"), value); emit preferencesChanged(); }
 void AppController::setInterfaceScale(double value) { value = qBound(0.8, value, 1.25); if (qFuzzyCompare(m_interfaceScale, value)) return; m_interfaceScale = value; m_settings.setValue(QStringLiteral("ui/scale"), value); emit preferencesChanged(); }
 void AppController::setMotionEnabled(bool value) { if (m_motionEnabled == value) return; m_motionEnabled = value; m_settings.setValue(QStringLiteral("ui/motion"), value); emit preferencesChanged(); }
 void AppController::setMaxParallelJobs(int value) { value = qBound(1, value, 16); if (m_maxParallelJobs == value) return; m_maxParallelJobs = value; m_settings.setValue(QStringLiteral("jobs/parallel"), value); emit preferencesChanged(); }

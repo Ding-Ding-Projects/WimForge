@@ -200,6 +200,66 @@ Item {
                     }
 
                     SettingsValueRow {
+                        title: root.tr("Material color scheme", "Material 配色")
+                        description: root.tr("Copper, Indigo or Spruce tonal palette, applied across light and dark.",
+                                             "赤銅、靛藍或雲杉色系，淺色深色都套用。")
+                        RowLayout {
+                            spacing: DesignTokens.spacing8
+                            Repeater {
+                                model: [0, 1, 2]
+                                delegate: AbstractButton {
+                                    id: schemeButton
+                                    required property int modelData
+                                    readonly property bool active: root.app.colorScheme === modelData
+                                    readonly property var swatch: DesignTokens._schemes[modelData][root.dark ? "dark" : "light"]
+                                    implicitHeight: DesignTokens.controlHeight
+                                    leftPadding: DesignTokens.spacing12
+                                    rightPadding: DesignTokens.spacing16
+                                    focusPolicy: Qt.StrongFocus
+                                    Accessible.role: Accessible.RadioButton
+                                    Accessible.name: root.tr(DesignTokens.schemeNames[modelData].en,
+                                                             DesignTokens.schemeNames[modelData].zh)
+                                    Accessible.checkable: true
+                                    Accessible.checked: active
+                                    onClicked: root.app.colorScheme = modelData
+                                    background: Rectangle {
+                                        radius: DesignTokens.radiusPill
+                                        color: schemeButton.active ? DesignTokens.secondaryContainer(root.dark)
+                                               : schemeButton.hovered ? DesignTokens.surfaceHigh(root.dark) : "transparent"
+                                        border.width: schemeButton.active || schemeButton.visualFocus ? 2 : 1
+                                        border.color: schemeButton.visualFocus
+                                                      ? DesignTokens.primary(root.dark)
+                                                      : schemeButton.active
+                                                        ? DesignTokens.secondaryContainer(root.dark)
+                                                        : DesignTokens.outline(root.dark)
+                                    }
+                                    contentItem: RowLayout {
+                                        spacing: DesignTokens.spacing8
+                                        Rectangle {
+                                            Layout.preferredWidth: 14
+                                            Layout.preferredHeight: 14
+                                            radius: 7
+                                            color: schemeButton.swatch.p
+                                            border.width: 1
+                                            border.color: DesignTokens.outlineVariant(root.dark)
+                                        }
+                                        Label {
+                                            text: root.tr(DesignTokens.schemeNames[schemeButton.modelData].en,
+                                                          DesignTokens.schemeNames[schemeButton.modelData].zh)
+                                            color: schemeButton.active
+                                                   ? DesignTokens.onSecondaryContainer(root.dark)
+                                                   : root.surfaceForeground
+                                            font.family: DesignTokens.fontBody
+                                            font.pixelSize: 12
+                                            font.weight: schemeButton.active ? Font.DemiBold : Font.Medium
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsValueRow {
                         title: root.tr("Interface scale", "介面比例")
                         description: root.tr("Adjust the full desktop surface from 80% to 125%.",
                                              "將整個桌面介面由 80% 調至 125%。")

@@ -61,6 +61,12 @@ ApplicationWindow {
         value: !app.motionEnabled
     }
 
+    Binding {
+        target: DesignTokens
+        property: "scheme"
+        value: app.colorScheme
+    }
+
     function navigateToPage(page) {
         var bounded = Math.max(0, Math.min(page, navigationItems.length - 1))
         currentPage = bounded
@@ -248,18 +254,22 @@ ApplicationWindow {
                         anchors.leftMargin: root.compactNavigation ? 0 : 6
                         anchors.horizontalCenter: root.compactNavigation ? parent.horizontalCenter : undefined
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 30
-                        height: 30
-                        radius: DesignTokens.radiusControl
-                        color: DesignTokens.primary(root.darkTheme)
+                        width: 36
+                        height: 36
+                        radius: 12
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: DesignTokens.primaryContainer(root.darkTheme) }
+                            GradientStop { position: 1.0; color: DesignTokens.secondaryContainer(root.darkTheme) }
+                        }
+                        layer.enabled: true
                         Accessible.name: root.tr2("WimForge application", "WimForge 應用程式")
                         Label {
                             anchors.centerIn: parent
                             text: "W"
                             font.family: DesignTokens.fontDisplay
-                            font.pixelSize: 15
+                            font.pixelSize: 18
                             font.weight: Font.Bold
-                            color: DesignTokens.onPrimary(root.darkTheme)
+                            color: DesignTokens.onPrimaryContainer(root.darkTheme)
                             Accessible.ignored: true
                         }
                     }

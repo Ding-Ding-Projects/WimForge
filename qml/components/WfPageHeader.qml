@@ -44,8 +44,9 @@ Item {
                 text: root.title
                 color: DesignTokens.onSurface(root.dark)
                 font.family: DesignTokens.fontDisplay
-                font.pixelSize: 26
-                font.weight: Font.Bold
+                font.pixelSize: 30
+                font.weight: Font.DemiBold
+                font.letterSpacing: -0.4
                 wrapMode: Text.Wrap
             }
             Label {
