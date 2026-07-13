@@ -84,6 +84,8 @@ class AppController final : public QObject
     Q_PROPERTY(QString notificationRepoPath READ notificationRepoPath CONSTANT)
 
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
+    Q_PROPERTY(bool backgroundBusy READ backgroundBusy NOTIFY stateChanged)
+    Q_PROPERTY(QString backgroundStatus READ backgroundStatus NOTIFY stateChanged)
     Q_PROPERTY(bool sourceInspectionBusy READ sourceInspectionBusy NOTIFY stateChanged)
     Q_PROPERTY(double progress READ progress NOTIFY stateChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
@@ -122,6 +124,8 @@ class AppController final : public QObject
     Q_PROPERTY(QString updateCatalogStatus READ updateCatalogStatus NOTIFY updateCatalogChanged)
     Q_PROPERTY(bool updateCatalogBusy READ updateCatalogBusy NOTIFY updateCatalogChanged)
     Q_PROPERTY(double updateCatalogDownloadProgress READ updateCatalogDownloadProgress NOTIFY updateCatalogChanged)
+    Q_PROPERTY(QString sourceCatalogQuery READ sourceCatalogQuery NOTIFY updateCatalogChanged)
+    Q_PROPERTY(bool payloadCatalogBusy READ payloadCatalogBusy NOTIFY payloadCatalogChanged)
     Q_PROPERTY(QVariantList microsoftProductKeys READ microsoftProductKeys CONSTANT)
     Q_PROPERTY(int computerNameMode READ computerNameMode NOTIFY studioChanged)
     Q_PROPERTY(QString computerNameValue READ computerNameValue NOTIFY studioChanged)
@@ -200,6 +204,8 @@ public:
     [[nodiscard]] int notificationUnreadCount() const;
     [[nodiscard]] QString notificationRepoPath() const;
     [[nodiscard]] bool busy() const;
+    [[nodiscard]] bool backgroundBusy() const;
+    [[nodiscard]] QString backgroundStatus() const;
     [[nodiscard]] bool sourceInspectionBusy() const;
     [[nodiscard]] double progress() const;
     [[nodiscard]] QString statusText() const;
@@ -251,6 +257,8 @@ public:
     [[nodiscard]] QString updateCatalogStatus() const;
     [[nodiscard]] bool updateCatalogBusy() const;
     [[nodiscard]] double updateCatalogDownloadProgress() const;
+    [[nodiscard]] QString sourceCatalogQuery() const;
+    [[nodiscard]] bool payloadCatalogBusy() const;
     [[nodiscard]] QVariantList microsoftProductKeys() const;
     [[nodiscard]] int computerNameMode() const;
     [[nodiscard]] QString computerNameValue() const;
@@ -305,6 +313,7 @@ public:
     Q_INVOKABLE bool addPayloadDirectory(const QString &category, const QUrl &directory);
     Q_INVOKABLE void refreshPayloadCatalog();
     Q_INVOKABLE void openMicrosoftUpdateCatalog(const QString &query = {});
+    Q_INVOKABLE QString catalogQueryForCategory(const QString &category) const;
     Q_INVOKABLE void searchUpdateCatalog(const QString &query);
     Q_INVOKABLE void downloadUpdateCatalogItem(const QString &updateId, const QString &title,
                                                const QString &category = QStringLiteral("updates"),
@@ -437,6 +446,7 @@ public:
     Q_INVOKABLE bool importWorkspaceTabRepository(const QString &sourceFile);
     Q_INVOKABLE bool openApplicationLog();
     Q_INVOKABLE bool openApplicationLogFolder();
+    Q_INVOKABLE void retryBackgroundPersistence();
 
     bool loadDemoProject(QString *error = nullptr);
 
@@ -466,7 +476,29 @@ signals:
 private:
     using ProjectMutation = std::function<void(wimforge::ProjectConfig &)>;
 
+    struct PendingProjectMutation
+    {
+        wimforge::ProjectConfig project;
+        QJsonObject before;
+        QJsonObject after;
+        QString message;
+    };
+
+    struct PendingWorkspacePersistence
+    {
+        wimforge::WorkspaceTabs snapshot;
+        QString message;
+    };
+
     bool mutateProject(const QString &message, const ProjectMutation &mutation);
+    void beginNextProjectMutation();
+    void finishProjectMutation(bool saved, const QString &error,
+                               const QString &historyError,
+                               const QString &bundleError);
+    void refreshProjectDerivedState();
+    void refreshImageInventoryState();
+    void queueWorkspacePersistence();
+    void beginNextWorkspacePersistence();
     bool saveProject(const QString &message);
     void loadRecentProjects();
     void rememberRecentProject(const QString &directory, const QString &name);
@@ -513,6 +545,9 @@ private:
     wimforge::JobEngine m_jobEngine;
     QList<wimforge::ServicingOperation> m_plan;
     QList<wimforge::GitCommit> m_history;
+    QVariantList m_actionHistoryCache;
+    QString m_historyBranch = QStringLiteral("main");
+    QStringList m_historyBranchCache{QStringLiteral("main")};
     QList<wimforge::Notification> m_notificationItems;
     wimforge::GpoCatalog m_gpoCatalog;
     QList<wimforge::GpoPolicy> m_gpoSearchResults;
@@ -541,7 +576,11 @@ private:
     bool m_openCodeRequestTimedOut = false;
     QProcess *m_openCodeProcess = nullptr;
     QQueue<OpenCodeRequest> m_openCodeRequests;
+    QQueue<PendingProjectMutation> m_projectMutationQueue;
+    QQueue<PendingWorkspacePersistence> m_workspacePersistenceQueue;
     QString m_gpoStatus = QStringLiteral("Policy catalog has not been loaded yet.");
+    QString m_pendingGpoQuery;
+    bool m_pendingGpoRegularExpression = false;
     QString m_openCodeRequestStatus;
     QString m_winForgeRuntimePath;
     QString m_winForgeRuntimeStatus = QStringLiteral("No WinForge runtime has been detected yet.");
@@ -552,6 +591,19 @@ private:
     QVariantList m_updateCatalogItems;
     QStringList m_catalogDriverPaths;
     QStringList m_catalogUpdatePaths;
+    QString m_sourceCatalogQuery;
+    QString m_backgroundStatus;
+    bool m_projectMutationBusy = false;
+    bool m_workspacePersistenceBusy = false;
+    bool m_workspacePersistencePaused = false;
+    bool m_payloadCatalogBusy = false;
+    bool m_payloadDiscoveryBusy = false;
+    bool m_planRefreshBusy = false;
+    bool m_historyRefreshBusy = false;
+    bool m_gpoLoading = false;
+    quint64 m_payloadCatalogGeneration = 0;
+    quint64 m_planGeneration = 0;
+    quint64 m_historyGeneration = 0;
     QNetworkAccessManager *m_catalogNetwork = nullptr;
     QNetworkReply *m_catalogReply = nullptr;
     QVariantList m_updateCatalogResults;

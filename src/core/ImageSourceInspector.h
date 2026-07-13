@@ -21,6 +21,9 @@ struct ImageInspectionCommand
 struct ImageInspectionResult
 {
     QStringList editions;
+    QString architecture;
+    QString version;
+    QString build;
     QString mountedImagePath;
     QString relativeImagePath;
     QString output;
@@ -36,6 +39,8 @@ public:
         const QByteArray &output,
         bool isoSource,
         bool utf8Output);
+    [[nodiscard]] static QString recommendedCatalogQuery(
+        const ImageInspectionResult &inspection);
     [[nodiscard]] static QString isoInspectionScript();
 };
 

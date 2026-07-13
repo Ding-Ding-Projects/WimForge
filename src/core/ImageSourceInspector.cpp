@@ -128,7 +128,63 @@ ImageInspectionResult ImageSourceInspector::parseOutput(
         result.editions.append(QStringLiteral("Index %1 — %2")
                                    .arg(match.captured(1), match.captured(2).trimmed()));
     }
+
+    const QRegularExpression architectureLine(
+        QStringLiteral(R"((?:^|[\r\n])\s*Architecture\s*:\s*([^\r\n]+))"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch architectureMatch = architectureLine.match(result.output);
+    if (architectureMatch.hasMatch()) {
+        result.architecture = architectureMatch.captured(1).trimmed().toLower();
+        if (result.architecture == QStringLiteral("amd64"))
+            result.architecture = QStringLiteral("x64");
+        else if (result.architecture == QStringLiteral("x86_64"))
+            result.architecture = QStringLiteral("x64");
+        else if (result.architecture == QStringLiteral("aarch64"))
+            result.architecture = QStringLiteral("arm64");
+    }
+
+    const QRegularExpression versionLine(
+        QStringLiteral(R"((?:^|[\r\n])\s*Version\s*:\s*([0-9]+(?:\.[0-9]+){2,3}))"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch versionMatch = versionLine.match(result.output);
+    if (versionMatch.hasMatch()) {
+        result.version = versionMatch.captured(1).trimmed();
+        const QStringList parts = result.version.split(QLatin1Char('.'));
+        if (parts.size() >= 3)
+            result.build = parts.at(2);
+    }
     return result;
+}
+
+QString ImageSourceInspector::recommendedCatalogQuery(
+    const ImageInspectionResult &inspection)
+{
+    QString product;
+    for (const QString &edition : inspection.editions) {
+        const QRegularExpression productName(
+            QStringLiteral(R"((Windows\s+(?:11|10|Server(?:\s+\d{4})?)))"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch match = productName.match(edition);
+        if (match.hasMatch()) {
+            product = match.captured(1).simplified();
+            break;
+        }
+    }
+    if (product.isEmpty() && !inspection.editions.isEmpty()) {
+        product = inspection.editions.constFirst();
+        product.remove(QRegularExpression(QStringLiteral(R"(^Index\s+\d+\s+[—-]\s*)"),
+                                          QRegularExpression::CaseInsensitiveOption));
+        product = product.simplified();
+    }
+
+    QStringList terms;
+    if (!product.isEmpty())
+        terms.append(product);
+    if (!inspection.build.isEmpty())
+        terms.append(inspection.build);
+    if (!inspection.architecture.isEmpty())
+        terms.append(inspection.architecture);
+    return terms.join(QLatin1Char(' ')).simplified();
 }
 
 QString ImageSourceInspector::isoInspectionScript()

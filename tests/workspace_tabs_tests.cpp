@@ -58,6 +58,28 @@ int main(int argc, char *argv[])
     test.check(QFileInfo::exists(QDir(first.repositoryPath()).filePath(QStringLiteral(".git"))),
                QStringLiteral("tabs have a dedicated local Git repository"));
 
+    {
+        const QString deferredProject = QDir(temporary.path()).filePath(QStringLiteral("deferred"));
+        QDir().mkpath(deferredProject);
+        wimforge::WorkspaceTabs deferred;
+        QString deferredError;
+        test.check(deferred.openProject(deferredProject, &deferredError), deferredError);
+        deferred.setDeferredPersistence(true);
+        test.check(deferred.navigateActiveTab(2, QStringLiteral("Customize"), &deferredError)
+                       && deferred.tabs().constFirst().toMap().value(QStringLiteral("page")).toInt() == 2
+                       && deferred.hasPendingPersistence()
+                       && deferred.pendingCommitMessage().contains(QStringLiteral(" / ")),
+                   QStringLiteral("deferred mode updates tab state immediately and queues a bilingual commit"));
+        test.check(deferred.flushPendingPersistence(&deferredError)
+                       && !deferred.hasPendingPersistence(),
+                   QStringLiteral("deferred tab state can be committed later by a serialized worker"));
+        wimforge::WorkspaceTabs deferredReopened;
+        test.check(deferredReopened.openProject(deferredProject, &deferredError)
+                       && deferredReopened.tabs().constFirst().toMap()
+                              .value(QStringLiteral("page")).toInt() == 2,
+                   QStringLiteral("flushed deferred tab state survives reopening"));
+    }
+
     test.check(first.openPage(2, QStringLiteral("Customize"), &error), error);
     test.check(first.openPage(1, QStringLiteral("Source & editions"), &error), error);
     test.check(first.tabs().size() == 3 && first.activeIndex() == 2,

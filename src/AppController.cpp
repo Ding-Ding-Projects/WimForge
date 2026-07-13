@@ -28,11 +28,13 @@
 #include <QJsonDocument>
 #include <QMetaObject>
 #include <QProcess>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
 #include <QThread>
+#include <QThreadPool>
 #include <QTimer>
 #include <QUrlQuery>
 
@@ -1084,21 +1086,17 @@ QString AppController::gitStatusText() const
 
 QVariantList AppController::actionHistory() const
 {
-    return contextualHistory({}, {});
+    return m_actionHistoryCache;
 }
 
 QString AppController::historyBranch() const
 {
-    if (!m_project)
-        return QStringLiteral("main");
-    return ActionHistory(m_project->projectDirectory).currentBranch(nullptr);
+    return m_historyBranch;
 }
 
 QStringList AppController::historyBranches() const
 {
-    if (!m_project)
-        return {QStringLiteral("main")};
-    return ActionHistory(m_project->projectDirectory).branchNames(nullptr);
+    return m_historyBranchCache;
 }
 
 QVariantList AppController::notifications() const
@@ -1127,6 +1125,18 @@ int AppController::notificationUnreadCount() const
 
 QString AppController::notificationRepoPath() const { return m_notificationStore.storeDirectory(); }
 bool AppController::busy() const { return m_jobEngine.isRunning() || m_inspecting; }
+bool AppController::backgroundBusy() const
+{
+    return m_projectMutationBusy || !m_projectMutationQueue.isEmpty()
+        || m_workspacePersistenceBusy || !m_workspacePersistenceQueue.isEmpty()
+        || m_payloadCatalogBusy || m_payloadDiscoveryBusy
+        || m_planRefreshBusy || m_historyRefreshBusy
+        || m_gpoLoading;
+}
+QString AppController::backgroundStatus() const
+{
+    return m_backgroundStatus;
+}
 bool AppController::sourceInspectionBusy() const { return m_inspecting; }
 double AppController::progress() const { return m_jobEngine.progress(); }
 QString AppController::statusText() const { return m_statusText; }
@@ -1548,6 +1558,11 @@ void AppController::requestOpenProject() { emit openProjectRequested(); }
 
 bool AppController::createProject(const QString &directory, const QString &name)
 {
+    if (m_projectMutationBusy || !m_projectMutationQueue.isEmpty()) {
+        showError(localized(QStringLiteral("Wait for background project saving before creating another project."),
+                            QStringLiteral("等後台儲存完工程，先再建立另一個工程。")));
+        return false;
+    }
     ProjectConfig project;
     project.projectDirectory = cleanPath(directory);
     project.projectName = name.trimmed();
@@ -1575,6 +1590,11 @@ bool AppController::createProject(const QString &directory, const QString &name)
 
 bool AppController::openProject(const QString &directory)
 {
+    if (m_projectMutationBusy || !m_projectMutationQueue.isEmpty()) {
+        showError(localized(QStringLiteral("Wait for background project saving before opening another project."),
+                            QStringLiteral("等後台儲存完工程，先再開另一個工程。")));
+        return false;
+    }
     QString error;
     const auto project = ProjectConfig::load(cleanPath(directory), &error);
     if (!project) { showError(error); return false; }
@@ -1587,6 +1607,11 @@ bool AppController::openProject(const QString &directory)
 
 bool AppController::importProject(const QString &sourceFile, const QString &destinationDirectory)
 {
+    if (m_projectMutationBusy || !m_projectMutationQueue.isEmpty()) {
+        showError(localized(QStringLiteral("Wait for background project saving before importing another project."),
+                            QStringLiteral("等後台儲存完工程，先再匯入另一個工程。")));
+        return false;
+    }
     if (QFileInfo(sourceFile).suffix().compare(QStringLiteral("wimforge"), Qt::CaseInsensitive) == 0) {
         QString error;
         const auto imported = ProjectBundle::importFromFile(cleanPath(sourceFile),
@@ -1644,6 +1669,11 @@ bool AppController::importProject(const QString &sourceFile, const QString &dest
 
 bool AppController::exportProject(const QString &destinationFile)
 {
+    if (m_projectMutationBusy || !m_projectMutationQueue.isEmpty()) {
+        showError(localized(QStringLiteral("Wait for background project saving before exporting."),
+                            QStringLiteral("等後台儲存完工程，先再匯出。")));
+        return false;
+    }
     if (!m_project) { showError(QStringLiteral("Open a project first.")); return false; }
     QString error;
     const QString destination = cleanPath(destinationFile);
@@ -1691,55 +1721,189 @@ bool AppController::mutateProject(const QString &message, const ProjectMutation 
     const QJsonObject before = m_project->toJson();
     ProjectConfig candidate = *m_project;
     mutation(candidate);
-    QString error;
-    if (!candidate.save(&error, message)) { showError(error); return false; }
     const QJsonObject after = candidate.toJson();
-    m_project = std::move(candidate);
-
-    ActionDraft action;
-    const qsizetype separator = message.indexOf(QLatin1Char(':'));
-    action.contextKey = separator > 0 ? message.left(separator).trimmed() : QStringLiteral("project");
-    action.elementId = separator >= 0 ? message.mid(separator + 1).simplified() : message.simplified();
-    action.title = message;
-    action.description = QStringLiteral("Committed project configuration change.");
-    action.icon = action.contextKey == QStringLiteral("gpo") ? QStringLiteral("policy")
-        : action.contextKey == QStringLiteral("packages") ? QStringLiteral("inventory_2")
-        : action.contextKey == QStringLiteral("unattended") ? QStringLiteral("auto_fix_high")
-        : QStringLiteral("edit");
-    action.forwardDiff = ActionHistory::createMergePatch(before, after);
-    action.inverseDiff = ActionHistory::createMergePatch(after, before);
-    action.metadata = QJsonObject{{QStringLiteral("diffSummary"), message},
-                                  {QStringLiteral("stateFormat"), QStringLiteral("merge-patch")},
-                                  {QStringLiteral("beforeState"), before},
-                                  {QStringLiteral("afterState"), after}};
-    QString historyError;
-    if (!ActionHistory(m_project->projectDirectory).record(action, nullptr, &historyError)) {
-        notify(QStringLiteral("Context history warning"),
-               QStringLiteral("The project Git commit is safe, but the contextual event could not be recorded: %1")
-                   .arg(historyError), QStringLiteral("warning"));
-    }
-    if (m_project->autoExport
-        && QFileInfo(m_project->autoExportPath).suffix().compare(
-               QStringLiteral("wimforge"), Qt::CaseInsensitive) == 0) {
-        const QList<ProjectBundleRepository> repositories{
-            {ProjectBundle::ProjectRepositoryRole, m_project->projectDirectory,
-             QStringLiteral("project")},
-            {ProjectBundle::NotificationRepositoryRole, m_notificationStore.storeDirectory(),
-             QStringLiteral("notifications")},
-        };
-        QString bundleError;
-        if (!ProjectBundle::exportToFile(m_project->autoExportPath, repositories, {}, &bundleError))
-            showError(QStringLiteral("The action was committed, but complete auto-export failed: %1")
-                          .arg(bundleError));
-    }
-    loadProjectState();
+    m_project = candidate;
+    m_projectMutationQueue.enqueue(PendingProjectMutation{
+        std::move(candidate), before, after, message});
+    m_backgroundStatus = localized(
+        QStringLiteral("Saving project changes in the background…"),
+        QStringLiteral("正喺後台儲存工程變更……"));
+    refreshProjectDerivedState();
+    beginNextProjectMutation();
     StructuredLogger::instance().log(
         LogSeverity::Info, QStringLiteral("controller.action"),
-        QStringLiteral("project.mutation_committed"),
-        QStringLiteral("Project configuration mutation committed."),
+        QStringLiteral("project.mutation_queued"),
+        QStringLiteral("Project configuration mutation queued for background persistence."),
         QJsonObject{{QStringLiteral("messageLength"), message.size()},
                     {QStringLiteral("bilingualMessage"), message.contains(QStringLiteral(" / "))}});
     return true;
+}
+
+void AppController::beginNextProjectMutation()
+{
+    if (m_projectMutationBusy || m_projectMutationQueue.isEmpty())
+        return;
+    m_projectMutationBusy = true;
+    emit stateChanged();
+
+    const PendingProjectMutation pending = m_projectMutationQueue.head();
+    const QString notificationRepository = m_notificationStore.storeDirectory();
+    const QPointer<AppController> guard(this);
+    QThreadPool::globalInstance()->start(
+        [guard, pending, notificationRepository]() mutable {
+        QString error;
+        QString historyError;
+        QString bundleError;
+        const bool saved = pending.project.save(&error, pending.message);
+        if (saved) {
+            ActionDraft action;
+            const qsizetype separator = pending.message.indexOf(QLatin1Char(':'));
+            action.contextKey = separator > 0
+                ? pending.message.left(separator).trimmed() : QStringLiteral("project");
+            action.elementId = separator >= 0
+                ? pending.message.mid(separator + 1).simplified()
+                : pending.message.simplified();
+            action.title = pending.message;
+            action.description = QStringLiteral("Committed project configuration change.");
+            action.icon = action.contextKey == QStringLiteral("gpo")
+                ? QStringLiteral("policy")
+                : action.contextKey == QStringLiteral("packages")
+                    ? QStringLiteral("inventory_2")
+                    : action.contextKey == QStringLiteral("unattended")
+                        ? QStringLiteral("auto_fix_high") : QStringLiteral("edit");
+            action.forwardDiff = ActionHistory::createMergePatch(pending.before, pending.after);
+            action.inverseDiff = ActionHistory::createMergePatch(pending.after, pending.before);
+            action.metadata = QJsonObject{
+                {QStringLiteral("diffSummary"), pending.message},
+                {QStringLiteral("stateFormat"), QStringLiteral("merge-patch")},
+                {QStringLiteral("beforeState"), pending.before},
+                {QStringLiteral("afterState"), pending.after},
+            };
+            ActionHistory(pending.project.projectDirectory)
+                .record(action, nullptr, &historyError);
+
+            if (pending.project.autoExport
+                && QFileInfo(pending.project.autoExportPath).suffix().compare(
+                       QStringLiteral("wimforge"), Qt::CaseInsensitive) == 0) {
+                const QList<ProjectBundleRepository> repositories{
+                    {ProjectBundle::ProjectRepositoryRole,
+                     pending.project.projectDirectory, QStringLiteral("project")},
+                    {ProjectBundle::NotificationRepositoryRole,
+                     notificationRepository, QStringLiteral("notifications")},
+                };
+                ProjectBundle::exportToFile(pending.project.autoExportPath,
+                                            repositories, {}, &bundleError);
+            }
+        }
+        if (!guard)
+            return;
+        QMetaObject::invokeMethod(guard, [guard, saved, error, historyError, bundleError] {
+            if (guard)
+                guard->finishProjectMutation(saved, error, historyError, bundleError);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void AppController::finishProjectMutation(bool saved, const QString &error,
+                                          const QString &historyError,
+                                          const QString &bundleError)
+{
+    if (m_projectMutationQueue.isEmpty()) {
+        m_projectMutationBusy = false;
+        emit stateChanged();
+        return;
+    }
+    const QString projectDirectory = m_projectMutationQueue.head().project.projectDirectory;
+    m_projectMutationQueue.dequeue();
+    m_projectMutationBusy = false;
+
+    if (!saved) {
+        m_projectMutationQueue.clear();
+        QString reloadError;
+        const auto persisted = ProjectConfig::load(projectDirectory, &reloadError);
+        if (persisted)
+            m_project = *persisted;
+        refreshProjectDerivedState();
+        m_backgroundStatus = localized(
+            QStringLiteral("Background save failed; the last committed project state was restored."),
+            QStringLiteral("後台儲存失敗；已還原最後一次 commit 嘅工程狀態。"));
+        showError(localized(
+            QStringLiteral("Could not save the project change: %1").arg(
+                error.isEmpty() ? reloadError : error),
+            QStringLiteral("儲存唔到工程變更：%1").arg(
+                error.isEmpty() ? reloadError : error)));
+    } else {
+        if (!historyError.isEmpty()) {
+            notify(localized(QStringLiteral("Context history warning"),
+                             QStringLiteral("操作歷史警告")),
+                   localized(
+                       QStringLiteral("The project commit is safe, but its contextual event could not be recorded: %1")
+                           .arg(historyError),
+                       QStringLiteral("工程 commit 已安全儲存，但記錄唔到操作事件：%1")
+                           .arg(historyError)),
+                   QStringLiteral("warning"));
+        }
+        if (!bundleError.isEmpty()) {
+            showError(localized(
+                QStringLiteral("The change was committed, but automatic bundle export failed: %1")
+                    .arg(bundleError),
+                QStringLiteral("變更已 commit，但自動匯出 bundle 失敗：%1")
+                    .arg(bundleError)));
+        }
+        m_backgroundStatus = m_projectMutationQueue.isEmpty()
+            ? localized(QStringLiteral("Project changes saved in the background."),
+                        QStringLiteral("工程變更已喺後台儲存。"))
+            : localized(QStringLiteral("Saving the next project change…"),
+                        QStringLiteral("正喺後台儲存下一項工程變更……"));
+        refreshHistory();
+    }
+    emit stateChanged();
+    beginNextProjectMutation();
+}
+
+void AppController::refreshImageInventoryState()
+{
+    m_editionNames.clear();
+    m_imageSummaryEn = QStringLiteral("Inspect a source to load edition metadata.");
+    m_imageSummaryZh = QStringLiteral("檢查來源之後，就會載入映像版本資料。");
+    if (!m_project)
+        return;
+    const QJsonObject inventory = m_project->options.extra
+        .value(QStringLiteral("imageInventory")).toObject();
+    const QJsonArray editions = inventory.value(QStringLiteral("editions")).toArray();
+    for (const QJsonValue &edition : editions) {
+        if (edition.isString() && !edition.toString().trimmed().isEmpty())
+            m_editionNames.append(edition.toString());
+    }
+    if (!m_editionNames.isEmpty()) {
+        m_project->selectedImageIndex = qBound(
+            1, m_project->selectedImageIndex,
+            static_cast<int>(m_editionNames.size()));
+    }
+    const QString summaryEn = inventory.value(QStringLiteral("summaryEn"))
+                                  .toString().trimmed();
+    const QString summaryZh = inventory.value(QStringLiteral("summaryZh"))
+                                  .toString().trimmed();
+    if (!m_editionNames.isEmpty() && !summaryEn.isEmpty())
+        m_imageSummaryEn = summaryEn;
+    if (!m_editionNames.isEmpty() && !summaryZh.isEmpty())
+        m_imageSummaryZh = summaryZh;
+    else if (!m_editionNames.isEmpty())
+        m_imageSummaryZh = m_imageSummaryEn;
+    m_sourceCatalogQuery = inventory.value(QStringLiteral("catalogQuery"))
+                               .toString().trimmed();
+}
+
+void AppController::refreshProjectDerivedState()
+{
+    refreshImageInventoryState();
+    reloadPayloadCatalog();
+    refreshPlan();
+    refreshHistory();
+    updateWatcher();
+    emit stateChanged();
+    emit studioChanged();
+    emit updateCatalogChanged();
 }
 
 bool AppController::saveProject(const QString &message)
@@ -1969,67 +2133,106 @@ bool AppController::addPayloadDirectory(const QString &category, const QUrl &dir
         return false;
     }
 
-    const ServicingPayloadKind kind = driversCategory
-        ? ServicingPayloadKind::Driver : ServicingPayloadKind::Update;
-    const QStringList discovered = PayloadCatalog::discoverFiles(info.absoluteFilePath(), kind);
-    if (discovered.isEmpty()) {
+    if (m_payloadDiscoveryBusy) {
         showError(localized(
-            driversCategory
-                ? QStringLiteral("That folder contains no INF driver packages.")
-                : QStringLiteral("That folder contains no CAB or MSU update packages."),
-            driversCategory
-                ? QStringLiteral("嗰個資料夾搵唔到 INF 驅動套件。")
-                : QStringLiteral("嗰個資料夾搵唔到 CAB 或 MSU 更新套件。")));
+            QStringLiteral("A payload folder is already being scanned in the background."),
+            QStringLiteral("後台已經掃描緊另一個 payload 資料夾。")));
         return false;
     }
+    const QString absoluteFolder = info.absoluteFilePath();
+    const ServicingPayloadKind kind = driversCategory
+        ? ServicingPayloadKind::Driver : ServicingPayloadKind::Update;
+    m_payloadDiscoveryBusy = true;
+    m_backgroundStatus = localized(
+        QStringLiteral("Scanning the selected payload folder in the background…"),
+        QStringLiteral("正喺後台掃描揀咗嘅 payload 資料夾……"));
+    emit payloadCatalogChanged();
+    emit stateChanged();
 
-    QStringList accepted;
-    if (driversCategory) {
-        const QString folder = info.absoluteFilePath();
-        if (!m_project->drivers.contains(folder, Qt::CaseInsensitive))
-            accepted.append(folder);
-    } else {
-        for (const QString &file : discovered) {
-            if (!m_project->updates.contains(file, Qt::CaseInsensitive))
-                accepted.append(file);
-        }
-    }
-    if (accepted.isEmpty()) {
-        emit snackbarRequested(localized(QStringLiteral("Every discovered payload is already queued."),
-                                         QStringLiteral("搵到嘅 payload 已經全部排咗隊。")),
-                                 QStringLiteral("info"));
-        return true;
-    }
-
-    const bool saved = mutateProject(
-        bilingualCommitMessage(
-            QStringLiteral("%1: import folder (%2 discovered file(s))")
-                .arg(category).arg(discovered.size()),
-            QStringLiteral("%1：匯入資料夾（搵到 %2 個檔案）")
-                .arg(category).arg(discovered.size())),
-        [category, accepted, this](ProjectConfig &project) {
-            if (QStringList *list = listForCategory(project, category)) {
-                for (const QString &item : accepted) {
-                    if (!list->contains(item, Qt::CaseInsensitive))
-                        list->append(item);
+    const QPointer<AppController> guard(this);
+    QThreadPool::globalInstance()->start(
+        [guard, absoluteFolder, kind, category, driversCategory] {
+        const QStringList discovered = PayloadCatalog::discoverFiles(absoluteFolder, kind);
+        if (!guard)
+            return;
+        QMetaObject::invokeMethod(
+            guard, [guard, absoluteFolder, category, driversCategory, discovered] {
+            if (!guard)
+                return;
+            guard->m_payloadDiscoveryBusy = false;
+            if (discovered.isEmpty()) {
+                guard->showError(guard->localized(
+                    driversCategory
+                        ? QStringLiteral("That folder contains no INF driver packages.")
+                        : QStringLiteral("That folder contains no CAB or MSU update packages."),
+                    driversCategory
+                        ? QStringLiteral("嗰個資料夾搵唔到 INF 驅動套件。")
+                        : QStringLiteral("嗰個資料夾搵唔到 CAB 或 MSU 更新套件。")));
+                emit guard->payloadCatalogChanged();
+                emit guard->stateChanged();
+                return;
+            }
+            if (!guard->m_project) {
+                guard->showError(guard->localized(
+                    QStringLiteral("The project was closed before the payload scan finished."),
+                    QStringLiteral("Payload 掃描完成之前，工程已經關咗。")));
+                emit guard->payloadCatalogChanged();
+                emit guard->stateChanged();
+                return;
+            }
+            QStringList accepted;
+            if (driversCategory) {
+                if (!guard->m_project->drivers.contains(absoluteFolder, Qt::CaseInsensitive))
+                    accepted.append(absoluteFolder);
+            } else {
+                for (const QString &file : discovered) {
+                    if (!guard->m_project->updates.contains(file, Qt::CaseInsensitive))
+                        accepted.append(file);
                 }
             }
-        });
-    if (saved) {
-        emit snackbarRequested(localized(
-            driversCategory
-                ? QStringLiteral("Queued one recursive driver source with %1 INF package(s).")
-                      .arg(discovered.size())
-                : QStringLiteral("Queued %1 CAB/MSU update package(s) from that folder.")
-                      .arg(accepted.size()),
-            driversCategory
-                ? QStringLiteral("已排隊一個驅動來源，入面有 %1 個 INF 套件。")
-                      .arg(discovered.size())
-                : QStringLiteral("已由資料夾排隊 %1 個 CAB/MSU 更新套件。")
-                      .arg(accepted.size())),
-            QStringLiteral("success"));
-    }
-    return saved;
+            if (accepted.isEmpty()) {
+                emit guard->snackbarRequested(guard->localized(
+                    QStringLiteral("Every discovered payload is already queued."),
+                    QStringLiteral("搵到嘅 payload 已經全部排咗隊。")),
+                    QStringLiteral("info"));
+            } else {
+                guard->mutateProject(
+                    bilingualCommitMessage(
+                        QStringLiteral("%1: import folder (%2 discovered file(s))")
+                            .arg(category).arg(discovered.size()),
+                        QStringLiteral("%1：匯入資料夾（搵到 %2 個檔案）")
+                            .arg(category).arg(discovered.size())),
+                    [guard, category, accepted](ProjectConfig &project) {
+                        if (!guard)
+                            return;
+                        if (QStringList *list = guard->listForCategory(project, category)) {
+                            for (const QString &item : accepted) {
+                                if (!list->contains(item, Qt::CaseInsensitive))
+                                    list->append(item);
+                            }
+                        }
+                    });
+                emit guard->snackbarRequested(guard->localized(
+                    driversCategory
+                        ? QStringLiteral("Queued one recursive driver source with %1 INF package(s).")
+                              .arg(discovered.size())
+                        : QStringLiteral("Queued %1 CAB/MSU update package(s) from that folder.")
+                              .arg(accepted.size()),
+                    driversCategory
+                        ? QStringLiteral("已排隊一個驅動來源，入面有 %1 個 INF 套件。")
+                              .arg(discovered.size())
+                        : QStringLiteral("已由資料夾排隊 %1 個 CAB/MSU 更新套件。")
+                              .arg(accepted.size())),
+                    QStringLiteral("success"));
+            }
+            guard->m_backgroundStatus = guard->localized(
+                QStringLiteral("Payload folder scan finished."),
+                QStringLiteral("Payload 資料夾掃描完成。"));
+            emit guard->payloadCatalogChanged();
+            emit guard->stateChanged();
+        }, Qt::QueuedConnection);
+    });
+    return true;
 }
 
 void AppController::refreshPayloadCatalog()
@@ -2048,6 +2251,20 @@ QVariantList AppController::updateCatalogResults() const { return m_updateCatalo
 QString AppController::updateCatalogStatus() const { return m_updateCatalogStatus; }
 bool AppController::updateCatalogBusy() const { return m_updateCatalogBusy; }
 double AppController::updateCatalogDownloadProgress() const { return m_updateCatalogDownloadProgress; }
+QString AppController::sourceCatalogQuery() const { return m_sourceCatalogQuery; }
+bool AppController::payloadCatalogBusy() const
+{
+    return m_payloadCatalogBusy || m_payloadDiscoveryBusy;
+}
+
+QString AppController::catalogQueryForCategory(const QString &category) const
+{
+    if (m_sourceCatalogQuery.isEmpty())
+        return {};
+    return category.trimmed().compare(QStringLiteral("drivers"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("%1 drivers").arg(m_sourceCatalogQuery)
+        : m_sourceCatalogQuery;
+}
 
 void AppController::cancelUpdateCatalog()
 {
@@ -2796,10 +3013,15 @@ void AppController::inspectSource()
         const QString summaryZh = QStringLiteral("%1 個版本 · %2")
                                       .arg(result.editions.size())
                                       .arg(imageDescription);
+        const QString catalogQuery = ImageSourceInspector::recommendedCatalogQuery(result);
         const QJsonObject inventory{
             {QStringLiteral("editions"), QJsonArray::fromStringList(result.editions)},
             {QStringLiteral("summaryEn"), summaryEn},
             {QStringLiteral("summaryZh"), summaryZh},
+            {QStringLiteral("architecture"), result.architecture},
+            {QStringLiteral("version"), result.version},
+            {QStringLiteral("build"), result.build},
+            {QStringLiteral("catalogQuery"), catalogQuery},
         };
         const int editionCount = static_cast<int>(result.editions.size());
         const bool saved = mutateProject(
@@ -2832,6 +3054,17 @@ void AppController::inspectSource()
                          QStringLiteral("映像點貨完成")),
                imageSummary(), QStringLiteral("success"));
         emit stateChanged();
+        if (!catalogQuery.isEmpty()) {
+            m_backgroundStatus = localized(
+                QStringLiteral("Image inventory is ready; matching Microsoft Update Catalog automatically…"),
+                QStringLiteral("映像點貨完成；正自動配對 Microsoft Update Catalog……"));
+            searchUpdateCatalog(catalogQuery);
+        } else {
+            m_updateCatalogStatus = localized(
+                QStringLiteral("The ISO was inventoried, but it did not expose enough product metadata for an automatic catalog query."),
+                QStringLiteral("ISO 已經點貨，但產品資料唔夠，未能自動組成目錄搜尋。"));
+            emit updateCatalogChanged();
+        }
     });
     connect(process, &QProcess::errorOccurred, this, [this, process, command](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
@@ -2923,40 +3156,87 @@ void AppController::importHostDrivers()
 
 void AppController::refreshPlan()
 {
+    const quint64 generation = ++m_planGeneration;
     m_plan.clear();
-    if (!m_project) { emit stateChanged(); return; }
-    ServicingPlanResult result = ServicingPlan::build(*m_project);
-    m_plan = result.operations;
-    const QJsonArray order = m_project->options.extra.value(QStringLiteral("planOrder")).toArray();
-    if (!order.isEmpty()) {
-        QList<ServicingOperation> reordered;
-        QSet<QString> inserted;
-        for (const QJsonValue &value : order) {
-            const QString id = value.toString();
-            const auto found = std::find_if(m_plan.cbegin(), m_plan.cend(),
-                [&id](const ServicingOperation &operation) { return operation.id == id; });
-            if (found != m_plan.cend()) {
-                reordered.append(*found);
-                inserted.insert(id);
-            }
-        }
-        for (const ServicingOperation &operation : std::as_const(m_plan))
-            if (!inserted.contains(operation.id)) reordered.append(operation);
-        m_plan = reordered;
+    if (!m_project) {
+        m_planRefreshBusy = false;
+        emit stateChanged();
+        return;
     }
-    const QJsonArray skipped = m_project->options.extra.value(QStringLiteral("planSkipped")).toArray();
-    QSet<QString> skippedIds;
-    for (const QJsonValue &value : skipped)
-        skippedIds.insert(value.toString());
-    for (ServicingOperation &operation : m_plan)
-        if (skippedIds.contains(operation.id)) operation.state = OperationState::Skipped;
-    if (!result.errors.isEmpty()) m_statusText = result.errors.first();
-    else m_statusText = QStringLiteral("Plan ready — %1 operations").arg(m_plan.size());
+    const ProjectConfig project = *m_project;
+    m_planRefreshBusy = true;
+    m_backgroundStatus = localized(QStringLiteral("Rebuilding the servicing plan in the background…"),
+                                   QStringLiteral("正喺後台重建維護計劃……"));
     emit stateChanged();
+
+    const QPointer<AppController> guard(this);
+    QThreadPool::globalInstance()->start([guard, generation, project] {
+        ServicingPlanResult result = ServicingPlan::build(project);
+        QList<ServicingOperation> plan = result.operations;
+        const QJsonArray order = project.options.extra
+            .value(QStringLiteral("planOrder")).toArray();
+        if (!order.isEmpty()) {
+            QList<ServicingOperation> reordered;
+            QSet<QString> inserted;
+            for (const QJsonValue &value : order) {
+                const QString id = value.toString();
+                const auto found = std::find_if(
+                    plan.cbegin(), plan.cend(), [&id](const ServicingOperation &operation) {
+                    return operation.id == id;
+                });
+                if (found != plan.cend()) {
+                    reordered.append(*found);
+                    inserted.insert(id);
+                }
+            }
+            for (const ServicingOperation &operation : std::as_const(plan)) {
+                if (!inserted.contains(operation.id))
+                    reordered.append(operation);
+            }
+            plan = std::move(reordered);
+        }
+        const QJsonArray skipped = project.options.extra
+            .value(QStringLiteral("planSkipped")).toArray();
+        QSet<QString> skippedIds;
+        for (const QJsonValue &value : skipped)
+            skippedIds.insert(value.toString());
+        for (ServicingOperation &operation : plan) {
+            if (skippedIds.contains(operation.id))
+                operation.state = OperationState::Skipped;
+        }
+        if (!guard)
+            return;
+        QMetaObject::invokeMethod(
+            guard, [guard, generation, projectDirectory = project.projectDirectory,
+                    result, plan = std::move(plan)]() mutable {
+            if (!guard || generation != guard->m_planGeneration
+                || !guard->m_project
+                || guard->m_project->projectDirectory != projectDirectory) {
+                return;
+            }
+            guard->m_plan = std::move(plan);
+            guard->m_planRefreshBusy = false;
+            guard->m_statusText = !result.errors.isEmpty()
+                ? result.errors.constFirst()
+                : guard->localized(
+                      QStringLiteral("Plan ready — %1 operations").arg(guard->m_plan.size()),
+                      QStringLiteral("計劃準備好 — %1 項工序").arg(guard->m_plan.size()));
+            guard->m_backgroundStatus = guard->localized(
+                QStringLiteral("Servicing plan is ready."),
+                QStringLiteral("維護計劃準備好。"));
+            emit guard->stateChanged();
+        }, Qt::QueuedConnection);
+    });
 }
 
 void AppController::requestRunPlan()
 {
+    if (m_projectMutationBusy || !m_projectMutationQueue.isEmpty()
+        || m_planRefreshBusy) {
+        showError(localized(QStringLiteral("Wait for background saving and plan refresh before running."),
+                            QStringLiteral("等後台儲存同計劃更新完成，先再執行。")));
+        return;
+    }
     if (!m_project || m_plan.isEmpty()) { showError(QStringLiteral("Build a valid plan first.")); return; }
     const int destructive = static_cast<int>(std::count_if(m_plan.cbegin(), m_plan.cend(), [](const ServicingOperation &item) { return item.destructive; }));
     emit runConfirmationRequested(localized(
@@ -2966,6 +3246,12 @@ void AppController::requestRunPlan()
 
 void AppController::runPlan()
 {
+    if (m_projectMutationBusy || !m_projectMutationQueue.isEmpty()
+        || m_planRefreshBusy) {
+        showError(localized(QStringLiteral("The project is still saving or rebuilding its plan."),
+                            QStringLiteral("工程仲儲存緊，或者重建緊計劃。")));
+        return;
+    }
     if (!m_project) return;
     QString error;
     if (!m_jobEngine.start(*m_project, m_plan, m_maxParallelJobs, &error)) { showError(error); return; }
@@ -3018,12 +3304,71 @@ void AppController::skipOperation(int index)
 
 void AppController::refreshHistory()
 {
+    const quint64 generation = ++m_historyGeneration;
     m_history.clear();
-    if (m_project) {
-        QString error; m_history = m_project->history(500, &error);
-        if (!error.isEmpty()) showError(error);
+    m_actionHistoryCache.clear();
+    if (!m_project) {
+        m_historyRefreshBusy = false;
+        m_historyBranch = QStringLiteral("main");
+        m_historyBranchCache = {QStringLiteral("main")};
+        emit stateChanged();
+        return;
     }
+    const ProjectConfig project = *m_project;
+    m_historyRefreshBusy = true;
     emit stateChanged();
+
+    const QPointer<AppController> guard(this);
+    QThreadPool::globalInstance()->start([guard, generation, project] {
+        QString error;
+        const QList<GitCommit> commits = project.history(500, &error);
+        ActionHistory history(project.projectDirectory);
+        QString actionError;
+        const QList<ActionEvent> events = history.events(200, &actionError);
+        QVariantList actionItems;
+        if (actionError.isEmpty()) {
+            actionItems.reserve(events.size());
+            for (const ActionEvent &event : events) {
+                bool effective = true;
+                if (event.isAction() || event.isCompensation()) {
+                    QString effectiveError;
+                    effective = history.isEffective(event.id, &effectiveError);
+                    if (!effectiveError.isEmpty())
+                        effective = true;
+                }
+                actionItems.append(event.toVariantMap(effective));
+            }
+        }
+        QString branchError;
+        QString branch = history.currentBranch(&branchError);
+        QStringList branches = history.branchNames(&branchError);
+        if (branch.isEmpty())
+            branch = QStringLiteral("main");
+        if (branches.isEmpty())
+            branches = {QStringLiteral("main")};
+        if (!guard)
+            return;
+        QMetaObject::invokeMethod(
+            guard, [guard, generation, projectDirectory = project.projectDirectory,
+                    commits, actionItems, branch, branches,
+                    error, actionError, branchError] {
+            if (!guard || generation != guard->m_historyGeneration
+                || !guard->m_project
+                || guard->m_project->projectDirectory != projectDirectory) {
+                return;
+            }
+            guard->m_historyRefreshBusy = false;
+            guard->m_history = commits;
+            guard->m_actionHistoryCache = actionItems;
+            guard->m_historyBranch = branch;
+            guard->m_historyBranchCache = branches;
+            const QString combinedError = !error.isEmpty() ? error
+                : !actionError.isEmpty() ? actionError : branchError;
+            if (!combinedError.isEmpty())
+                guard->showError(combinedError);
+            emit guard->stateChanged();
+        }, Qt::QueuedConnection);
+    });
 }
 
 void AppController::undoLatestProjectChange()
@@ -3060,36 +3405,25 @@ void AppController::undoLatestProjectChange()
 }
 
 QVariantList AppController::contextualHistory(const QString &contextKey,
-                                              const QString &elementId) const
+                                               const QString &elementId) const
 {
     QVariantList result;
-    if (!m_project)
-        return result;
-    ActionHistory history(m_project->projectDirectory);
-    QString error;
-    QList<ActionEvent> events;
-    if (contextKey.trimmed().isEmpty()) {
-        events = history.events(80, &error);
-    } else if (elementId.trimmed().isEmpty()) {
-        const QList<ActionEvent> all = history.events(200, &error);
-        for (const ActionEvent &event : all) {
-            if (event.contextKey == contextKey.trimmed() && events.size() < 40)
-                events.append(event);
+    const QString wantedContext = contextKey.trimmed();
+    const QString wantedElement = elementId.trimmed();
+    const int limit = wantedContext.isEmpty() ? 80 : 40;
+    for (const QVariant &value : m_actionHistoryCache) {
+        const QVariantMap event = value.toMap();
+        if (!wantedContext.isEmpty()
+            && event.value(QStringLiteral("contextKey")).toString() != wantedContext) {
+            continue;
         }
-    } else {
-        events = history.recentForElement(contextKey.trimmed(), elementId.trimmed(), 40, &error);
-    }
-    if (!error.isEmpty())
-        return result;
-    for (const ActionEvent &event : events) {
-        bool effective = true;
-        if (event.isAction() || event.isCompensation()) {
-            QString effectiveError;
-            effective = history.isEffective(event.id, &effectiveError);
-            if (!effectiveError.isEmpty())
-                effective = true;
+        if (!wantedElement.isEmpty()
+            && event.value(QStringLiteral("elementId")).toString() != wantedElement) {
+            continue;
         }
-        result.append(event.toVariantMap(effective));
+        result.append(event);
+        if (result.size() >= limit)
+            break;
     }
     return result;
 }
@@ -3825,33 +4159,76 @@ void AppController::loadGpoCatalog()
         emit studioChanged();
         return;
     }
+    if (m_gpoLoading)
+        return;
+    m_gpoLoading = true;
     m_gpoStatus = localized(QStringLiteral("Loading installed ADMX and ADML policy definitions…"),
                             QStringLiteral("載入已安裝 ADMX 同 ADML 政策定義…"));
+    m_backgroundStatus = localized(
+        QStringLiteral("Loading Group Policy definitions in the background…"),
+        QStringLiteral("正喺後台載入群組原則定義……"));
     emit studioChanged();
-    QString error;
-    if (!m_gpoCatalog.loadInstalled({QStringLiteral("en-US"), QStringLiteral("zh-HK")}, &error)) {
-        m_gpoStatus = error;
-        showError(error);
-        emit studioChanged();
-        return;
-    }
-    m_gpoLoaded = true;
-    const int initialCount = qMin(120, m_gpoCatalog.policies().size());
-    m_gpoSearchResults = m_gpoCatalog.policies().mid(0, initialCount);
-    m_gpoStatus = localized(
-        QStringLiteral("%1 policies loaded from %2. Showing %3; search to narrow them.")
-            .arg(m_gpoCatalog.policies().size()).arg(m_gpoCatalog.policyDefinitionsPath()).arg(initialCount),
-        QStringLiteral("由 %2 載入 %1 項政策。暫時顯示 %3 項；搜尋就可以收窄。")
-            .arg(m_gpoCatalog.policies().size()).arg(m_gpoCatalog.policyDefinitionsPath()).arg(initialCount));
-    if (!m_gpoCatalog.warnings().isEmpty())
-        notify(QStringLiteral("GPO locale notice"), m_gpoCatalog.warnings().join(QLatin1Char('\n')), QStringLiteral("warning"));
-    emit studioChanged();
+    emit stateChanged();
+
+    const QPointer<AppController> guard(this);
+    QThreadPool::globalInstance()->start([guard] {
+        auto catalog = std::make_shared<GpoCatalog>();
+        QString error;
+        const bool loaded = catalog->loadInstalled(
+            {QStringLiteral("en-US"), QStringLiteral("zh-HK")}, &error);
+        if (!guard)
+            return;
+        QMetaObject::invokeMethod(guard, [guard, catalog, loaded, error] {
+            if (!guard)
+                return;
+            guard->m_gpoLoading = false;
+            if (!loaded) {
+                guard->m_gpoStatus = error;
+                guard->showError(error);
+                emit guard->studioChanged();
+                emit guard->stateChanged();
+                return;
+            }
+            guard->m_gpoCatalog = std::move(*catalog);
+            guard->m_gpoLoaded = true;
+            const int initialCount = qMin(120, guard->m_gpoCatalog.policies().size());
+            guard->m_gpoSearchResults = guard->m_gpoCatalog.policies().mid(0, initialCount);
+            guard->m_gpoStatus = guard->localized(
+                QStringLiteral("%1 policies loaded from %2. Showing %3; search to narrow them.")
+                    .arg(guard->m_gpoCatalog.policies().size())
+                    .arg(guard->m_gpoCatalog.policyDefinitionsPath()).arg(initialCount),
+                QStringLiteral("由 %2 載入 %1 項政策。暫時顯示 %3 項；搜尋就可以收窄。")
+                    .arg(guard->m_gpoCatalog.policies().size())
+                    .arg(guard->m_gpoCatalog.policyDefinitionsPath()).arg(initialCount));
+            guard->m_backgroundStatus = guard->localized(
+                QStringLiteral("Group Policy definitions are ready."),
+                QStringLiteral("群組原則定義準備好。"));
+            if (!guard->m_gpoCatalog.warnings().isEmpty()) {
+                guard->notify(guard->localized(QStringLiteral("GPO locale notice"),
+                                               QStringLiteral("GPO 語言提示")),
+                              guard->m_gpoCatalog.warnings().join(QLatin1Char('\n')),
+                              QStringLiteral("warning"));
+            }
+            const QString pendingQuery = guard->m_pendingGpoQuery;
+            const bool pendingRegex = guard->m_pendingGpoRegularExpression;
+            guard->m_pendingGpoQuery.clear();
+            emit guard->studioChanged();
+            emit guard->stateChanged();
+            if (!pendingQuery.isEmpty())
+                guard->searchGpo(pendingQuery, pendingRegex);
+            if (!guard->m_searchQuery.isEmpty())
+                guard->search(guard->m_searchQuery);
+        }, Qt::QueuedConnection);
+    });
 }
 
 void AppController::searchGpo(const QString &query, bool regularExpression)
 {
-    if (!m_gpoLoaded)
+    if (!m_gpoLoaded) {
+        m_pendingGpoQuery = query.trimmed();
+        m_pendingGpoRegularExpression = regularExpression;
         loadGpoCatalog();
+    }
     if (!m_gpoLoaded)
         return;
     QString error;
@@ -5729,6 +6106,7 @@ bool AppController::openWorkspacePage(int page, const QString &defaultTitle)
         showError(error);
         return false;
     }
+    queueWorkspacePersistence();
     emit workspaceTabsChanged();
     return true;
 }
@@ -5740,6 +6118,7 @@ bool AppController::navigateActiveWorkspaceTab(int page, const QString &defaultT
         showError(error);
         return false;
     }
+    queueWorkspacePersistence();
     emit workspaceTabsChanged();
     return true;
 }
@@ -5751,6 +6130,7 @@ bool AppController::openWorkspaceTabForPage(int page, const QString &defaultTitl
         showError(error);
         return false;
     }
+    queueWorkspacePersistence();
     emit workspaceTabsChanged();
     return true;
 }
@@ -5762,6 +6142,7 @@ bool AppController::activateWorkspaceTab(int index)
         showError(error);
         return false;
     }
+    queueWorkspacePersistence();
     emit workspaceTabsChanged();
     return true;
 }
@@ -5781,6 +6162,7 @@ bool AppController::closeWorkspaceTabsByIndices(const QVariantList &indices)
         showError(error);
         return false;
     }
+    queueWorkspacePersistence();
     emit workspaceTabsChanged();
     return true;
 }
@@ -5792,6 +6174,7 @@ bool AppController::closeWorkspaceTab(int index)
         showError(error);
         return false;
     }
+    queueWorkspacePersistence();
     emit workspaceTabsChanged();
     return true;
 }
@@ -5803,6 +6186,7 @@ bool AppController::moveWorkspaceTab(int from, int to)
         showError(error);
         return false;
     }
+    queueWorkspacePersistence();
     emit workspaceTabsChanged();
     return true;
 }
@@ -5814,8 +6198,80 @@ bool AppController::updateWorkspaceTab(int index, const QVariantMap &changes)
         showError(error);
         return false;
     }
+    queueWorkspacePersistence();
     emit workspaceTabsChanged();
     return true;
+}
+
+void AppController::queueWorkspacePersistence()
+{
+    if (!m_workspaceTabs.hasPendingPersistence())
+        return;
+    PendingWorkspacePersistence pending{
+        m_workspaceTabs, m_workspaceTabs.pendingCommitMessage()};
+    m_workspaceTabs.takePendingCommitMessage();
+    m_workspacePersistenceQueue.enqueue(std::move(pending));
+    m_backgroundStatus = localized(
+        QStringLiteral("Saving workspace navigation in the background…"),
+        QStringLiteral("正喺後台儲存工作區導覽……"));
+    emit stateChanged();
+    beginNextWorkspacePersistence();
+}
+
+void AppController::beginNextWorkspacePersistence()
+{
+    if (m_workspacePersistenceBusy || m_workspacePersistencePaused
+        || m_workspacePersistenceQueue.isEmpty()) {
+        return;
+    }
+    m_workspacePersistenceBusy = true;
+    PendingWorkspacePersistence pending = m_workspacePersistenceQueue.head();
+    const QPointer<AppController> guard(this);
+    QThreadPool::globalInstance()->start([guard, pending]() mutable {
+        QString error;
+        const bool saved = pending.snapshot.flushPendingPersistence(&error);
+        if (!guard)
+            return;
+        QMetaObject::invokeMethod(guard, [guard, saved, error] {
+            if (!guard)
+                return;
+            guard->m_workspacePersistenceBusy = false;
+            if (saved) {
+                if (!guard->m_workspacePersistenceQueue.isEmpty())
+                    guard->m_workspacePersistenceQueue.dequeue();
+                guard->m_backgroundStatus = guard->m_workspacePersistenceQueue.isEmpty()
+                    ? guard->localized(
+                          QStringLiteral("Workspace changes saved in the background."),
+                          QStringLiteral("工作區變更已喺後台儲存。"))
+                    : guard->localized(
+                          QStringLiteral("Saving the next workspace change…"),
+                          QStringLiteral("正喺後台儲存下一項工作區變更……"));
+            } else {
+                guard->m_workspacePersistencePaused = true;
+                guard->m_backgroundStatus = guard->localized(
+                    QStringLiteral("Workspace saving paused after an error. Use Retry save in the status area."),
+                    QStringLiteral("工作區儲存出錯後已暫停；請喺狀態區按「再試儲存」。"));
+                guard->showError(guard->localized(
+                    QStringLiteral("Could not save workspace history: %1").arg(error),
+                    QStringLiteral("儲存唔到工作區歷史：%1").arg(error)));
+            }
+            emit guard->stateChanged();
+            guard->beginNextWorkspacePersistence();
+        }, Qt::QueuedConnection);
+    });
+}
+
+void AppController::retryBackgroundPersistence()
+{
+    m_workspacePersistencePaused = false;
+    if (!m_workspacePersistenceQueue.isEmpty()) {
+        m_backgroundStatus = localized(
+            QStringLiteral("Retrying workspace save…"),
+            QStringLiteral("正重新嘗試儲存工作區……"));
+    }
+    emit stateChanged();
+    beginNextWorkspacePersistence();
+    beginNextProjectMutation();
 }
 
 bool AppController::exportWorkspaceTabs(const QString &destinationFile)
@@ -6098,46 +6554,56 @@ void AppController::reloadPayloadCatalog(bool force)
     m_catalogUpdatePaths = updatePaths;
     m_driverCatalogItems.clear();
     m_updateCatalogItems.clear();
-    for (const ServicingPayloadEntry &entry : PayloadCatalog::inspectAll(
-             driverPaths, ServicingPayloadKind::Driver)) {
-        m_driverCatalogItems.append(payloadCatalogVariant(entry));
+    const quint64 generation = ++m_payloadCatalogGeneration;
+    if (driverPaths.isEmpty() && updatePaths.isEmpty()) {
+        m_payloadCatalogBusy = false;
+        emit payloadCatalogChanged();
+        emit stateChanged();
+        return;
     }
-    for (const ServicingPayloadEntry &entry : PayloadCatalog::inspectAll(
-             updatePaths, ServicingPayloadKind::Update)) {
-        m_updateCatalogItems.append(payloadCatalogVariant(entry));
-    }
+    m_payloadCatalogBusy = true;
+    m_backgroundStatus = localized(
+        QStringLiteral("Inspecting payload metadata in the background…"),
+        QStringLiteral("正喺後台檢查 payload 資料……"));
     emit payloadCatalogChanged();
+    emit stateChanged();
+
+    const QPointer<AppController> guard(this);
+    QThreadPool::globalInstance()->start(
+        [guard, generation, driverPaths, updatePaths] {
+        const QList<ServicingPayloadEntry> driverEntries = PayloadCatalog::inspectAll(
+            driverPaths, ServicingPayloadKind::Driver);
+        const QList<ServicingPayloadEntry> updateEntries = PayloadCatalog::inspectAll(
+            updatePaths, ServicingPayloadKind::Update);
+        if (!guard)
+            return;
+        QMetaObject::invokeMethod(
+            guard, [guard, generation, driverPaths, updatePaths,
+                    driverEntries, updateEntries] {
+            if (!guard || generation != guard->m_payloadCatalogGeneration
+                || driverPaths != guard->m_catalogDriverPaths
+                || updatePaths != guard->m_catalogUpdatePaths) {
+                return;
+            }
+            guard->m_driverCatalogItems.clear();
+            guard->m_updateCatalogItems.clear();
+            for (const ServicingPayloadEntry &entry : driverEntries)
+                guard->m_driverCatalogItems.append(payloadCatalogVariant(entry));
+            for (const ServicingPayloadEntry &entry : updateEntries)
+                guard->m_updateCatalogItems.append(payloadCatalogVariant(entry));
+            guard->m_payloadCatalogBusy = false;
+            guard->m_backgroundStatus = guard->localized(
+                QStringLiteral("Payload metadata is ready."),
+                QStringLiteral("Payload 資料準備好。"));
+            emit guard->payloadCatalogChanged();
+            emit guard->stateChanged();
+        }, Qt::QueuedConnection);
+    });
 }
 
 void AppController::loadProjectState()
 {
-    m_editionNames.clear();
-    m_imageSummaryEn = QStringLiteral("Inspect a source to load edition metadata.");
-    m_imageSummaryZh = QStringLiteral("檢查來源之後，就會載入映像版本資料。");
-    if (m_project) {
-        const QJsonObject inventory = m_project->options.extra
-            .value(QStringLiteral("imageInventory")).toObject();
-        const QJsonArray editions = inventory.value(QStringLiteral("editions")).toArray();
-        for (const QJsonValue &edition : editions) {
-            if (edition.isString() && !edition.toString().trimmed().isEmpty())
-                m_editionNames.append(edition.toString());
-        }
-        if (!m_editionNames.isEmpty()) {
-            m_project->selectedImageIndex = qBound(
-                1, m_project->selectedImageIndex,
-                static_cast<int>(m_editionNames.size()));
-        }
-        const QString summaryEn = inventory.value(QStringLiteral("summaryEn"))
-                                      .toString().trimmed();
-        const QString summaryZh = inventory.value(QStringLiteral("summaryZh"))
-                                      .toString().trimmed();
-        if (!m_editionNames.isEmpty() && !summaryEn.isEmpty())
-            m_imageSummaryEn = summaryEn;
-        if (!m_editionNames.isEmpty() && !summaryZh.isEmpty())
-            m_imageSummaryZh = summaryZh;
-        else if (!m_editionNames.isEmpty())
-            m_imageSummaryZh = m_imageSummaryEn;
-    }
+    refreshImageInventoryState();
     if (m_project) {
         const QString notificationPath = m_project->settings
             .value(QStringLiteral("_notificationRepoPath")).toString();
@@ -6157,6 +6623,7 @@ void AppController::loadProjectState()
             showError(localized(
                 QStringLiteral("Workspace tabs could not be opened: %1").arg(tabError),
                 QStringLiteral("開唔到工作區分頁：%1").arg(tabError)));
+        m_workspaceTabs.setDeferredPersistence(true);
         emit workspaceTabsChanged();
     }
     restoreStudioState();

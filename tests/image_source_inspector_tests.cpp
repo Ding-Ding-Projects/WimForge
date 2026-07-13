@@ -108,14 +108,28 @@ int main(int argc, char **argv)
     const QByteArray output(
         "WIMFORGE_IMAGE_PATH::R:\\sources\\install.esd\r\n"
         "Deployment Image Servicing and Management tool\r\n"
+        "Architecture : amd64\r\n"
+        "Version : 10.0.26100.1\r\n"
         "Index : 1\r\nName : Windows 11 Pro\r\nDescription : Example\r\n"
         "Index : 2\r\nName : Windows 11 Enterprise\r\nDescription : Example\r\n");
     const ImageInspectionResult parsed = ImageSourceInspector::parseOutput(output, true, true);
     test.check(parsed.relativeImagePath == QStringLiteral("sources/install.esd")
+                   && parsed.architecture == QStringLiteral("x64")
+                   && parsed.version == QStringLiteral("10.0.26100.1")
+                   && parsed.build == QStringLiteral("26100")
                    && parsed.editions == QStringList{
                        QStringLiteral("Index 1 — Windows 11 Pro"),
                        QStringLiteral("Index 2 — Windows 11 Enterprise")},
                QStringLiteral("mounted ISO output yields a stable relative path and edition list"));
+    test.check(ImageSourceInspector::recommendedCatalogQuery(parsed)
+                   == QStringLiteral("Windows 11 26100 x64"),
+               QStringLiteral("inspection metadata yields a source-specific catalog query"));
+
+    ImageInspectionResult editionOnly;
+    editionOnly.editions = {QStringLiteral("Index 1 — Windows 10 Enterprise")};
+    test.check(ImageSourceInspector::recommendedCatalogQuery(editionOnly)
+                   == QStringLiteral("Windows 10"),
+               QStringLiteral("catalog query still follows the ISO edition when detailed metadata is absent"));
 
     const QString invalid = makeFile(
         QDir(temporary.path()).filePath(QStringLiteral("unsupported/source.txt")));

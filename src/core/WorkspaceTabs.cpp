@@ -313,11 +313,51 @@ void WorkspaceTabs::closeProject()
     m_repositoryPath.clear();
     m_tabs.clear();
     m_activeIndex = -1;
+    m_pendingCommitMessage.clear();
 }
 
 bool WorkspaceTabs::isOpen() const { return !m_repositoryPath.isEmpty(); }
 QString WorkspaceTabs::repositoryPath() const { return m_repositoryPath; }
 int WorkspaceTabs::activeIndex() const { return m_activeIndex; }
+
+void WorkspaceTabs::setDeferredPersistence(bool deferred)
+{
+    m_deferredPersistence = deferred;
+}
+
+bool WorkspaceTabs::hasPendingPersistence() const
+{
+    return !m_pendingCommitMessage.isEmpty();
+}
+
+QString WorkspaceTabs::pendingCommitMessage() const
+{
+    return m_pendingCommitMessage;
+}
+
+QString WorkspaceTabs::takePendingCommitMessage()
+{
+    QString message = m_pendingCommitMessage;
+    m_pendingCommitMessage.clear();
+    return message;
+}
+
+bool WorkspaceTabs::flushPendingPersistence(QString *error)
+{
+    if (m_pendingCommitMessage.isEmpty()) {
+        setError(error, {});
+        return true;
+    }
+    const QString message = m_pendingCommitMessage;
+    m_pendingCommitMessage.clear();
+    const bool deferred = m_deferredPersistence;
+    m_deferredPersistence = false;
+    const bool saved = save(message, error);
+    m_deferredPersistence = deferred;
+    if (!saved)
+        m_pendingCommitMessage = message;
+    return saved;
+}
 
 QVariantList WorkspaceTabs::tabs() const
 {
@@ -434,6 +474,11 @@ bool WorkspaceTabs::save(const QString &message, QString *error)
     if (!isOpen())
         return fail(error, bilingual(QStringLiteral("Open a project before changing tabs."),
                                      QStringLiteral("要改分頁，請先開啟工程。")));
+    if (m_deferredPersistence) {
+        m_pendingCommitMessage = message;
+        setError(error, {});
+        return true;
+    }
     if (!ensureSafeRepositoryLocation(m_projectDirectory, m_repositoryPath, error)
         || !hardenTabRepository(m_repositoryPath, error)) {
         return false;

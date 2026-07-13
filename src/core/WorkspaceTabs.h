@@ -24,6 +24,15 @@ public:
     [[nodiscard]] QVariantList tabs() const;
     [[nodiscard]] int activeIndex() const;
 
+    // The desktop uses deferred persistence so navigation updates immediately
+    // while the Git commit is serialized on a worker. CLI/tests keep the
+    // default synchronous, transactional behavior.
+    void setDeferredPersistence(bool deferred);
+    [[nodiscard]] bool hasPendingPersistence() const;
+    [[nodiscard]] QString pendingCommitMessage() const;
+    QString takePendingCommitMessage();
+    bool flushPendingPersistence(QString *error = nullptr);
+
     bool openPage(int page, const QString &defaultTitle, QString *error = nullptr);
     // Retarget the active tab to a different page instead of spawning a new
     // tab, so pressing a navigation entry navigates the current view.
@@ -57,6 +66,8 @@ private:
     QString m_repositoryPath;
     QList<QJsonObject> m_tabs;
     int m_activeIndex = -1;
+    bool m_deferredPersistence = false;
+    QString m_pendingCommitMessage;
 };
 
 } // namespace wimforge
