@@ -465,10 +465,11 @@ int main(int argc, char *argv[])
                    && customizePage.contains(QStringLiteral("items: app.driverCatalog"))
                    && customizePage.contains(QStringLiteral("Import host drivers")),
                QStringLiteral("Drivers UI must expose inspected payloads and the host-driver source"));
-    test.check(customizePage.contains(QStringLiteral("openMicrosoftUpdateCatalog"))
+    test.check(customizePage.contains(QStringLiteral("showAutomatic(payloadPage.category)"))
+                   && customizePage.contains(QStringLiteral("sourceCatalogQuery"))
                    && customizePage.contains(QStringLiteral("FileDialog"))
                    && customizePage.contains(QStringLiteral("FolderDialog")),
-               QStringLiteral("Driver/update acquisition must expose an official source and local pickers"));
+               QStringLiteral("Driver/update acquisition must auto-match the ISO and retain local file/folder pickers"));
     test.check(customizePage.contains(QStringLiteral("component FeatureWorkbench"))
                    && customizePage.contains(QStringLiteral("setFeatureState("))
                    && customizePage.contains(QStringLiteral("featureDisables"))
@@ -631,9 +632,13 @@ int main(int argc, char *argv[])
                        "bool AppController::tryAddListItem")),
                QStringLiteral("Config-list mutations must report save/validation failure to QML"));
     test.check(controllerSource.contains(QStringLiteral(
-                   "project.save(&error, bilingualCommitMessage("))
+                   "const QString commitMessage = bilingualCommitMessage("))
                    && controllerSource.contains(QStringLiteral(
-                       "candidate.save(&error, bilingualCommitMessage("))
+                       "const QString reconnectMessage = bilingualCommitMessage("))
+                   && controllerSource.contains(QStringLiteral(
+                       "project.save(&error, commitMessage)"))
+                   && controllerSource.contains(QStringLiteral(
+                       "candidate.save(&error, reconnectMessage)"))
                    && controllerSource.contains(QStringLiteral(
                        "restored->save(&error, bilingualCommitMessage("))
                    && !controllerSource.contains(QStringLiteral(
@@ -692,6 +697,43 @@ int main(int argc, char *argv[])
                    "root.acceptSource(app.pathFromUrl(drop.urls[0]))"))
                    && !sourcePage.contains(QStringLiteral("drop.urls[0].toLocalFile()")),
                QStringLiteral("Source drag/drop must convert QML URLs through AppController"));
+    test.check(sourcePage.contains(QStringLiteral("Choose and inspect ISO / image"))
+                   && sourcePage.contains(QStringLiteral("label: root.tr(\"Selected source\""))
+                   && sourcePage.contains(QStringLiteral("label: root.tr(\"Image path\""))
+                   && sourcePage.contains(QStringLiteral("label: root.tr(\"Mount directory\""))
+                   && sourcePage.contains(QStringLiteral("Accessible.name: root.tr(\"Edition\""))
+                   && sourcePage.contains(QStringLiteral("Accessible.name: root.tr(\"Image index\""))
+                   && sourcePage.contains(QStringLiteral("sourceCatalogQuery")),
+               QStringLiteral("Source must be one guided auto-inspection flow with stable accessible names"));
+
+    const QString fieldComponent = readText(
+        sourceRoot + QStringLiteral("/qml/components/WfField.qml"), &test);
+    const QString headerComponent = readText(
+        sourceRoot + QStringLiteral("/qml/components/WfPageHeader.qml"), &test);
+    const QString catalogSheet = readText(
+        sourceRoot + QStringLiteral("/qml/components/UpdateCatalogSheet.qml"), &test);
+    test.check(fieldComponent.contains(QStringLiteral("Accessible.description: root.accessibleDescription"))
+                   && !headerComponent.contains(QStringLiteral("maximumLineCount: 3")),
+               QStringLiteral("Shared fields must expose descriptions and page headers must not clip bilingual copy"));
+    test.check(catalogSheet.contains(QStringLiteral("modal: false"))
+                   && catalogSheet.contains(QStringLiteral("showAutomatic(targetCategory)"))
+                   && catalogSheet.contains(QStringLiteral("Download %1")),
+               QStringLiteral("Update Catalog results must be non-blocking, ISO-driven, and uniquely named for accessibility"));
+    test.check(mainQml.contains(QStringLiteral("compactToolbar"))
+                   && mainQml.contains(QStringLiteral("Accessible.role: Accessible.PageTab"))
+                   && mainQml.contains(QStringLiteral("Accessible.selected:"))
+                   && mainQml.contains(QStringLiteral("activeFocusOnTab: true")),
+               QStringLiteral("The shell must avoid narrow-toolbar clipping and expose keyboard-accessible workspace tabs"));
+
+    const QString terminalPage = readText(
+        sourceRoot + QStringLiteral("/qml/pages/TerminalPage.qml"), &test);
+    const QString winForgePage = readText(
+        sourceRoot + QStringLiteral("/qml/pages/WinForgeBridgePage.qml"), &test);
+    test.check(settingsPage.contains(QStringLiteral("autoExportDialog"))
+                   && terminalPage.contains(QStringLiteral("workingDirectoryDialog"))
+                   && winForgePage.contains(QStringLiteral("runtimeFolderDialog"))
+                   && winForgePage.contains(QStringLiteral("isoStagingFolderDialog")),
+               QStringLiteral("Important file and directory path fields must provide consistent browse controls"));
     if (test.failures() == 0)
         QTextStream(stdout) << "QML/AppController contract is valid across " << qmlFileCount
                             << " files.\n";

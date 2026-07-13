@@ -10,6 +10,7 @@ AbstractButton {
     property string glyph: ""
     property bool compact: false
     property bool motionEnabled: true
+    property int maximumLabelWidth: 360
 
     readonly property color baseBackground: {
         if (variant === "filled") return DesignTokens.primary(dark)
@@ -77,6 +78,9 @@ AbstractButton {
                 text: root.text
                 color: root.foregroundColor
                 font: root.font
+                width: Math.min(implicitWidth, root.maximumLabelWidth)
+                elide: Text.ElideRight
+                horizontalAlignment: Text.AlignHCenter
             }
         }
     }

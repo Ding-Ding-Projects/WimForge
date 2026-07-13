@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../components"
 
@@ -28,6 +29,35 @@ Item {
     readonly property color error: DesignTokens.error(root.dark)
     readonly property color errorContainer: DesignTokens.errorContainer(root.dark)
     readonly property color errorContainerForeground: DesignTokens.onErrorContainer(root.dark)
+
+    FolderDialog {
+        id: runtimeFolderDialog
+        title: root.tr("Choose the published WinForge runtime folder", "揀已 publish 嘅 WinForge runtime 資料夾")
+        onAccepted: {
+            runtimePath.text = root.app.pathFromUrl(selectedFolder)
+            root.app.setWinForgeBridgeRuntimePath(runtimePath.text)
+        }
+    }
+    FolderDialog {
+        id: isoStagingFolderDialog
+        title: root.tr("Choose the ISO staging folder", "揀 ISO staging 資料夾")
+        onAccepted: isoPath.text = root.app.pathFromUrl(selectedFolder)
+    }
+    FileDialog {
+        id: recipeOpenDialog
+        title: root.tr("Choose a WinForge recipe", "揀 WinForge recipe")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [root.tr("WinForge recipes (*.json)", "WinForge recipe (*.json)"), root.tr("All files (*)", "所有檔案 (*)")]
+        onAccepted: recipePath.text = root.app.pathFromUrl(selectedFile)
+    }
+    FileDialog {
+        id: recipeSaveDialog
+        title: root.tr("Choose where to save the WinForge recipe", "揀 WinForge recipe 儲存位置")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        nameFilters: [root.tr("WinForge recipes (*.json)", "WinForge recipe (*.json)")]
+        onAccepted: recipePath.text = root.app.pathFromUrl(selectedFile)
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -325,16 +355,25 @@ Item {
                             }
                             onToggled: root.app.setWinForgeBridgeIncludeRuntime(checked)
                         }
-                        WfField {
-                            id: runtimePath
+                        RowLayout {
                             Layout.fillWidth: true
-                            dark: root.dark
-                            label: root.tr("Runtime folder", "Runtime 資料夾")
-                            text: root.app.winForgeBridgeRuntimePath
-                            placeholderText: root.tr("Published WinForge runtime folder",
-                                                     "已 publish 嘅 WinForge runtime 資料夾")
-                            mono: true
-                            onEditingFinished: root.app.setWinForgeBridgeRuntimePath(text)
+                            WfField {
+                                id: runtimePath
+                                Layout.fillWidth: true
+                                dark: root.dark
+                                label: root.tr("Runtime folder", "Runtime 資料夾")
+                                text: root.app.winForgeBridgeRuntimePath
+                                placeholderText: root.tr("Published WinForge runtime folder",
+                                                         "已 publish 嘅 WinForge runtime 資料夾")
+                                mono: true
+                                onEditingFinished: root.app.setWinForgeBridgeRuntimePath(text)
+                            }
+                            WfButton {
+                                dark: root.dark
+                                compact: true
+                                text: root.tr("Browse…", "瀏覽……")
+                                onClicked: runtimeFolderDialog.open()
+                            }
                         }
                         RowLayout {
                             Layout.fillWidth: true
@@ -395,18 +434,43 @@ Item {
                                 enabled: recipePath.text.trim().length > 0
                                 onClicked: root.app.exportWinForgeBridgeRecipe(recipePath.text)
                             }
+                            WfButton {
+                                Layout.fillWidth: true
+                                dark: root.dark
+                                compact: true
+                                variant: "text"
+                                text: root.tr("Choose recipe…", "揀 recipe……")
+                                onClicked: recipeOpenDialog.open()
+                            }
+                            WfButton {
+                                Layout.fillWidth: true
+                                dark: root.dark
+                                compact: true
+                                variant: "text"
+                                text: root.tr("Choose save path…", "揀儲存位置……")
+                                onClicked: recipeSaveDialog.open()
+                            }
                         }
 
-                        WfField {
-                            id: isoPath
+                        RowLayout {
                             Layout.fillWidth: true
-                            dark: root.dark
-                            label: root.tr("ISO staging folder", "ISO staging 資料夾")
-                            text: root.app.projectLoaded
-                                  ? root.app.projectRoot + "/.wimforge/generated/winforge-stage"
-                                  : ""
-                            placeholderText: "D:\\ISO-workspace"
-                            mono: true
+                            WfField {
+                                id: isoPath
+                                Layout.fillWidth: true
+                                dark: root.dark
+                                label: root.tr("ISO staging folder", "ISO staging 資料夾")
+                                text: root.app.projectLoaded
+                                      ? root.app.projectRoot + "/.wimforge/generated/winforge-stage"
+                                      : ""
+                                placeholderText: "D:\\ISO-workspace"
+                                mono: true
+                            }
+                            WfButton {
+                                dark: root.dark
+                                compact: true
+                                text: root.tr("Browse…", "瀏覽……")
+                                onClicked: isoStagingFolderDialog.open()
+                            }
                         }
                         WfButton {
                             Layout.fillWidth: true

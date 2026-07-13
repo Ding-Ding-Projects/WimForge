@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../components"
 
@@ -26,6 +27,12 @@ Item {
 
     property var commandHistory: []
     property int historyIndex: commandHistory.length
+
+    FolderDialog {
+        id: workingDirectoryDialog
+        title: root.tr("Choose the terminal working directory", "揀終端機工作目錄")
+        onAccepted: workingDirectory.text = root.app.pathFromUrl(selectedFolder)
+    }
 
     function statusText() {
         if (root.terminal.running)
@@ -211,7 +218,7 @@ Item {
             GridLayout {
                 id: terminalControls
                 anchors.fill: parent
-                columns: root.width >= 1120 ? 5 : root.width >= 620 ? 2 : 1
+                columns: root.width >= 1120 ? 6 : root.width >= 620 ? 2 : 1
                 columnSpacing: DesignTokens.spacing8
                 rowSpacing: DesignTokens.spacing8
 
@@ -240,6 +247,15 @@ Item {
                     selectByMouse: true
                     font.family: DesignTokens.fontMono
                     font.pixelSize: 11
+                }
+
+                WfButton {
+                    Layout.fillWidth: root.width < 1120
+                    dark: root.dark
+                    variant: "tonal"
+                    text: root.tr("Browse folder…", "瀏覽資料夾……")
+                    enabled: !root.terminal.running
+                    onClicked: workingDirectoryDialog.open()
                 }
 
                 WfButton {

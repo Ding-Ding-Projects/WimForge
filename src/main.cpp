@@ -6,7 +6,9 @@
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QAccessible>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
@@ -15,7 +17,9 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QRegularExpression>
 #include <QSettings>
+#include <QSize>
 #include <QTextStream>
 #include <QTimer>
 
@@ -257,7 +261,13 @@ int main(int argc, char *argv[])
 
     QQuickStyle::setStyle(QStringLiteral("Material"));
 
+    // Qt normally activates its accessibility bridge after a screen reader
+    // connects. Force the bridge on so Windows UI Automation can discover the
+    // QML control tree immediately, including during first-run and QA flows.
+    if (qEnvironmentVariableIsEmpty("QT_ACCESSIBILITY"))
+        qputenv("QT_ACCESSIBILITY", QByteArrayLiteral("1"));
     QGuiApplication application(argc, argv);
+    QAccessible::setActive(true);
     ApplicationLogSession logSession(QStringLiteral("gui"));
 #if defined(Q_OS_WIN) && !defined(WIMFORGE_DOCUMENTATION_CAPTURE)
     logElevationResult(elevation);
@@ -286,17 +296,33 @@ int main(int argc, char *argv[])
         QStringLiteral(
             "Pin the documentation capture theme to light or dark. / 將文件截圖 theme 鎖定做 light 或 dark。"),
         QStringLiteral("mode"), QStringLiteral("dark")});
+    parser.addOption({
+        QStringLiteral("viewport"),
+        QStringLiteral(
+            "Set the documentation capture viewport as WIDTHxHEIGHT. / 將文件截圖 viewport 設做 寬x高。"),
+        QStringLiteral("size"), QStringLiteral("1440x900")});
+    parser.addOption({
+        QStringLiteral("capture-delay-ms"),
+        QStringLiteral(
+            "Wait before capture so accessibility inspection can attach. / 截圖前等一陣，方便無障礙檢查連接。"),
+        QStringLiteral("milliseconds"), QStringLiteral("1500")});
 #endif
     parser.process(application);
 
     bool projectStartCapture = false;
     int startupCustomizeSection = 0;
+    int screenshotDelayMilliseconds = 1500;
+    bool interactiveQaCapture = false;
 #ifdef WIMFORGE_DOCUMENTATION_CAPTURE
     projectStartCapture = parser.isSet(QStringLiteral("project-start"));
     const bool demoCapture = parser.isSet(QStringLiteral("demo"));
-    if (!parser.isSet(QStringLiteral("screenshot"))
-        || demoCapture == projectStartCapture
-        || parser.isSet(QStringLiteral("project"))) {
+    interactiveQaCapture = !parser.isSet(QStringLiteral("screenshot"))
+        && !demoCapture && !projectStartCapture
+        && !parser.isSet(QStringLiteral("project"));
+    if (!interactiveQaCapture
+        && (!parser.isSet(QStringLiteral("screenshot"))
+            || demoCapture == projectStartCapture
+            || parser.isSet(QStringLiteral("project")))) {
         qCritical().noquote()
             << QStringLiteral(
                    "The documentation-capture build accepts --screenshot with exactly one of --demo or --project-start, and never --project. / 文件擷取版本只接受 --screenshot 配搭 --demo 或 --project-start 其中一個，而且唔會接受 --project。");
@@ -327,11 +353,51 @@ int main(int argc, char *argv[])
         logSession.setExitCode(7);
         return 7;
     }
+    const QRegularExpression viewportPattern(QStringLiteral(R"(^([0-9]{3,4})x([0-9]{3,4})$)"),
+                                             QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch viewportMatch = viewportPattern.match(
+        parser.value(QStringLiteral("viewport")).trimmed());
+    if (!viewportMatch.hasMatch()) {
+        qCritical().noquote() << QStringLiteral(
+            "Documentation capture viewport must use WIDTHxHEIGHT. / 文件截圖 viewport 一定要用 寬x高。 ");
+        logSession.setExitCode(9);
+        return 9;
+    }
+    const QSize captureViewport(
+        viewportMatch.captured(1).toInt(), viewportMatch.captured(2).toInt());
+    if (captureViewport.width() < 900 || captureViewport.height() < 640
+        || captureViewport.width() > 3840 || captureViewport.height() > 2160) {
+        qCritical().noquote() << QStringLiteral(
+            "Documentation capture viewport must stay between 900x640 and 3840x2160. / 文件截圖 viewport 一定要介乎 900x640 同 3840x2160。 ");
+        logSession.setExitCode(10);
+        return 10;
+    }
+    bool captureDelayOk = false;
+    screenshotDelayMilliseconds = parser.value(QStringLiteral("capture-delay-ms"))
+                                      .toInt(&captureDelayOk);
+    if (!captureDelayOk || screenshotDelayMilliseconds < 500
+        || screenshotDelayMilliseconds > 60'000) {
+        qCritical().noquote() << QStringLiteral(
+            "Documentation capture delay must be 500-60000 ms. / 文件截圖等候時間一定要介乎 500 至 60000 ms。 ");
+        logSession.setExitCode(11);
+        return 11;
+    }
 #endif
 
 #ifdef WIMFORGE_DOCUMENTATION_CAPTURE
-    const QString captureSettingsPath =
+    QString captureSettingsPath =
         qEnvironmentVariable("WIMFORGE_CAPTURE_SETTINGS").trimmed();
+    if (interactiveQaCapture) {
+        const QString interactiveRoot = QDir::temp().filePath(
+            QStringLiteral("WimForge-Interactive-QA"));
+        captureSettingsPath = QDir(interactiveRoot).filePath(QStringLiteral("settings"));
+        const QString notificationPath = QDir(interactiveRoot)
+            .filePath(QStringLiteral("notifications"));
+        QDir().mkpath(captureSettingsPath);
+        QDir().mkpath(notificationPath);
+        qputenv("WIMFORGE_NOTIFICATION_STORE",
+                QFile::encodeName(notificationPath));
+    }
     const QFileInfo captureSettingsDirectory(captureSettingsPath);
     if (captureSettingsPath.isEmpty() || !captureSettingsDirectory.isAbsolute()
         || !captureSettingsDirectory.isDir()) {
@@ -350,7 +416,7 @@ int main(int argc, char *argv[])
     controller.setThemeMode(captureTheme == QStringLiteral("light") ? 1 : 2);
 #endif
     wimforge::EmbeddedTerminalSession terminalSession;
-    if (parser.isSet(QStringLiteral("demo"))) {
+    if (parser.isSet(QStringLiteral("demo")) || interactiveQaCapture) {
         QString error;
         if (!controller.loadDemoProject(&error))
             qWarning().noquote() << error;
@@ -400,8 +466,11 @@ int main(int argc, char *argv[])
             qCritical().noquote() << QStringLiteral("Unable to capture the documentation screenshot: the root window is unavailable.");
             return 2;
         }
+#ifdef WIMFORGE_DOCUMENTATION_CAPTURE
+        window->resize(captureViewport);
+#endif
 
-        QTimer::singleShot(1500, &application,
+        QTimer::singleShot(screenshotDelayMilliseconds, &application,
                            [&application, window, screenshotPath] {
             if (!QDir().mkpath(QFileInfo(screenshotPath).absolutePath())) {
                 qCritical().noquote() << QStringLiteral("Unable to create the screenshot output directory: %1")

@@ -33,6 +33,7 @@ ApplicationWindow {
     readonly property var controller: app
     readonly property real uiScale: Math.max(0.8, Math.min(1.25, app.interfaceScale))
     readonly property bool compactNavigation: width / uiScale < 1280
+    readonly property bool compactToolbar: width / uiScale < 1100
     readonly property bool darkTheme: Material.theme === Material.Dark
     readonly property color secondaryTextColor: DesignTokens.onSurfaceVariant(darkTheme)
     readonly property color errorColor: DesignTokens.error(darkTheme)
@@ -406,8 +407,10 @@ ApplicationWindow {
                         id: projectSummary
                         width: parent.width
                         Label { text: app.projectName; color: DesignTokens.navOn(root.darkTheme); font.family: DesignTokens.fontBody; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                        Label { text: app.gitStatusText; font.family: DesignTokens.fontBody; font.pixelSize: 11; color: DesignTokens.success(root.darkTheme); Layout.fillWidth: true; elide: Text.ElideRight }
-                        ProgressBar { visible: app.busy; Layout.fillWidth: true; value: app.progress; indeterminate: app.progress <= 0; Accessible.name: root.tr2("Project job progress", "工程工作進度") }
+                        Label { text: app.gitStatusText; font.family: DesignTokens.fontBody; font.pixelSize: 11; color: app.persistenceRetryAvailable ? DesignTokens.error(root.darkTheme) : DesignTokens.success(root.darkTheme); Layout.fillWidth: true; elide: Text.ElideRight }
+                        Label { visible: app.backgroundBusy && app.backgroundStatus.length > 0; text: app.backgroundStatus; font.family: DesignTokens.fontBody; font.pixelSize: 10; color: DesignTokens.onSurfaceVariant(root.darkTheme); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.name: text }
+                        ProgressBar { visible: app.busy || app.backgroundBusy; Layout.fillWidth: true; value: app.busy ? app.progress : 0; indeterminate: !app.busy || app.progress <= 0; Accessible.name: app.busy ? root.tr2("Project job progress", "工程工作進度") : root.tr2("Background save progress", "後台儲存進度") }
+                        WfButton { visible: app.persistenceRetryAvailable; Layout.fillWidth: true; compact: true; variant: "tonal"; text: root.tr2("Retry save", "再試儲存"); onClicked: app.retryBackgroundPersistence() }
                     }
                     HoverHandler { id: projectSummaryHover }
                     ToolTip.visible: root.compactNavigation && projectSummaryHover.hovered
@@ -445,7 +448,9 @@ ApplicationWindow {
                         anchors.fill: parent
                         spacing: 8
                         Rectangle {
-                            Layout.preferredWidth: Math.min(420, parent.width * 0.44)
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: root.compactToolbar ? 2000 : 420
+                            Layout.preferredWidth: root.compactToolbar ? 0 : Math.min(420, parent.width * 0.44)
                             Layout.preferredHeight: 36
                             radius: DesignTokens.radiusPill
                             color: DesignTokens.surfaceContainer(root.darkTheme)
@@ -503,7 +508,7 @@ ApplicationWindow {
                                 }
                             }
                         }
-                        Item { Layout.fillWidth: true }
+                        Item { Layout.fillWidth: !root.compactToolbar; visible: !root.compactToolbar }
                         WfIconButton {
                             glyph: ""
                             accessibleName: app.busy ? root.tr2("Jobs are running; open job queue", "有工序行緊；開啟工序隊列") : root.tr2("Open job queue", "開啟工序隊列")
@@ -550,6 +555,7 @@ ApplicationWindow {
                                             ? root.tr2("Use light theme", "使用淺色主題")
                                             : root.tr2("Use dark theme", "使用深色主題")
                             toolTip: accessibleName
+                            visible: !root.compactToolbar
                             onClicked: app.themeMode = root.darkTheme ? 1 : 2
                             contentItem: Label {
                                 text: root.darkTheme ? "\uE706" : "\uE708"
@@ -566,6 +572,7 @@ ApplicationWindow {
                             spacing: 0
                             Accessible.role: Accessible.Grouping
                             Accessible.name: root.tr2("Display language", "顯示語言")
+                            visible: !root.compactToolbar
                             Repeater {
                                 model: [
                                     { mode: 0, label: "EN", en: "English", zh: "英文" },
@@ -615,6 +622,7 @@ ApplicationWindow {
                         }
                         AbstractButton {
                             id: projectChip
+                            visible: !root.compactToolbar
                             Layout.preferredHeight: 36
                             Layout.maximumWidth: 220
                             implicitWidth: Math.min(220, Math.max(118, projectChipLabel.implicitWidth + 38))
@@ -651,6 +659,30 @@ ApplicationWindow {
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideRight
                                 }
+                            }
+                        }
+                        WfIconButton {
+                            visible: root.compactToolbar
+                            glyph: "⋮"
+                            accessibleName: root.tr2("More application actions", "更多應用程式操作")
+                            toolTip: accessibleName
+                            onClicked: compactToolbarMenu.open()
+                            Menu {
+                                id: compactToolbarMenu
+                                MenuItem {
+                                    text: root.tr2("Open project", "開工程")
+                                    onTriggered: openProjectSheet.open()
+                                }
+                                MenuSeparator { }
+                                MenuItem {
+                                    text: root.darkTheme
+                                          ? root.tr2("Use light theme", "使用淺色主題")
+                                          : root.tr2("Use dark theme", "使用深色主題")
+                                    onTriggered: app.themeMode = root.darkTheme ? 1 : 2
+                                }
+                                MenuItem { text: root.tr2("Language: English", "語言：英文"); checkable: true; checked: app.languageMode === 0; onTriggered: app.languageMode = 0 }
+                                MenuItem { text: root.tr2("Language: Cantonese", "語言：粵語"); checkable: true; checked: app.languageMode === 1; onTriggered: app.languageMode = 1 }
+                                MenuItem { text: root.tr2("Language: Bilingual", "語言：雙語"); checkable: true; checked: app.languageMode === 2; onTriggered: app.languageMode = 2 }
                             }
                         }
                     }
@@ -736,6 +768,32 @@ ApplicationWindow {
                                         border.color: index === app.activeWorkspaceTab
                                                       ? DesignTokens.outlineVariant(root.darkTheme) : "transparent"
                                         Accessible.name: root.tr2("Workspace tab: ", "工作分頁：") + modelData.title
+                                        Accessible.role: Accessible.PageTab
+                                        Accessible.selected: index === app.activeWorkspaceTab
+                                        Accessible.focusable: true
+                                        activeFocusOnTab: true
+                                        Keys.onLeftPressed: {
+                                            var target = (index + app.workspaceTabs.length - 1) % app.workspaceTabs.length
+                                            app.activateWorkspaceTab(target)
+                                            var item = workspaceTabRepeater.itemAt(target)
+                                            if (item) item.forceActiveFocus(Qt.TabFocusReason)
+                                        }
+                                        Keys.onRightPressed: {
+                                            var target = (index + 1) % app.workspaceTabs.length
+                                            app.activateWorkspaceTab(target)
+                                            var item = workspaceTabRepeater.itemAt(target)
+                                            if (item) item.forceActiveFocus(Qt.TabFocusReason)
+                                        }
+                                        Keys.onReturnPressed: app.activateWorkspaceTab(index)
+                                        Keys.onSpacePressed: app.activateWorkspaceTab(index)
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            anchors.margins: -2
+                                            radius: DesignTokens.radiusControl + 2
+                                            color: "transparent"
+                                            border.width: workspaceTab.activeFocus ? 2 : 0
+                                            border.color: DesignTokens.primary(root.darkTheme)
+                                        }
                                         Rectangle {
                                             anchors.left: parent.left
                                             anchors.right: parent.right

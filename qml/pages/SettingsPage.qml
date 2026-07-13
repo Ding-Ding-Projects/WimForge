@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../components"
 
@@ -29,6 +30,15 @@ Item {
         { en: "Automation", zh: "自動化", code: "AU" },
         { en: "Diagnostics", zh: "診斷", code: "D" }
     ]
+
+    FileDialog {
+        id: autoExportDialog
+        title: root.tr("Choose the automatic project export", "揀自動工程匯出位置")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "wimforge"
+        nameFilters: [root.tr("WimForge project bundles (*.wimforge)", "WimForge 工程 bundle (*.wimforge)")]
+        onAccepted: root.app.autoExportPath = root.app.pathFromUrl(selectedFile)
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -405,6 +415,14 @@ Item {
                             readOnly: !root.app.autoExport
                             placeholderText: root.tr("Auto-export destination", "自動匯出目的地")
                             onEditingFinished: root.app.autoExportPath = text
+                        }
+                        WfButton {
+                            dark: root.dark
+                            compact: true
+                            variant: "tonal"
+                            text: root.tr("Browse…", "瀏覽……")
+                            enabled: root.app.autoExport
+                            onClicked: autoExportDialog.open()
                         }
                     }
                 }

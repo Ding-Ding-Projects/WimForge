@@ -57,8 +57,6 @@ Item {
                 font.family: DesignTokens.fontBody
                 font.pixelSize: 13
                 wrapMode: Text.Wrap
-                maximumLineCount: 3
-                elide: Text.ElideRight
             }
         }
 

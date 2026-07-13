@@ -27,6 +27,24 @@ ScrollView {
         if (tone === "error") return DesignTokens.onErrorContainer(root.dark)
         return DesignTokens.onSurfaceVariant(root.dark)
     }
+    function workflowState(index) {
+        if (!app.projectLoaded)
+            return index === 0 ? "next" : "waiting"
+        var sourceReady = app.sourceCatalogQuery.length > 0
+        var planReady = app.operationCount > 0
+        if (index === 0) return sourceReady ? "done" : "next"
+        if (index === 1) return sourceReady ? (planReady ? "done" : "next") : "waiting"
+        if (index === 2) return planReady ? "next" : "waiting"
+        if (index === 3) return app.runningJobCount > 0 ? "active" : (planReady ? "ready" : "waiting")
+        return app.runningJobCount === 0 && planReady ? "ready" : "waiting"
+    }
+    function workflowStateText(state) {
+        if (state === "done") return root.tr("Done", "完成")
+        if (state === "next") return root.tr("Next", "下一步")
+        if (state === "active") return root.tr("Running", "執行緊")
+        if (state === "ready") return root.tr("Ready", "準備好")
+        return root.tr("Waiting", "等緊")
+    }
     clip: true
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -109,21 +127,24 @@ ScrollView {
 
                 Repeater {
                     model: [
-                        { icon: "1", en: "Choose Windows ISO / WIM / ESD / SWM", zh: "揀 Windows ISO / WIM / ESD / SWM", metaEn: "Source & editions", metaZh: "來源同版本", page: 1 },
-                        { icon: "2", en: "Select editions and customize the recipe", zh: "揀版本，再調校你份配方", metaEn: "Customize", metaZh: "調校", page: 2 },
-                        { icon: "3", en: "Review exact commands and safety checks", zh: "逐條睇清楚指令同安全檢查", metaEn: "Review & run", metaZh: "檢查同開工", page: 8 },
-                        { icon: "4", en: "Run concurrently with crash-safe checkpoints", zh: "平行開工，仲有防死機檢查點", metaEn: "Review & run", metaZh: "檢查同開工", page: 8 },
-                        { icon: "5", en: "Load the ISO in VMware or VirtualBox and record validation", zh: "將 ISO 載入 VMware 或 VirtualBox，再記錄驗證", metaEn: "Virtual Machine Lab", metaZh: "虛擬機實驗室", page: 7 }
+                        { icon: "1", en: "Choose and inspect the Windows source", zh: "揀 Windows 來源並自動檢查", metaEn: "Source & editions", metaZh: "來源同版本", page: 1 },
+                        { icon: "2", en: "Choose what to customize", zh: "揀想調校嘅項目", metaEn: "Customize", metaZh: "調校", page: 2 },
+                        { icon: "3", en: "Review exact commands and safety checks", zh: "逐條睇清楚指令同安全檢查", metaEn: "Review", metaZh: "檢查", page: 8 },
+                        { icon: "4", en: "Run the approved plan", zh: "執行批准咗嘅計劃", metaEn: "Run", metaZh: "開工", page: 8 },
+                        { icon: "5", en: "Validate the output in a virtual machine", zh: "喺虛擬機驗證輸出", metaEn: "Virtual Machine Lab", metaZh: "虛擬機實驗室", page: 7 }
                     ]
 
                     delegate: AbstractButton {
                         id: workflowStep
                         required property var modelData
+                        required property int index
+                        readonly property string stepState: root.workflowState(index)
                         Layout.fillWidth: true
                         implicitHeight: 54
                         enabled: app.projectLoaded || modelData.page === 1
                         focusPolicy: Qt.StrongFocus
                         Accessible.name: root.tr(modelData.en, modelData.zh)
+                        Accessible.description: root.workflowStateText(stepState)
                         onClicked: root.openPage(modelData.page)
 
                         background: Rectangle {
@@ -142,7 +163,10 @@ ScrollView {
                                 Layout.preferredWidth: 30
                                 Layout.preferredHeight: 30
                                 radius: width / 2
-                                color: "transparent"
+                                color: workflowStep.stepState === "done"
+                                       ? DesignTokens.successContainer(root.dark)
+                                       : workflowStep.stepState === "next" || workflowStep.stepState === "active"
+                                         ? DesignTokens.primaryContainer(root.dark) : "transparent"
                                 border.width: 1
                                 border.color: DesignTokens.outline(root.dark)
                                 Label {
@@ -175,24 +199,11 @@ ScrollView {
                                     elide: Text.ElideRight
                                 }
                             }
-                            Rectangle {
-                                Layout.preferredWidth: 30
-                                Layout.preferredHeight: 30
-                                radius: width / 2
-                                color: workflowStep.hovered
-                                       ? DesignTokens.secondaryContainer(root.dark)
-                                       : "transparent"
-                                border.width: workflowStep.hovered ? 0 : 1
-                                border.color: DesignTokens.outlineVariant(root.dark)
-                                Label {
-                                    anchors.centerIn: parent
-                                    text: "→"
-                                    font.pixelSize: 15
-                                    color: workflowStep.hovered
-                                           ? DesignTokens.onSecondaryContainer(root.dark)
-                                           : DesignTokens.onSurfaceVariant(root.dark)
-                                    Accessible.ignored: true
-                                }
+                            WfStatusChip {
+                                text: root.workflowStateText(workflowStep.stepState)
+                                tone: workflowStep.stepState === "done" ? "success"
+                                      : workflowStep.stepState === "next" || workflowStep.stepState === "active"
+                                        ? "primary" : "neutral"
                             }
                         }
                     }

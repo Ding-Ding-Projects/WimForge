@@ -17,25 +17,33 @@ Popup {
     property string category: "updates"
     property string initialQuery: ""
 
-    // Show the sheet with the query prefilled. The caller runs the search so
-    // the entry point stays where the design-system contract expects it.
+    // Open the non-blocking results panel. The ISO inventory owns the default
+    // query; this field is only an optional refinement.
     function searchFor(query) {
         catalogQuery.text = query
         open()
+    }
+    function showAutomatic(targetCategory) {
+        category = targetCategory || "updates"
+        var query = app.catalogQueryForCategory(category)
+        catalogQuery.text = query
+        open()
+        if (query.length > 0 && app.updateCatalogResults.length === 0
+                && !app.updateCatalogBusy)
+            app.openMicrosoftUpdateCatalog(query)
     }
 
     Material.theme: dark ? Material.Dark : Material.Light
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(860, (parent ? parent.width : 900) - 48)
-    height: Math.min(620, (parent ? parent.height : 700) - 48)
-    modal: true
-    dim: true
+    width: Math.max(320, Math.min(860, (parent ? parent.width : 900) - 32))
+    height: Math.max(360, Math.min(620, (parent ? parent.height : 700) - 32))
+    modal: false
+    dim: false
     focus: true
     closePolicy: Popup.CloseOnEscape
     padding: 20
-    onOpened: catalogQuery.forceActiveFocus()
-    onClosed: sheet.app.cancelUpdateCatalog()
+    onOpened: resultsView.forceActiveFocus()
 
     background: Rectangle {
         radius: DesignTokens.radiusCard
@@ -65,6 +73,8 @@ Popup {
                                    "唔使離開 WimForge，就可以搜尋、下載同排入更新。")
                     color: DesignTokens.onSurfaceVariant(sheet.dark)
                     font.pixelSize: 11
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
                 }
             }
             WfIconButton {
@@ -85,6 +95,10 @@ Popup {
                 placeholderText: sheet.tr("KB number or update name, e.g. 2024-07 Cumulative Windows 11",
                                           "KB 編號或更新名稱，例如 2024-07 Cumulative Windows 11")
                 color: DesignTokens.onSurface(sheet.dark)
+                Accessible.name: sheet.tr("Optional catalog refinement", "可選目錄搜尋微調")
+                Accessible.description: sheet.tr(
+                    "WimForge fills this from the selected ISO. Change it only when you need a narrower result.",
+                    "WimForge 會根據揀咗嘅 ISO 自動填。只係想收窄結果先需要改。")
                 onAccepted: if (text.trim().length > 0 && !sheet.app.updateCatalogBusy)
                                 sheet.app.openMicrosoftUpdateCatalog(text.trim())
             }
@@ -94,6 +108,13 @@ Popup {
                 text: sheet.tr("Search", "搜尋")
                 enabled: catalogQuery.text.trim().length > 0 && !sheet.app.updateCatalogBusy
                 onClicked: sheet.app.openMicrosoftUpdateCatalog(catalogQuery.text.trim())
+            }
+            WfButton {
+                dark: sheet.dark
+                variant: "text"
+                text: sheet.tr("Cancel", "取消")
+                visible: sheet.app.updateCatalogBusy
+                onClicked: sheet.app.cancelUpdateCatalog()
             }
         }
 
@@ -112,6 +133,7 @@ Popup {
                 color: DesignTokens.onSurfaceVariant(sheet.dark)
                 font.pixelSize: 12
                 wrapMode: Text.Wrap
+                Accessible.name: text
             }
         }
 
@@ -148,6 +170,14 @@ Popup {
                     color: DesignTokens.surfaceLowest(sheet.dark)
                     border.color: DesignTokens.outlineVariant(sheet.dark)
                     border.width: 1
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: entryDelegate.modelData.title + ". "
+                                     + [entryDelegate.modelData.product,
+                                        entryDelegate.modelData.classification,
+                                        entryDelegate.modelData.lastUpdated,
+                                        entryDelegate.modelData.sizeText].filter(function(part) {
+                         return part && part.length > 0 && part !== "n/a"
+                     }).join(", ")
 
                     RowLayout {
                         id: rowLayout
@@ -188,6 +218,8 @@ Popup {
                             variant: "tonal"
                             compact: true
                             text: sheet.tr("Download", "下載")
+                            Accessible.name: sheet.tr("Download %1", "下載 %1")
+                                                     .arg(entryDelegate.modelData.title)
                             enabled: !sheet.app.updateCatalogBusy
                             onClicked: sheet.app.downloadUpdateCatalogItem(
                                            entryDelegate.modelData.updateId,
@@ -203,8 +235,11 @@ Popup {
                     width: parent.width - 40
                     visible: resultsView.count === 0 && !sheet.app.updateCatalogBusy
                     horizontalAlignment: Text.AlignHCenter
-                    text: sheet.tr("Search the catalog to list updates. Downloads are added straight to the update queue.",
-                                   "搜尋目錄嚟列出更新。下載會直接加入更新隊列。")
+                    text: sheet.app.sourceCatalogQuery.length > 0
+                          ? sheet.tr("Matches are searched automatically from the selected ISO. Downloads are added straight to the review queue.",
+                                     "會根據揀咗嘅 ISO 自動搜尋啱用項目。下載會直接加入審閱隊列。")
+                          : sheet.tr("Choose and inspect a Windows ISO first; WimForge will search this catalog automatically.",
+                                     "先揀同檢查 Windows ISO；WimForge 之後會自動搜尋呢個目錄。")
                     color: DesignTokens.onSurfaceVariant(sheet.dark)
                     font.pixelSize: 12
                     wrapMode: Text.Wrap

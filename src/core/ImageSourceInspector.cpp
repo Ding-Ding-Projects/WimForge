@@ -125,8 +125,10 @@ ImageInspectionResult ImageSourceInspector::parseOutput(
     auto matches = editionBlock.globalMatch(result.output);
     while (matches.hasNext()) {
         const QRegularExpressionMatch match = matches.next();
-        result.editions.append(QStringLiteral("Index %1 — %2")
-                                   .arg(match.captured(1), match.captured(2).trimmed()));
+        const QString edition = QStringLiteral("Index %1 — %2")
+                                    .arg(match.captured(1), match.captured(2).trimmed());
+        if (!result.editions.contains(edition, Qt::CaseInsensitive))
+            result.editions.append(edition);
     }
 
     const QRegularExpression architectureLine(
@@ -227,8 +229,15 @@ try {
         throw 'The mounted ISO does not contain sources\install.wim, install.esd, or install.swm.'
     }
     [Console]::Out.WriteLine('WIMFORGE_IMAGE_PATH::' + $imagePath)
-    & ([IO.Path]::Combine($wimforgeSystem32, 'dism.exe')) /English /Get-WimInfo "/WimFile:$imagePath"
+    $dism = [IO.Path]::Combine($wimforgeSystem32, 'dism.exe')
+    & $dism /English /Get-WimInfo "/WimFile:$imagePath"
     $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 0) {
+        # The summary reliably supplies edition names; index details add the
+        # architecture and Windows version used for automatic catalog matching.
+        & $dism /English /Get-WimInfo "/WimFile:$imagePath" /Index:1
+        $exitCode = $LASTEXITCODE
+    }
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
     $exitCode = 1

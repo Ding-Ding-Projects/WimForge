@@ -9,6 +9,7 @@ ScrollView {
     id: root
     property var app
     property var tr: function(en, zh) { return en }
+    property bool advancedPathsOpen: false
     required property bool dark
     Material.theme: dark ? Material.Dark : Material.Light
     clip: true
@@ -151,9 +152,11 @@ ScrollView {
                 width: parent.width
                 spacing: 12
 
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: 16
+                    columns: root.availableWidth >= 980 ? 3 : 1
+                    columnSpacing: 16
+                    rowSpacing: 12
 
                     Rectangle {
                         Layout.preferredWidth: 52
@@ -171,7 +174,7 @@ ScrollView {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Layout.minimumWidth: 180
+                        Layout.minimumWidth: 0
                         spacing: 2
                         Label {
                             Layout.fillWidth: true
@@ -194,11 +197,11 @@ ScrollView {
                     }
 
                     Flow {
-                        Layout.preferredWidth: Math.min(520, implicitWidth)
-                        Layout.maximumWidth: sourceCard.availableWidth
+                        Layout.fillWidth: root.availableWidth < 980
+                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                         spacing: 8
                         WfButton {
-                            text: root.tr("Browse ISO / image…", "瀏覽 ISO / 映像…")
+                            text: root.tr("Choose and inspect ISO / image…", "揀 ISO / 映像並自動檢查……")
                             glyph: "▱"
                             compact: true
                             enabled: app.projectLoaded && !app.busy
@@ -211,25 +214,22 @@ ScrollView {
                             enabled: app.projectLoaded && !app.busy
                             onClicked: sourceFolderDialog.open()
                         }
-                        WfButton {
-                            text: app.busy ? root.tr("Inspecting…", "點貨中…") : root.tr("Inspect", "點貨")
-                            variant: "filled"
-                            compact: true
-                            enabled: app.projectLoaded && !app.busy && app.sourcePath.length > 0
-                            onClicked: app.inspectSource()
-                        }
                     }
                 }
 
                 WfField {
                     Layout.fillWidth: true
+                    label: root.tr("Selected source", "已揀來源")
                     text: app.sourcePath
                     placeholderText: app.sourcePath.length > 0 ? ""
                                      : root.tr("D:\\Windows11.iso or D:\\media\\sources\\install.wim", "例如 D:\\Windows11.iso")
                     mono: true
                     selectByMouse: true
                     readOnly: !app.projectLoaded || app.busy
-                    onEditingFinished: app.setProjectField("sourcePath", text)
+                    onEditingFinished: {
+                        if (text.trim() !== app.sourcePath)
+                            root.acceptSource(text.trim())
+                    }
                 }
 
                 Label {
@@ -247,6 +247,60 @@ ScrollView {
             }
         }
 
+        WfCard {
+            Layout.fillWidth: true
+            visible: app.sourceCatalogQuery.length > 0 || app.updateCatalogBusy
+            surfaceLevel: "container"
+            outlined: false
+            padding: 14
+            RowLayout {
+                width: parent.width
+                spacing: 10
+                BusyIndicator {
+                    running: app.updateCatalogBusy
+                    visible: running
+                    implicitWidth: 24
+                    implicitHeight: 24
+                    Accessible.name: root.tr("Matching the Update Catalog automatically", "正自動配對 Update Catalog")
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.tr("Automatic source profile", "自動來源設定檔")
+                        font.family: DesignTokens.fontBody
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        color: DesignTokens.onSurface(root.dark)
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: app.sourceCatalogQuery
+                        font.family: DesignTokens.fontMono
+                        font.pixelSize: 11
+                        color: DesignTokens.onSurfaceVariant(root.dark)
+                        wrapMode: Text.WrapAnywhere
+                    }
+                }
+                WfStatusChip {
+                    text: app.updateCatalogBusy ? root.tr("Matching…", "配對緊……")
+                                                : root.tr("Ready", "準備好")
+                    tone: app.updateCatalogBusy ? "info" : "success"
+                }
+            }
+        }
+
+        WfButton {
+            Layout.alignment: Qt.AlignLeft
+            text: root.advancedPathsOpen
+                  ? root.tr("Hide advanced paths", "收起進階路徑")
+                  : root.tr("Show advanced paths", "顯示進階路徑")
+            variant: "text"
+            glyph: root.advancedPathsOpen ? "▴" : "▾"
+            onClicked: root.advancedPathsOpen = !root.advancedPathsOpen
+        }
+
         GridLayout {
             Layout.fillWidth: true
             columns: root.availableWidth >= 760 ? 2 : 1
@@ -256,6 +310,7 @@ ScrollView {
             WfCard {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                visible: root.advancedPathsOpen
                 enabled: app.projectLoaded && !app.busy
                 padding: 18
 
@@ -280,6 +335,7 @@ ScrollView {
                         Layout.fillWidth: true
                         WfField {
                             Layout.fillWidth: true
+                            label: root.tr("Image path", "映像路徑")
                             text: app.imagePath
                             placeholderText: app.imagePath.length > 0 ? ""
                                              : app.imageRelativePath.length > 0
@@ -305,6 +361,7 @@ ScrollView {
                         Layout.fillWidth: true
                         WfField {
                             Layout.fillWidth: true
+                            label: root.tr("Mount directory", "掛載資料夾")
                             text: app.mountPath
                             placeholderText: app.mountPath.length > 0 ? ""
                                              : root.tr("Empty mount directory", "空白掛載資料夾")
@@ -357,6 +414,7 @@ ScrollView {
                         model: app.editionNames
                         currentIndex: Math.max(0, app.imageIndex - 1)
                         onActivated: app.setProjectNumber("imageIndex", currentIndex + 1)
+                        Accessible.name: root.tr("Edition", "版本")
                     }
                     Label {
                         text: root.tr("Image index", "映像索引")
@@ -372,6 +430,7 @@ ScrollView {
                         value: app.imageIndex
                         editable: true
                         onValueModified: app.setProjectNumber("imageIndex", value)
+                        Accessible.name: root.tr("Image index", "映像索引")
                     }
                     Label {
                         Layout.fillWidth: true
@@ -420,6 +479,7 @@ ScrollView {
                             Layout.fillWidth: true
                             WfField {
                                 Layout.fillWidth: true
+                                label: root.tr("Output path", "輸出路徑")
                                 text: app.outputPath
                                 placeholderText: app.outputPath.length > 0 ? ""
                                                  : root.tr("Output ISO / image", "輸出 ISO / 映像")
@@ -449,6 +509,7 @@ ScrollView {
                             model: ["WIM", "ESD", "SWM", "ISO"]
                             currentIndex: Math.max(0, model.indexOf(app.outputFormat.toUpperCase()))
                             onActivated: app.setProjectField("outputFormat", currentText.toLowerCase())
+                            Accessible.name: root.tr("Output format", "輸出格式")
                         }
                     }
                     ColumnLayout {
@@ -463,6 +524,7 @@ ScrollView {
                         }
                         WfField {
                             Layout.fillWidth: true
+                            label: root.tr("ISO volume label", "ISO 碟名")
                             text: app.isoLabel
                             placeholderText: app.isoLabel.length > 0 ? ""
                                              : root.tr("ISO volume label", "ISO 碟名")

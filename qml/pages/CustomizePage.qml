@@ -35,6 +35,7 @@ Item {
                 height: parent.availableHeight
                 spacing: 4
                 Repeater {
+                    id: sectionRepeater
                     model: [
                         { en: "Updates", zh: "更新" },
                         { en: "Drivers", zh: "驅動程式" },
@@ -53,8 +54,19 @@ Item {
                         width: Math.max(84, tabLabel.implicitWidth + 28)
                         Accessible.name: root.tr(modelData.en, modelData.zh)
                         Accessible.role: Accessible.PageTab
+                        Accessible.selected: root.currentSection === index
                         focusPolicy: Qt.StrongFocus
                         onClicked: root.currentSection = index
+                        Keys.onLeftPressed: {
+                            root.currentSection = (index + 7) % 8
+                            var previous = sectionRepeater.itemAt(root.currentSection)
+                            if (previous) previous.forceActiveFocus(Qt.TabFocusReason)
+                        }
+                        Keys.onRightPressed: {
+                            root.currentSection = (index + 1) % 8
+                            var next = sectionRepeater.itemAt(root.currentSection)
+                            if (next) next.forceActiveFocus(Qt.TabFocusReason)
+                        }
                         background: Item {
                             Rectangle {
                                 anchors.left: parent.left
@@ -117,7 +129,6 @@ Item {
                 subtitle: root.tr("Search Microsoft's official catalog, download a CAB/MSU matching the target build and architecture, then add it here for review.",
                                   "去 Microsoft 官方目錄搜尋，下載啱目標 build 同架構嘅 CAB/MSU，再加到呢度審閱。")
                 placeholder: "D:\\updates\\KB123456.msu"
-                sourcePlaceholder: root.tr("Example: Windows 11 24H2 x64 KB number", "例：Windows 11 24H2 x64 KB 號碼")
                 items: app.updateCatalog
                 fileFilters: [root.tr("Windows update packages (*.msu *.cab)", "Windows 更新套件 (*.msu *.cab)"), root.tr("All files (*)", "所有檔案 (*)")]
             }
@@ -129,7 +140,6 @@ Item {
                 subtitle: root.tr("Prefer the device maker's signed INF package, or search Microsoft's official catalog by hardware ID. Add the INF or folder here for review.",
                                   "優先用裝置廠簽署嘅 INF，或者用 hardware ID 去 Microsoft 官方目錄搵。加 INF 或資料夾到呢度審閱。")
                 placeholder: "D:\\drivers\\WiFi\\netadapter.inf"
-                sourcePlaceholder: root.tr("Example: PCI\\VEN_8086&DEV_51F0", "例：PCI\\VEN_8086&DEV_51F0")
                 items: app.driverCatalog
                 fileFilters: [root.tr("Driver setup information (*.inf)", "驅動安裝資訊 (*.inf)"), root.tr("All files (*)", "所有檔案 (*)")]
                 hostImportAvailable: true
@@ -288,14 +298,19 @@ Item {
         property string title
         property string subtitle
         property string placeholder
-        property string sourcePlaceholder
         property var items: []
         property var fileFilters: []
         property bool hostImportAvailable: false
 
-        ColumnLayout {
+        ScrollView {
             anchors.fill: parent
-            spacing: 10
+            clip: true
+            contentWidth: availableWidth
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+            ColumnLayout {
+                width: payloadPage.width
+                spacing: 10
 
             WfCard {
                 Layout.fillWidth: true
@@ -322,34 +337,46 @@ Item {
                         color: DesignTokens.onSurfaceVariant(root.dark)
                         wrapMode: Text.Wrap
                     }
-                    Label {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: payloadPage.tr("Official acquisition source", "官方下載來源")
-                        font.family: DesignTokens.fontBody
-                        font.pixelSize: 11
-                        font.weight: Font.DemiBold
-                        color: DesignTokens.onSurface(root.dark)
-                    }
-                    GridLayout {
-                        Layout.fillWidth: true
-                        columns: payloadPage.width >= 700 ? 2 : 1
-                        columnSpacing: 8
-                        rowSpacing: 8
-                        WfField {
-                            id: sourceSearch
+                        spacing: 10
+                        BusyIndicator {
+                            running: payloadPage.app.updateCatalogBusy
+                            visible: running
+                            implicitWidth: 24
+                            implicitHeight: 24
+                            Accessible.name: payloadPage.tr("Searching automatically", "正自動搜尋")
+                        }
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            placeholderText: payloadPage.sourcePlaceholder
-                            mono: payloadPage.category === "drivers"
-                            onAccepted: sourceButton.clicked()
+                            spacing: 1
+                            Label {
+                                Layout.fillWidth: true
+                                text: payloadPage.tr("Automatic ISO match", "自動 ISO 配對")
+                                font.family: DesignTokens.fontBody
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                                color: DesignTokens.onSurface(root.dark)
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: payloadPage.app.sourceCatalogQuery.length > 0
+                                      ? payloadPage.app.catalogQueryForCategory(payloadPage.category)
+                                      : payloadPage.tr("Choose and inspect an ISO first; WimForge will search automatically.",
+                                                       "先揀同檢查 ISO；WimForge 之後會自動搜尋。")
+                                font.family: payloadPage.app.sourceCatalogQuery.length > 0
+                                             ? DesignTokens.fontMono : DesignTokens.fontBody
+                                font.pixelSize: 11
+                                color: DesignTokens.onSurfaceVariant(root.dark)
+                                wrapMode: Text.Wrap
+                            }
                         }
                         WfButton {
                             id: sourceButton
-                            Layout.fillWidth: payloadPage.width < 700
-                            text: payloadPage.tr("Search Microsoft Update Catalog", "搜尋 Microsoft Update Catalog")
-                            onClicked: {
-                                updateCatalogSheet.searchFor(sourceSearch.text.trim())
-                                payloadPage.app.openMicrosoftUpdateCatalog(sourceSearch.text.trim())
-                            }
+                            text: payloadPage.tr("View matches", "睇配對結果")
+                            variant: "tonal"
+                            enabled: payloadPage.app.sourceCatalogQuery.length > 0
+                            onClicked: updateCatalogSheet.showAutomatic(payloadPage.category)
                         }
                     }
                 }
@@ -365,7 +392,7 @@ Item {
 
             GridLayout {
                 Layout.fillWidth: true
-                columns: payloadPage.width >= 920 ? 5 : payloadPage.width >= 560 ? 3 : 1
+                columns: payloadPage.width >= 1100 ? 5 : payloadPage.width >= 780 ? 2 : 1
                 columnSpacing: 8
                 rowSpacing: 8
                 WfField {
@@ -433,7 +460,7 @@ Item {
             ListView {
                 id: payloadList
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                Layout.preferredHeight: Math.max(160, Math.min(520, contentHeight))
                 clip: true
                 spacing: 6
                 model: payloadPage.items
@@ -506,8 +533,8 @@ Item {
                     visible: payloadList.count === 0
                     horizontalAlignment: Text.AlignHCenter
                     text: payloadPage.app.projectLoaded
-                          ? payloadPage.tr("Nothing is queued. Search the official source above, then browse downloaded payloads or scan a local folder.",
-                                           "未有 payload 排隊。先用上面官方來源搜尋，再揀下載咗嘅檔案或者掃描本機資料夾。")
+                          ? payloadPage.tr("Nothing is queued. Review the automatic ISO matches, choose files, or scan a local folder.",
+                                           "未有 payload 排隊。可以睇自動 ISO 配對結果、揀檔案，或者掃描本機資料夾。")
                           : payloadPage.tr("Open or create a project before queueing payloads.",
                                            "先開或者建立工程，之後先可以排 payload。")
                     font.family: DesignTokens.fontBody
@@ -516,6 +543,7 @@ Item {
                     wrapMode: Text.Wrap
                 }
             }
+        }
         }
 
         FileDialog {

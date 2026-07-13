@@ -21,6 +21,7 @@ Control {
     property alias selectByMouse: input.selectByMouse
     property string helperText: ""
     property string errorText: ""
+    property string accessibleDescription: hasError ? errorText : helperText
     property bool hasError: errorText.length > 0
     property bool mono: false
     property bool motionEnabled: true
@@ -37,6 +38,7 @@ Control {
     padding: 0
     focusPolicy: Qt.NoFocus
     Accessible.name: label.length > 0 ? label : placeholderText
+    Accessible.description: accessibleDescription
 
     contentItem: ColumnLayout {
         id: fieldLayout
@@ -70,6 +72,7 @@ Control {
             font.family: root.mono ? DesignTokens.fontMono : DesignTokens.fontBody
             font.pixelSize: 13
             Accessible.name: root.Accessible.name
+            Accessible.description: root.accessibleDescription
             onAccepted: root.accepted()
             onTextEdited: root.textEdited(text)
             onEditingFinished: root.editingFinished()
