@@ -108,10 +108,14 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
-        if (startupPageRequested)
-            navigateToPage(startupPage)
-        else
+        if (startupPageRequested) {
+            if (app.workspaceTabs.length > 0)
+                navigateToPage(startupPage)
+            else
+                pendingProjectPage = startupPage
+        } else {
             syncActiveWorkspaceTab()
+        }
     }
 
     function openContextHistory(x, y) {

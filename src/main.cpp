@@ -471,23 +471,32 @@ int main(int argc, char *argv[])
                 application.exit(3);
                 return;
             }
-            QImage image = window->grabWindow();
-            const QSize viewportSize = window->size();
-            // grabWindow() returns native pixels on a high-DPI display while
-            // QQuickWindow::size() is expressed in device-independent pixels.
-            // Cropping the native frame would keep only its top-left portion;
-            // normalize the complete frame to the documented logical viewport.
-            if (!image.isNull() && image.size() != viewportSize)
-                image = image.scaled(viewportSize, Qt::IgnoreAspectRatio,
-                                     Qt::SmoothTransformation);
-            image.setDevicePixelRatio(1.0);
-            if (image.isNull() || !image.save(screenshotPath, "PNG")) {
-                qCritical().noquote() << QStringLiteral("Unable to save the documentation screenshot: %1")
-                                             .arg(screenshotPath);
-                application.exit(4);
-                return;
-            }
-            application.quit();
+            // A hidden Windows capture can lazily create glyph and SVG textures
+            // during the first render pass. Warm the complete scene, request one
+            // more frame, then capture that settled frame so the documentation
+            // gallery never contains partially painted navigation or toolbars.
+            window->grabWindow();
+            window->update();
+            QTimer::singleShot(300, &application,
+                               [&application, window, screenshotPath] {
+                QImage image = window->grabWindow();
+                const QSize viewportSize = window->size();
+                // grabWindow() returns native pixels on a high-DPI display while
+                // QQuickWindow::size() is expressed in device-independent pixels.
+                // Normalize the complete frame to the documented logical viewport.
+                if (!image.isNull() && image.size() != viewportSize)
+                    image = image.scaled(viewportSize, Qt::IgnoreAspectRatio,
+                                         Qt::SmoothTransformation);
+                image.setDevicePixelRatio(1.0);
+                if (image.isNull() || !image.save(screenshotPath, "PNG")) {
+                    qCritical().noquote()
+                        << QStringLiteral("Unable to save the documentation screenshot / 儲存唔到文件截圖：%1")
+                               .arg(screenshotPath);
+                    application.exit(4);
+                    return;
+                }
+                application.quit();
+            });
         });
     }
     const int exitCode = application.exec();

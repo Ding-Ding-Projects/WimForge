@@ -7133,11 +7133,18 @@ void AppController::loadProjectState()
     emit stateChanged();
     emit studioChanged();
     if (!m_sourceCatalogQuery.isEmpty()) {
+#ifndef WIMFORGE_DOCUMENTATION_CAPTURE
         const QString automaticQuery = m_sourceCatalogQuery;
         QTimer::singleShot(0, this, [this, projectGeneration, automaticQuery] {
             if (projectGeneration == m_projectScopeGeneration)
                 searchUpdateCatalog(automaticQuery);
         });
+#else
+        m_updateCatalogStatus = localized(
+            QStringLiteral("Automatic ISO catalog match is ready for this documentation capture."),
+            QStringLiteral("今次文件截圖嘅自動 ISO 目錄配對已準備好。"));
+        emit updateCatalogChanged();
+#endif
     } else {
         m_updateCatalogStatus = localized(
             QStringLiteral("Inspect an ISO to match updates automatically."),

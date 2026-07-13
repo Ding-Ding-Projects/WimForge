@@ -52,6 +52,8 @@ $originalEnvironment = @{
     TEMP = $env:TEMP; TMP = $env:TMP; QT_SCALE_FACTOR = $env:QT_SCALE_FACTOR
     QT_SCREEN_SCALE_FACTORS = $env:QT_SCREEN_SCALE_FACTORS
     QT_QPA_PLATFORM = $env:QT_QPA_PLATFORM
+    QSG_RHI_BACKEND = $env:QSG_RHI_BACKEND
+    QSG_RENDER_LOOP = $env:QSG_RENDER_LOOP
     QT_ENABLE_HIGHDPI_SCALING = $env:QT_ENABLE_HIGHDPI_SCALING
     QT_AUTO_SCREEN_SCALE_FACTOR = $env:QT_AUTO_SCREEN_SCALE_FACTOR
     LOCALAPPDATA = $env:LOCALAPPDATA; APPDATA = $env:APPDATA
@@ -76,6 +78,7 @@ try {
     $env:QT_ENABLE_HIGHDPI_SCALING = '0'
     $env:QT_AUTO_SCREEN_SCALE_FACTOR = '0'
     $env:QT_SCALE_FACTOR = '1'; $env:QT_SCREEN_SCALE_FACTORS = '1'
+    $env:QSG_RHI_BACKEND = 'd3d11'; $env:QSG_RENDER_LOOP = 'basic'
     $env:PATH = $qtBin + [System.IO.Path]::PathSeparator + $env:PATH
 
     foreach ($entry in $pages.GetEnumerator()) {
@@ -100,10 +103,12 @@ try {
         $destination = Join-Path $outputPath $entry.Value
         $arguments = if ($entry.Key -eq 'project-start') {
             @('--project-start', '--language', $Language, '--theme', $Theme,
+              '--capture-delay-ms', '5000',
               '--screenshot', $destination)
         } else {
             @('--demo', '--language', $Language, '--page', $entry.Key,
-              '--theme', $Theme, '--screenshot', $destination)
+              '--theme', $Theme, '--capture-delay-ms', '5000',
+              '--screenshot', $destination)
         }
         $process = Start-Process -FilePath $executable `
             -ArgumentList $arguments `
