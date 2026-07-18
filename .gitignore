@@ -40,7 +40,6 @@
 *.app
 
 # Build directories
-build/
 Build/
 build-*/
 dist/
@@ -75,3 +74,7 @@ Testing/
 .cache/
 __pycache__/
 *.py[cod]
+
+# ──── Desktop Material: Build artifacts ────  (dm-template:build-artifacts)
+build/
+# ──── end Desktop Material: Build artifacts ────  (dm-template:build-artifacts)
