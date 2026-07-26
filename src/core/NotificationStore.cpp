@@ -377,6 +377,25 @@ QString NotificationStore::addNotification(const QString &title,
     if (!state)
         return {};
 
+    // Deduplicate: suppress notifications from the same source with similar titles
+    // within the last 30 seconds.
+    constexpr int DedupWindowSecs = 30;
+    const QDateTime dedupCutoff = now.addSecs(-DedupWindowSecs);
+    for (auto it = state->rbegin(); it != state->rend(); ++it) {
+        if (it->createdAt < dedupCutoff) break;
+        if (it->source != notification.source) continue;
+        const QString existingTitle = it->title.trimmed();
+        const QString newTitle = title.trimmed();
+        bool similarTitles = (existingTitle == newTitle) || 
+                             (existingTitle.startsWith(newTitle) && existingTitle.length() - newTitle.length() < 10) ||
+                             (newTitle.startsWith(existingTitle));
+        if (similarTitles) {
+            it->updatedAt = now;
+            if (!it->isRead) it->message = message;
+            return it->id;
+        }
+    }
+
     const QDateTime now = QDateTime::currentDateTimeUtc();
     Notification notification;
     notification.id = QUuid::createUuid().toString(QUuid::WithoutBraces);

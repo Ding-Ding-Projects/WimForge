@@ -1,4 +1,4 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 
@@ -12,7 +12,7 @@ Control {
     property bool uppercase: true
     property bool compact: true
 
-    implicitHeight: compact ? 24 : 28
+    implicitHeight: compact ? 20 : 24
     implicitWidth: contentItem.implicitWidth + leftPadding + rightPadding
     leftPadding: compact ? 9 : 11
     rightPadding: leftPadding
@@ -49,3 +49,4 @@ Control {
         color: DesignTokens.toneContainer(root.tone, root.dark)
     }
 }
+

@@ -25,6 +25,7 @@ Item {
         }
 
         ScrollView {
+            clip: true
             Layout.fillWidth: true
             Layout.preferredHeight: 40
             contentHeight: availableHeight
@@ -595,6 +596,7 @@ Item {
         required property var tr
 
         ScrollView {
+            clip: true
             id: featureScroll
             anchors.fill: parent
             contentWidth: availableWidth
@@ -851,6 +853,7 @@ Item {
         required property var tr
 
         ScrollView {
+            clip: true
             id: appsScroll
             anchors.fill: parent
             contentWidth: availableWidth
@@ -1366,6 +1369,7 @@ Item {
                 color: DesignTokens.onSurface(root.dark)
             }
             ScrollView {
+                clip: true
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 contentWidth: availableWidth

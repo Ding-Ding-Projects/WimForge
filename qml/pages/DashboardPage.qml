@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import "../components"
 
 ScrollView {
+    clip: true
     id: root
     property var app
     property var tr: function(en, zh) { return en }

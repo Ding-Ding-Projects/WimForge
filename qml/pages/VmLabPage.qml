@@ -2136,6 +2136,7 @@ Item {
                         surfaceLevel: "lowest"
                         padding: 0
                         ScrollView {
+                            clip: true
                             id: snapshotDetailScroll
                             anchors.fill: parent
                             anchors.margins: 14

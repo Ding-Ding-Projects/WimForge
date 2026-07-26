@@ -1,4 +1,4 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 
@@ -13,7 +13,7 @@ Pane {
     property color fillColor: DesignTokens.surfaceForLevel(surfaceLevel, dark)
     property color outlineColor: DesignTokens.outlineVariant(dark)
 
-    padding: DesignTokens.spacing20
+    padding: DesignTokens.spacing16
     focusPolicy: Qt.NoFocus
 
     background: Rectangle {
@@ -30,3 +30,4 @@ Pane {
         }
     }
 }
+

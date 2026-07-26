@@ -267,6 +267,7 @@ Item {
                                 }
 
                                 ScrollView {
+                                    clip: true
                                     id: eventActionsScroll
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: eventActions.implicitHeight

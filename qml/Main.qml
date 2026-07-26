@@ -259,7 +259,7 @@ ApplicationWindow {
                 color: DesignTokens.navSurface(root.darkTheme)
                 border.color: DesignTokens.outlineVariant(root.darkTheme)
                 border.width: 0
-                Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: parent.border.color }
+                Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: DesignTokens.navBorder(root.darkTheme) }
             }
 
             ColumnLayout {
@@ -511,7 +511,7 @@ ApplicationWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: shortcutHint.implicitWidth + 14
                                 height: 20
-                                radius: DesignTokens.radiusControl - 2
+                                radius: 8 - 2
                                 visible: !globalSearch.activeFocus && globalSearch.text.length === 0
                                 color: DesignTokens.surfaceHigh(root.darkTheme)
                                 border.width: 1
@@ -738,16 +738,16 @@ ApplicationWindow {
                 Pane {
                     id: workspaceTabStrip
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 44
+                    Layout.preferredHeight: 36
                     visible: app.projectLoaded
-                    leftPadding: 12; rightPadding: 10; topPadding: 4; bottomPadding: 4
+                    leftPadding: 10; rightPadding: 8; topPadding: 3; bottomPadding: 3
                     background: Rectangle {
                         color: DesignTokens.surfaceLow(root.darkTheme)
                         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: DesignTokens.outlineVariant(root.darkTheme) }
                     }
                     RowLayout {
                         anchors.fill: parent
-                        spacing: 6
+                        spacing: 4
                         ScrollView {
                             id: workspaceTabsScroll
                             Layout.fillWidth: true
@@ -771,7 +771,7 @@ ApplicationWindow {
                             }
                             Row {
                                 height: workspaceTabsScroll.availableHeight
-                                spacing: 5
+                                spacing: 4
                                 Repeater {
                                     id: workspaceTabRepeater
                                     model: app.workspaceTabs
@@ -779,9 +779,9 @@ ApplicationWindow {
                                         id: workspaceTab
                                         required property var modelData
                                         required property int index
-                                        height: 36
+                                        height: 32
                                         width: Math.max(140, Math.min(280, tabTitle.implicitWidth + 76))
-                                        radius: DesignTokens.radiusControl
+                                        radius: 8
                                         color: index === app.activeWorkspaceTab
                                                ? DesignTokens.surfaceLowest(root.darkTheme)
                                                : tabHover.hovered ? DesignTokens.surfaceContainer(root.darkTheme) : "transparent"
@@ -810,7 +810,7 @@ ApplicationWindow {
                                         Rectangle {
                                             anchors.fill: parent
                                             anchors.margins: -2
-                                            radius: DesignTokens.radiusControl + 2
+                                            radius: 8 + 2
                                             color: "transparent"
                                             border.width: workspaceTab.activeFocus ? 2 : 0
                                             border.color: DesignTokens.primary(root.darkTheme)
@@ -1107,7 +1107,7 @@ ApplicationWindow {
                     Rectangle {
                         Layout.preferredWidth: 46
                         Layout.preferredHeight: 38
-                        radius: DesignTokens.radiusControl
+                        radius: 8
                         color: fontColor.text.length > 0 ? fontColor.text : DesignTokens.surfaceContainer(root.darkTheme)
                         border.width: 1
                         border.color: DesignTokens.outline(root.darkTheme)
