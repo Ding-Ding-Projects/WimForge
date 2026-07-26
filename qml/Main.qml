@@ -278,7 +278,7 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 36
                         height: 24
-                        radius: 02
+                        radius: 1 02
                         gradient: Gradient {
                             GradientStop { position: 0.0; color: DesignTokens.primaryContainer(root.darkTheme) }
                             GradientStop { position: 1.0; color: DesignTokens.secondaryContainer(root.darkTheme) }
@@ -354,7 +354,7 @@ ApplicationWindow {
                                 ToolTip.visible: root.compactNavigation && hovered
                                 ToolTip.text: root.tr2(modelData.en, modelData.zh)
                                 background: Rectangle {
-                                    radius: DesignTokens.radiusPill
+                                    radius: 1 DesignTokens.radiusPill
                                     color: navigationDelegate.selected ? DesignTokens.secondaryContainer(root.darkTheme)
                                            : navigationDelegate.hovered ? DesignTokens.navHover(root.darkTheme) : "transparent"
                                     border.width: navigationDelegate.visualFocus ? 2 : 0
@@ -423,7 +423,7 @@ ApplicationWindow {
                     visible: app.projectLoaded && !root.compactNavigation
                     padding: 10
                     Accessible.name: root.tr2("Project status: ", "工程狀態：") + app.projectName + ". " + app.gitStatusText
-                    background: Rectangle { radius: DesignTokens.radiusCard; color: DesignTokens.surfaceContainer(root.darkTheme); border.color: DesignTokens.outlineVariant(root.darkTheme) }
+                    background: Rectangle { radius: 1 DesignTokens.radiusCard; color: DesignTokens.surfaceContainer(root.darkTheme); border.color: DesignTokens.outlineVariant(root.darkTheme) }
                     ColumnLayout {
                         id: projectSummary
                         width: parent.width
@@ -473,7 +473,7 @@ ApplicationWindow {
                             Layout.maximumWidth: root.compactToolbar ? 2000 : 420
                             Layout.preferredWidth: root.compactToolbar ? 0 : Math.min(420, parent.width * 0.44)
                             Layout.preferredHeight: 36
-                            radius: DesignTokens.radiusPill
+                            radius: 1 DesignTokens.radiusPill
                             color: DesignTokens.surfaceContainer(root.darkTheme)
                             border.width: 1
                             border.color: globalSearch.activeFocus
@@ -511,7 +511,7 @@ ApplicationWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: shortcutHint.implicitWidth + 14
                                 height: 20
-                                radius: 0 - 2
+                                radius: 1 0 - 2
                                 visible: !globalSearch.activeFocus && globalSearch.text.length === 0
                                 color: DesignTokens.surfaceHigh(root.darkTheme)
                                 border.width: 1
@@ -565,7 +565,7 @@ ApplicationWindow {
                                 visible: app.notificationUnreadCount > 0
                                 anchors.right: parent.right; anchors.top: parent.top
                                 anchors.rightMargin: 0; anchors.topMargin: 0
-                                width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 0
+                                width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 1 0
                                 color: root.errorBadgeColor
                                 Label { id: unread; anchors.centerIn: parent; text: app.notificationUnreadCount; color: DesignTokens.onError(root.darkTheme); font.family: DesignTokens.fontBody; font.pixelSize: 9; font.bold: true; Accessible.ignored: true }
                             }
@@ -653,7 +653,7 @@ ApplicationWindow {
                                              : root.tr2("Open project", "開工程")
                             onClicked: openProjectSheet.open()
                             background: Rectangle {
-                                radius: DesignTokens.radiusPill
+                                radius: 1 DesignTokens.radiusPill
                                 color: DesignTokens.surfaceLowest(root.darkTheme)
                                 border.width: projectChip.visualFocus ? 2 : 1
                                 border.color: projectChip.visualFocus
@@ -665,7 +665,7 @@ ApplicationWindow {
                                 Rectangle {
                                     Layout.preferredWidth: 8
                                     Layout.preferredHeight: 8
-                                    radius: 4
+                                    radius: 1 4
                                     color: app.projectLoaded
                                            ? DesignTokens.success(root.darkTheme)
                                            : DesignTokens.outline(root.darkTheme)
@@ -721,7 +721,7 @@ ApplicationWindow {
                         Rectangle {
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            radius: 02
+                            radius: 1 02
                             color: DesignTokens.tertiary(root.darkTheme)
                             Label { anchors.centerIn: parent; text: "!"; font.family: DesignTokens.fontBody; font.weight: Font.Bold; color: DesignTokens.onTertiary(root.darkTheme) }
                         }
@@ -781,7 +781,7 @@ ApplicationWindow {
                                         required property int index
                                         height: 32
                                         width: Math.max(140, Math.min(280, tabTitle.implicitWidth + 76))
-                                        radius: 0
+                                        radius: 1 0
                                         color: index === app.activeWorkspaceTab
                                                ? DesignTokens.surfaceLowest(root.darkTheme)
                                                : tabHover.hovered ? DesignTokens.surfaceContainer(root.darkTheme) : "transparent"
@@ -810,7 +810,7 @@ ApplicationWindow {
                                         Rectangle {
                                             anchors.fill: parent
                                             anchors.margins: -2
-                                            radius: 0 + 2
+                                            radius: 1 0 + 2
                                             color: "transparent"
                                             border.width: workspaceTab.activeFocus ? 2 : 0
                                             border.color: DesignTokens.primary(root.darkTheme)
@@ -1069,7 +1069,7 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
         padding: 22
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.darkTheme)
             border.color: DesignTokens.outlineVariant(root.darkTheme)
         }
@@ -1107,7 +1107,7 @@ ApplicationWindow {
                     Rectangle {
                         Layout.preferredWidth: 46
                         Layout.preferredHeight: 38
-                        radius: 0
+                        radius: 1 0
                         color: fontColor.text.length > 0 ? fontColor.text : DesignTokens.surfaceContainer(root.darkTheme)
                         border.width: 1
                         border.color: DesignTokens.outline(root.darkTheme)
@@ -1147,7 +1147,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 46
-                radius: 00
+                radius: 1 00
                 color: DesignTokens.surfaceContainer(root.darkTheme)
                 Label {
                     anchors.centerIn: parent
@@ -1254,7 +1254,7 @@ ApplicationWindow {
         padding: 22
         onOpened: patternField.forceActiveFocus()
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.darkTheme)
             border.color: DesignTokens.outlineVariant(root.darkTheme)
             border.width: 1
@@ -1352,7 +1352,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 118
-                radius: 00
+                radius: 1 00
                 color: DesignTokens.surfaceContainer(root.darkTheme)
                 border.color: DesignTokens.outlineVariant(root.darkTheme)
                 ScrollView {
@@ -1442,7 +1442,7 @@ ApplicationWindow {
         padding: 24
         onOpened: projectName.forceActiveFocus()
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.darkTheme)
             border.color: DesignTokens.outlineVariant(root.darkTheme)
             border.width: 1
@@ -1506,7 +1506,7 @@ ApplicationWindow {
         padding: 24
         onOpened: openPath.forceActiveFocus()
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.darkTheme)
             border.color: DesignTokens.outlineVariant(root.darkTheme)
             border.width: 1
@@ -1588,7 +1588,7 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
         padding: 24
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.darkTheme)
             border.color: destructiveBadge.visible
                           ? root.errorColor : DesignTokens.outlineVariant(root.darkTheme)
@@ -1641,7 +1641,7 @@ ApplicationWindow {
         padding: 24
         onOpened: exportPathField.forceActiveFocus()
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.darkTheme)
             border.color: DesignTokens.outlineVariant(root.darkTheme)
             border.width: 1
@@ -1709,7 +1709,7 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
         padding: 24
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.darkTheme)
             border.color: root.warningColor
             border.width: 2

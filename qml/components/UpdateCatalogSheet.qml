@@ -45,7 +45,7 @@ Popup {
     onOpened: resultsView.forceActiveFocus()
 
     background: Rectangle {
-        radius: DesignTokens.radiusCard
+        radius: 1 DesignTokens.radiusCard
         color: DesignTokens.surfaceLowest(sheet.dark)
         border.color: DesignTokens.outlineVariant(sheet.dark)
         border.width: 1
@@ -148,7 +148,7 @@ Popup {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLow(sheet.dark)
             border.color: DesignTokens.outlineVariant(sheet.dark)
             border.width: 1
@@ -171,7 +171,7 @@ Popup {
                     required property var modelData
                     width: ListView.view ? ListView.view.width : 0
                     implicitHeight: rowLayout.implicitHeight + 16
-                    radius: DesignTokens.radiusControl
+                    radius: 1 DesignTokens.radiusControl
                     color: DesignTokens.surfaceLowest(sheet.dark)
                     border.color: DesignTokens.outlineVariant(sheet.dark)
                     border.width: 1

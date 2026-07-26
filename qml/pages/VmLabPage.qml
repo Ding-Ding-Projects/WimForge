@@ -547,7 +547,7 @@ Item {
                                         width: Math.min(Math.max(120, providerNameLabel.implicitWidth + 38),
                                                         providerFlow.width)
                                         height: DesignTokens.rowHeight
-                                        radius: DesignTokens.radiusControl
+                                        radius: 1 DesignTokens.radiusControl
                                         color: DesignTokens.surfaceLow(root.dark)
                                         border.width: 1
                                         border.color: root.outlineColor
@@ -561,7 +561,7 @@ Item {
                                             Rectangle {
                                                 Layout.preferredWidth: 8
                                                 Layout.preferredHeight: 8
-                                                radius: 4
+                                                radius: 1 4
                                                 color: root.value(providerCard.modelData, "available", false)
                                                        ? root.successText : root.errorText
                                             }
@@ -684,7 +684,7 @@ Item {
                                     }
                                     width: inventoryList.width
                                     height: 62
-                                    radius: DesignTokens.radiusCard
+                                    radius: 1 DesignTokens.radiusCard
                                     color: selected ? DesignTokens.primaryContainer(root.dark)
                                                     : DesignTokens.surfaceLowest(root.dark)
                                     border.width: activeFocus ? 2 : 1
@@ -719,7 +719,7 @@ Item {
                                         Rectangle {
                                             Layout.preferredWidth: 9
                                             Layout.preferredHeight: 9
-                                            radius: 5
+                                            radius: 1 5
                                             color: root.stateColor(machineDelegate.modelData)
                                             Accessible.ignored: true
                                         }
@@ -1020,7 +1020,7 @@ Item {
                                             Layout.preferredHeight: index < 3 ? DesignTokens.rowHeight : 0
                                             visible: index < 3
                                             spacing: DesignTokens.spacing8
-                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: root.value(modelData, "current", false) ? root.successText : DesignTokens.outline(root.dark) }
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: root.value(modelData, "current", false) ? root.successText : DesignTokens.outline(root.dark) }
                                             Label { Layout.fillWidth: true; text: root.value(modelData, "name", root.value(modelData, "id", "")); color: root.surfaceForeground; font.family: DesignTokens.fontBody; font.pixelSize: 12; elide: Text.ElideRight }
                                             Label { text: root.value(modelData, "createdAt", root.value(modelData, "description", "")); color: root.secondaryText; font.family: DesignTokens.fontMono; font.pixelSize: 10; elide: Text.ElideRight; Layout.maximumWidth: 180 }
                                         }
@@ -1055,7 +1055,7 @@ Item {
                                             visible: index < 3
                                             spacing: DesignTokens.spacing8
                                             Rectangle {
-                                                Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4
+                                                Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4
                                                 color: root.value(modelData, "result", "") === "pass" ? root.successText
                                                      : root.value(modelData, "result", "") === "fail" ? root.errorText
                                                      : DesignTokens.secondary(root.dark)
@@ -1663,7 +1663,7 @@ Item {
                                         GridLayout {
                                             width: parent.width
                                             columns: width >= 420 ? 3 : 1
-                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: DesignTokens.secondary(root.dark) }
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: DesignTokens.secondary(root.dark) }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 Label {
@@ -1815,7 +1815,7 @@ Item {
                                         GridLayout {
                                             width: parent.width
                                             columns: width >= 420 ? 3 : 1
-                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: DesignTokens.secondary(root.dark) }
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: DesignTokens.secondary(root.dark) }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 Label { Layout.fillWidth: true; text: root.value(opticalCard.modelData, "name", root.tr("Optical drive", "光碟機")); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
@@ -1947,7 +1947,7 @@ Item {
                                         GridLayout {
                                             width: parent.width
                                             columns: width >= 420 ? 3 : 1
-                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: DesignTokens.secondary(root.dark) }
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: DesignTokens.secondary(root.dark) }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 Label { Layout.fillWidth: true; text: root.value(networkCard.modelData, "name", root.tr("Network adapter", "網絡介面卡")); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
@@ -2104,7 +2104,7 @@ Item {
                                     Accessible.name: root.tr("Select snapshot %1", "選取快照 %1").arg(root.value(snapshotDelegate.modelData, "name", ""))
                                     onClicked: root.selectedSnapshotId = root.value(snapshotDelegate.modelData, "id", "")
                                     contentItem: RowLayout {
-                                        Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: root.value(snapshotDelegate.modelData, "current", false) ? root.successText : DesignTokens.outline(root.dark) }
+                                        Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: root.value(snapshotDelegate.modelData, "current", false) ? root.successText : DesignTokens.outline(root.dark) }
                                         ColumnLayout {
                                             Layout.fillWidth: true
                                             Label { Layout.fillWidth: true; text: root.value(snapshotDelegate.modelData, "name", ""); font.weight: Font.DemiBold; wrapMode: Text.Wrap }
@@ -2266,7 +2266,7 @@ Item {
                                     contentItem: GridLayout {
                                         columns: validationRunList.width >= 460 ? 3 : 2
                                         Rectangle {
-                                            Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4
+                                            Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4
                                             color: root.value(validationRunDelegate.modelData, "result", "") === "pass" ? root.successText
                                                  : root.value(validationRunDelegate.modelData, "result", "") === "fail" ? root.errorText : DesignTokens.secondary(root.dark)
                                         }

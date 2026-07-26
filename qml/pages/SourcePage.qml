@@ -98,7 +98,7 @@ ScrollView {
                 Rectangle {
                     Layout.preferredWidth: 30
                     Layout.preferredHeight: 30
-                    radius: DesignTokens.radiusControl
+                    radius: 1 DesignTokens.radiusControl
                     color: DesignTokens.primary(root.dark)
                     Label {
                         anchors.centerIn: parent
@@ -166,7 +166,7 @@ ScrollView {
                     Rectangle {
                         Layout.preferredWidth: 52
                         Layout.preferredHeight: 52
-                        radius: DesignTokens.radiusCard
+                        radius: 1 DesignTokens.radiusCard
                         color: DesignTokens.primaryContainer(root.dark)
                         Label {
                             anchors.centerIn: parent

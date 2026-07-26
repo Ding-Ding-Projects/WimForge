@@ -38,7 +38,7 @@ Popup {
     onClosed: app.clearSearch(); app.searchResults = []
 
     background: Rectangle {
-        radius: DesignTokens.radiusCard
+        radius: 1 DesignTokens.radiusCard
         color: DesignTokens.surfaceLow(Material.theme === Material.Dark)
         border.width: 1
         border.color: DesignTokens.navBorder(Material.theme === Material.Dark)
@@ -94,7 +94,7 @@ Popup {
                     }
                 }
                 background: Rectangle {
-                    radius: DesignTokens.radiusControl
+                    radius: 1 DesignTokens.radiusControl
                     color: DesignTokens.surfaceLowest(Material.theme === Material.Dark)
                     border.width: queryField.activeFocus ? 2 : 1
                     border.color: queryField.activeFocus
@@ -146,7 +146,7 @@ Popup {
             }
             highlightMoveDuration: DesignTokens.motionDuration(100, app.motionEnabled)
             highlight: Rectangle {
-                radius: DesignTokens.radiusControl
+                radius: 1 DesignTokens.radiusControl
                 color: DesignTokens.primaryContainer(Material.theme === Material.Dark)
             }
 

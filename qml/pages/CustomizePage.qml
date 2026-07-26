@@ -79,14 +79,14 @@ Item {
                             }
                             Rectangle {
                                 anchors.fill: parent
-                                radius: DesignTokens.radiusControl
+                                radius: 1 DesignTokens.radiusControl
                                 color: sectionTab.hovered
                                        ? DesignTokens.surfaceContainer(root.dark) : "transparent"
                                 z: -1
                             }
                             Rectangle {
                                 anchors.fill: parent
-                                radius: DesignTokens.radiusControl
+                                radius: 1 DesignTokens.radiusControl
                                 color: "transparent"
                                 border.width: sectionTab.visualFocus ? 2 : 0
                                 border.color: sectionTab.visualFocus
@@ -250,7 +250,7 @@ Item {
                     required property int index
                     width: itemList.width
                     height: Math.max(44, configText.implicitHeight + 18)
-                    radius: DesignTokens.radiusControl
+                    radius: 1 DesignTokens.radiusControl
                     color: DesignTokens.surfaceLowest(root.dark)
                     border.width: 1
                     border.color: DesignTokens.outlineVariant(root.dark)
@@ -471,7 +471,7 @@ Item {
                     required property int index
                     width: payloadList.width
                     height: Math.max(58, payloadInfo.implicitHeight + 18)
-                    radius: DesignTokens.radiusControl
+                    radius: 1 DesignTokens.radiusControl
                     color: DesignTokens.surfaceLowest(root.dark)
                     border.width: 1
                     border.color: DesignTokens.outlineVariant(root.dark)
@@ -485,7 +485,7 @@ Item {
                         Rectangle {
                             Layout.preferredWidth: 8
                             Layout.preferredHeight: 8
-                            radius: 4
+                            radius: 1 4
                             color: payloadRow.modelData.exists && payloadRow.modelData.supported
                                    ? DesignTokens.success(root.dark) : DesignTokens.error(root.dark)
                         }
@@ -656,7 +656,7 @@ Item {
                                     : featurePage.app.featureDisables.indexOf(modelData.id) >= 0 ? -1 : 0
                                 Layout.fillWidth: true
                                 implicitHeight: featurePage.width >= 760 ? 58 : 94
-                                radius: DesignTokens.radiusControl
+                                radius: 1 DesignTokens.radiusControl
                                 color: DesignTokens.surfaceLowest(root.dark)
                                 border.width: 1
                                 border.color: DesignTokens.outlineVariant(root.dark)
@@ -794,7 +794,7 @@ Item {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 implicitHeight: 46
-                                radius: DesignTokens.radiusControl
+                                radius: 1 DesignTokens.radiusControl
                                 color: DesignTokens.surfaceLowest(root.dark)
                                 border.width: 1
                                 border.color: DesignTokens.outlineVariant(root.dark)
@@ -954,7 +954,7 @@ Item {
                                     required property int index
                                     width: appRemovalList.width
                                     height: 48
-                                    radius: DesignTokens.radiusControl
+                                    radius: 1 DesignTokens.radiusControl
                                     color: DesignTokens.surfaceLowest(root.dark)
                                     border.width: 1
                                     border.color: DesignTokens.outlineVariant(root.dark)
@@ -1040,7 +1040,7 @@ Item {
                                     required property int index
                                     width: appProvisionList.width
                                     height: 54
-                                    radius: DesignTokens.radiusControl
+                                    radius: 1 DesignTokens.radiusControl
                                     color: DesignTokens.surfaceLowest(root.dark)
                                     border.width: 1
                                     border.color: DesignTokens.outlineVariant(root.dark)
@@ -1282,7 +1282,7 @@ Item {
                                 required property int index
                                 width: scheduledTaskList.width
                                 height: 60
-                                radius: DesignTokens.radiusControl
+                                radius: 1 DesignTokens.radiusControl
                                 color: DesignTokens.surfaceLowest(root.dark)
                                 border.width: 1
                                 border.color: DesignTokens.outlineVariant(root.dark)

@@ -88,7 +88,7 @@ AbstractButton {
     background: Item {
         Rectangle {
             anchors.fill: parent
-            radius: 1: DesignTokens.radius: 1Pill
+            radius: 1 1: DesignTokens.radius: 1 1Pill
             color: root.stateBackground
             border.width: root.variant === "outlined" ? 1 : 0
             border.color: DesignTokens.outline(root.dark)
@@ -103,7 +103,7 @@ AbstractButton {
         Rectangle {
             anchors.fill: parent
             anchors.margins: -3
-            radius: 1: DesignTokens.radius: 1Pill + 3
+            radius: 1 1: DesignTokens.radius: 1 1Pill + 3
             color: "transparent"
             border.width: 2
             border.color: DesignTokens.primary(root.dark)

@@ -186,7 +186,7 @@ Item {
                                     Rectangle {
                                         Layout.preferredWidth: 34
                                         Layout.preferredHeight: 34
-                                        radius: DesignTokens.radiusControl
+                                        radius: 1 DesignTokens.radiusControl
                                         color: eventCard.modelData.destructive
                                                ? DesignTokens.errorContainer(root.dark)
                                                : DesignTokens.primaryContainer(root.dark)
@@ -396,7 +396,7 @@ Item {
                                     font.family: DesignTokens.fontMono
                                     font.pixelSize: 10
                                     background: Rectangle {
-                                        radius: DesignTokens.radiusControl
+                                        radius: 1 DesignTokens.radiusControl
                                         color: DesignTokens.surfaceDim(root.dark)
                                     }
                                 }
@@ -456,7 +456,7 @@ Item {
                                 Rectangle {
                                     Layout.preferredWidth: 8
                                     Layout.preferredHeight: 8
-                                    radius: 4
+                                    radius: 1 4
                                     color: gitCommitDelegate.modelData.isRevert ? root.warning : root.primary
                                 }
                                 ColumnLayout {
@@ -597,7 +597,7 @@ Item {
         padding: DesignTokens.spacing16
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.dark)
             border.width: 1
             border.color: root.outlineVariant
@@ -636,7 +636,7 @@ Item {
         padding: DesignTokens.spacing16
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: DesignTokens.surfaceLowest(root.dark)
             border.width: 1
             border.color: root.outlineVariant
@@ -677,7 +677,7 @@ Item {
         required property var value
         required property string emptyText
         implicitHeight: Math.max(DesignTokens.rowHeight, slotContent.implicitHeight + DesignTokens.spacing12)
-        radius: DesignTokens.radiusControl
+        radius: 1 DesignTokens.radiusControl
         color: DesignTokens.surfaceDim(root.dark)
         border.width: 1
         border.color: root.outlineVariant
@@ -689,7 +689,7 @@ Item {
             Rectangle {
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: 24
-                radius: 12
+                radius: 1 12
                 color: DesignTokens.primaryContainer(root.dark)
                 Label {
                     anchors.centerIn: parent
@@ -753,7 +753,7 @@ Item {
                     required property string modelData
                     Layout.fillWidth: true
                     spacing: DesignTokens.spacing8
-                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.success }
+                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 1 3; color: root.success }
                     Label {
                         Layout.fillWidth: true
                         text: recoveryItem.modelData

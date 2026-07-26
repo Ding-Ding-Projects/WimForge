@@ -409,7 +409,7 @@ Item {
                                     Rectangle {
                                         Layout.preferredWidth: 30
                                         Layout.preferredHeight: 30
-                                        radius: DesignTokens.radiusControl
+                                        radius: 1 DesignTokens.radiusControl
                                         color: policyDelegate.highlighted ? root.primaryColor : root.surfaceContainerColor
                                         Label {
                                             anchors.centerIn: parent
@@ -452,14 +452,14 @@ Item {
                                         font.pixelSize: 10
                                         padding: 4
                                         background: Rectangle {
-                                            radius: 8
+                                            radius: 1 8
                                             color: policyDelegate.highlighted ? "transparent" : root.surfaceContainerColor
                                         }
                                     }
                                 }
 
                                 background: Rectangle {
-                                    radius: DesignTokens.radiusControl
+                                    radius: 1 DesignTokens.radiusControl
                                     color: policyDelegate.highlighted
                                            ? root.primaryContainerColor
                                            : policyDelegate.hovered
@@ -532,7 +532,7 @@ Item {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 width: 76
                                 height: 34
-                                radius: DesignTokens.radiusControl
+                                radius: 1 DesignTokens.radiusControl
                                 color: root.primaryContainerColor
                                 Label {
                                     anchors.centerIn: parent
@@ -583,7 +583,7 @@ Item {
                                     Rectangle {
                                         Layout.preferredWidth: scopeChip.implicitWidth + 20
                                         Layout.preferredHeight: 28
-                                        radius: 14
+                                        radius: 1 14
                                         color: root.primaryContainerColor
                                         Label {
                                             id: scopeChip
@@ -856,7 +856,7 @@ Item {
                         dark: root.dark
                         outlined: false
                         surfaceLevel: "low"
-                        radius: 0
+                        radius: 1 0
                         padding: DesignTokens.spacing12
                         RowLayout {
                             anchors.fill: parent
@@ -1007,7 +1007,7 @@ Item {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         padding: DesignTokens.spacing20
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: root.surfaceColor
             border.color: root.outlineColor
         }
@@ -1103,7 +1103,7 @@ Item {
         padding: DesignTokens.spacing20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: root.surfaceColor
             border.color: root.outlineColor
         }

@@ -87,7 +87,7 @@ Control {
             Component.onCompleted: cursorPosition = 0
 
             background: Rectangle {
-                radius: DesignTokens.radiusControl
+                radius: 1 DesignTokens.radiusControl
                 color: DesignTokens.surfaceLowest(root.dark)
                 border.width: input.activeFocus ? 2 : 1
                 border.color: root.hasError ? DesignTokens.error(root.dark)

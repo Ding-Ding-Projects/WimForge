@@ -32,7 +32,7 @@ WfCard {
     z: 900
     padding: 0
     focusPolicy: opened ? Qt.StrongFocus : Qt.NoFocus
-    radius: DesignTokens.radiusPill
+    radius: 1 DesignTokens.radiusPill
     surfaceLevel: "low"
     outlineColor: DesignTokens.outline(dark)
     Accessible.role: Accessible.Dialog
@@ -150,7 +150,7 @@ WfCard {
                 padding: DesignTokens.spacing12
                 opacity: modelData.dismissed ? 0.58 : 1
                 dark: root.dark
-                radius: DesignTokens.radiusCard
+                radius: 1 DesignTokens.radiusCard
                 surfaceLevel: modelData.read ? "container" : "high"
                 fillColor: modelData.read
                            ? DesignTokens.surfaceContainer(dark)
@@ -186,7 +186,7 @@ WfCard {
                         Rectangle {
                             Layout.preferredWidth: 10
                             Layout.preferredHeight: 10
-                            radius: 5
+                            radius: 1 5
                             color: notificationCard.severityColor
                             Accessible.ignored: true
                         }

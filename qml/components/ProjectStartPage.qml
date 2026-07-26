@@ -53,7 +53,7 @@ ScrollView {
                 Rectangle {
                     Layout.preferredWidth: 54
                     Layout.preferredHeight: 54
-                    radius: DesignTokens.radiusCard
+                    radius: 1 DesignTokens.radiusCard
                     color: DesignTokens.primary(root.dark)
 
                     Label {
@@ -177,7 +177,7 @@ ScrollView {
                             }
 
                             background: Rectangle {
-                                radius: DesignTokens.radiusCard
+                                radius: 1 DesignTokens.radiusCard
                                 color: startAction.pressed
                                        ? DesignTokens.surfaceHighest(root.dark)
                                        : startAction.hovered
@@ -195,7 +195,7 @@ ScrollView {
                                 Rectangle {
                                     Layout.preferredWidth: 42
                                     Layout.preferredHeight: 42
-                                    radius: DesignTokens.radiusControl
+                                    radius: 1 DesignTokens.radiusControl
                                     color: DesignTokens.primaryContainer(root.dark)
 
                                     WfIcon {
@@ -342,7 +342,7 @@ ScrollView {
                             onClicked: root.recentRequested(modelData.path)
 
                             background: Rectangle {
-                                radius: DesignTokens.radiusControl
+                                radius: 1 DesignTokens.radiusControl
                                 color: recentProject.pressed
                                        ? DesignTokens.surfaceHighest(root.dark)
                                        : recentProject.hovered
@@ -360,7 +360,7 @@ ScrollView {
                                 Rectangle {
                                     Layout.preferredWidth: 34
                                     Layout.preferredHeight: 34
-                                    radius: DesignTokens.radiusControl
+                                    radius: 1 DesignTokens.radiusControl
                                     color: DesignTokens.primaryContainer(root.dark)
 
                                     Label {

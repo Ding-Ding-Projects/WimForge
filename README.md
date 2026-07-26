@@ -139,7 +139,12 @@ CLI commands never wait for interactive terminal input. Destructive apply and so
 - **Notification Deduplication**: The notification center now suppresses duplicate entries from the same source with similar titles within a 30-second window, keeping the tray cleaner and preventing spam on rapid events.
 - **nLite-Inspired UI Tightening**: Sidebar metrics, row heights, and radii have been tightened for a denser, sharper look while remaining fully compliant with Material Design 3 (M3).
 
-## Requirements
+### Aggressive nLite Makeover and Confusion Fixes (Mid-Sprint)
+
+- **Sharp nLite Aesthetic**: Enforced absolute minimal radii (
+adius: 0/1), tight spacing, and sharp dark borders across all components (WfCard, SearchPalette, etc.) for a dense, technical look.
+- **Stable Search & Workspace**: Fixed SearchPalette to clear stale results immediately on open; patched WorkspaceTabs logic to ensure the UI never shows blank or conflicting states when closing tabs.
+# Requirements
 
 To run a release:
 

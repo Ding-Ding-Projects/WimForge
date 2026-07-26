@@ -122,7 +122,7 @@ Item {
                             Accessible.selected: highlighted
                             onClicked: root.categoryIndex = index
                             background: Rectangle {
-                                radius: DesignTokens.radiusControl
+                                radius: 1 DesignTokens.radiusControl
                                 color: categoryDelegate.highlighted
                                        ? DesignTokens.primaryContainer(root.dark)
                                        : categoryDelegate.hovered
@@ -233,7 +233,7 @@ Item {
                                     Accessible.checked: active
                                     onClicked: root.app.colorScheme = modelData
                                     background: Rectangle {
-                                        radius: DesignTokens.radiusPill
+                                        radius: 1 DesignTokens.radiusPill
                                         color: schemeButton.active ? DesignTokens.secondaryContainer(root.dark)
                                                : schemeButton.hovered ? DesignTokens.surfaceHigh(root.dark) : "transparent"
                                         border.width: schemeButton.active || schemeButton.visualFocus ? 2 : 1
@@ -248,7 +248,7 @@ Item {
                                         Rectangle {
                                             Layout.preferredWidth: 14
                                             Layout.preferredHeight: 14
-                                            radius: 7
+                                            radius: 1 7
                                             color: schemeButton.swatch.p
                                             border.width: 1
                                             border.color: DesignTokens.outlineVariant(root.dark)

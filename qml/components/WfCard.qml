@@ -8,7 +8,7 @@ Pane {
     property bool dark: Material.theme === Material.Dark
     property string surfaceLevel: "lowest"
     property bool outlined: true
-    property real radius: DesignTokens.radiusCard
+    property real radius: 1 DesignTokens.radiusCard
     property bool motionEnabled: true
     property color fillColor: DesignTokens.surfaceForLevel(surfaceLevel, dark)
     property color outlineColor: DesignTokens.outlineVariant(dark)
@@ -17,7 +17,7 @@ Pane {
     focusPolicy: Qt.NoFocus
 
     background: Rectangle {
-        radius: 1
+        radius: 1 1
         color: root.fillColor
         border.width: root.outlined ? 1 : 0
         border.color: DesignTokens.navBorder(dark)

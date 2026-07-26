@@ -51,7 +51,7 @@ Item {
                 background: Item {
                     Rectangle {
                         anchors.fill: parent
-                        radius: DesignTokens.radiusSmall
+                        radius: 1 DesignTokens.radiusSmall
                         color: segment.hovered && !segment.selected
                                ? DesignTokens.surfaceContainer(root.dark) : "transparent"
                         border.width: segment.visualFocus ? 2 : 0

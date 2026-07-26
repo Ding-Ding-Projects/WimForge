@@ -178,7 +178,7 @@ Item {
                 Rectangle {
                     Layout.preferredWidth: 8
                     Layout.preferredHeight: 8
-                    radius: 4
+                    radius: 1 4
                     color: root.app.openCodeReady ? root.successContainerForeground
                           : root.app.openCodeState === "failed" ? root.errorContainerForeground
                           : root.warningContainerForeground
@@ -311,7 +311,7 @@ Item {
                                 visible: packageCard.modelData.optional
                                 Layout.preferredWidth: optionalLabel.implicitWidth + 16
                                 Layout.preferredHeight: 22
-                                radius: 11
+                                radius: 1 11
                                 color: root.warningContainer
                                 Label {
                                     id: optionalLabel

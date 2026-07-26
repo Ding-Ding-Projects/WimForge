@@ -16,7 +16,7 @@ WfCard {
     implicitHeight: 140
     padding: DesignTokens.spacing16
     surfaceLevel: "lowest"
-    radius: DesignTokens.radiusCard
+    radius: 1 DesignTokens.radiusCard
     Accessible.name: eyebrow + ": " + value + ". " + detail
 
     ColumnLayout {
@@ -40,7 +40,7 @@ WfCard {
             Rectangle {
                 Layout.preferredWidth: 32
                 Layout.preferredHeight: 32
-                radius: DesignTokens.radiusControl
+                radius: 1 DesignTokens.radiusControl
                 color: Qt.rgba(root.effectiveAccent.r, root.effectiveAccent.g, root.effectiveAccent.b, 0.16)
                 Label {
                     anchors.centerIn: parent

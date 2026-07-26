@@ -83,7 +83,7 @@ Popup {
     }
 
     background: Rectangle {
-        radius: DesignTokens.radiusCard
+        radius: 1 DesignTokens.radiusCard
         color: DesignTokens.surfaceLow(root.dark)
         border.width: 1
         border.color: DesignTokens.outline(root.dark)
@@ -105,7 +105,7 @@ Popup {
             Rectangle {
                 Layout.preferredWidth: 36
                 Layout.preferredHeight: 36
-                radius: DesignTokens.radiusControl
+                radius: 1 DesignTokens.radiusControl
                 color: DesignTokens.primaryContainer(root.dark)
                 Label {
                     anchors.centerIn: parent
@@ -171,7 +171,7 @@ Popup {
                 width: actionList.width - actionList.leftMargin - actionList.rightMargin
                 padding: DesignTokens.spacing12
                 dark: root.dark
-                radius: DesignTokens.radiusCard
+                radius: 1 DesignTokens.radiusCard
                 surfaceLevel: effective ? "container" : "low"
                 outlined: modelData.destructive
                 outlineColor: root.errorColor
@@ -345,7 +345,7 @@ Popup {
             Layout.fillWidth: true
             padding: DesignTokens.spacing8
             dark: root.dark
-            radius: DesignTokens.radiusControl
+            radius: 1 DesignTokens.radiusControl
             fillColor: DesignTokens.primaryContainer(root.dark)
             outlineColor: DesignTokens.primary(root.dark)
 

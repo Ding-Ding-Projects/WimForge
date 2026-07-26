@@ -173,7 +173,7 @@ Item {
                 Rectangle {
                     Layout.preferredWidth: 8
                     Layout.preferredHeight: 8
-                    radius: 4
+                    radius: 1 4
                     color: root.terminal.errorString.length > 0
                            ? DesignTokens.error(root.dark)
                            : root.terminal.running
@@ -312,7 +312,7 @@ Item {
                     Rectangle {
                         Layout.preferredWidth: 8
                         Layout.preferredHeight: 8
-                        radius: 4
+                        radius: 1 4
                         color: root.terminal.running ? DesignTokens.secondary(true) : "#7D8590"
                     }
                     Label {
@@ -418,7 +418,7 @@ Item {
                             event.accepted = true
                         }
                         background: Rectangle {
-                            radius: DesignTokens.radiusControl
+                            radius: 1 DesignTokens.radiusControl
                             color: "#111820"
                             border.width: terminalInput.activeFocus ? 2 : 1
                             border.color: terminalInput.activeFocus ? "#79D6EC" : "#3B424C"

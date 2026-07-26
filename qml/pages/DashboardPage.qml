@@ -153,7 +153,7 @@ ScrollView {
                         onClicked: root.openPage(modelData.page)
 
                         background: Rectangle {
-                            radius: DesignTokens.radiusCard
+                            radius: 1 DesignTokens.radiusCard
                             color: workflowStep.hovered
                                    ? DesignTokens.surfaceContainer(root.dark)
                                    : DesignTokens.surfaceLowest(root.dark)
@@ -167,7 +167,7 @@ ScrollView {
                             Rectangle {
                                 Layout.preferredWidth: 30
                                 Layout.preferredHeight: 30
-                                radius: width / 2
+                                radius: 1 width / 2
                                 color: workflowStep.stepState === "done"
                                        ? DesignTokens.successContainer(root.dark)
                                        : workflowStep.stepState === "next" || workflowStep.stepState === "active"
@@ -251,7 +251,7 @@ ScrollView {
                             Rectangle {
                                 Layout.preferredWidth: 18
                                 Layout.preferredHeight: 18
-                                radius: 9
+                                radius: 1 9
                                 color: DesignTokens.successContainer(root.dark)
                                 Label {
                                     anchors.centerIn: parent
@@ -375,7 +375,7 @@ ScrollView {
                             Accessible.name: root.tr(modelData[0], modelData[1])
                             onClicked: root.openPage(modelData[2])
                             background: Rectangle {
-                                radius: DesignTokens.radiusCard
+                                radius: 1 DesignTokens.radiusCard
                                 color: screenLink.hovered
                                        ? DesignTokens.surfaceContainer(root.dark)
                                        : DesignTokens.surfaceLowest(root.dark)
@@ -436,7 +436,7 @@ ScrollView {
                 Rectangle {
                     Layout.preferredWidth: 28
                     Layout.preferredHeight: 28
-                    radius: DesignTokens.radiusControl
+                    radius: 1 DesignTokens.radiusControl
                     color: root.toneContainer(metric.tone)
                     WfIcon {
                         anchors.centerIn: parent

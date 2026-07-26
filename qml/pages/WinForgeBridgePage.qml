@@ -232,7 +232,7 @@ Item {
                             dark: root.dark
                             outlined: true
                             surfaceLevel: "low"
-                            radius: DesignTokens.radiusCard
+                            radius: 1 DesignTokens.radiusCard
                             outlineColor: actionCard.modelData.supported === false
                                           ? root.error
                                           : actionCard.modelData.enabled ? root.primary : root.outlineVariant
@@ -249,7 +249,7 @@ Item {
                                 Rectangle {
                                     Layout.preferredWidth: 42
                                     Layout.preferredHeight: 32
-                                    radius: DesignTokens.radiusControl
+                                    radius: 1 DesignTokens.radiusControl
                                     color: root.primaryContainer
                                     Label {
                                         anchors.centerIn: parent
@@ -561,7 +561,7 @@ Item {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         padding: DesignTokens.spacing20
         background: Rectangle {
-            radius: DesignTokens.radiusCard
+            radius: 1 DesignTokens.radiusCard
             color: root.surfaceLowest
             border.color: root.outlineVariant
         }
