@@ -264,7 +264,7 @@ ApplicationWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                spacing: 4
+                spacing: 0
 
                 Item {
                     Layout.fillWidth: true
@@ -277,7 +277,7 @@ ApplicationWindow {
                         anchors.horizontalCenter: root.compactNavigation ? parent.horizontalCenter : undefined
                         anchors.verticalCenter: parent.verticalCenter
                         width: 36
-                        height: 36
+                        height: 24
                         radius: 12
                         gradient: Gradient {
                             GradientStop { position: 0.0; color: DesignTokens.primaryContainer(root.darkTheme) }
@@ -332,7 +332,7 @@ ApplicationWindow {
 
                     Column {
                         width: navigationScroll.availableWidth
-                        spacing: 4
+                        spacing: 0
 
                         Repeater {
                             model: root.navigationItems
@@ -511,7 +511,7 @@ ApplicationWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: shortcutHint.implicitWidth + 14
                                 height: 20
-                                radius: 8 - 2
+                                radius: 1 - 2
                                 visible: !globalSearch.activeFocus && globalSearch.text.length === 0
                                 color: DesignTokens.surfaceHigh(root.darkTheme)
                                 border.width: 1
@@ -565,7 +565,7 @@ ApplicationWindow {
                                 visible: app.notificationUnreadCount > 0
                                 anchors.right: parent.right; anchors.top: parent.top
                                 anchors.rightMargin: 0; anchors.topMargin: 0
-                                width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 8
+                                width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 1
                                 color: root.errorBadgeColor
                                 Label { id: unread; anchors.centerIn: parent; text: app.notificationUnreadCount; color: DesignTokens.onError(root.darkTheme); font.family: DesignTokens.fontBody; font.pixelSize: 9; font.bold: true; Accessible.ignored: true }
                             }
@@ -747,7 +747,7 @@ ApplicationWindow {
                     }
                     RowLayout {
                         anchors.fill: parent
-                        spacing: 4
+                        spacing: 0
                         ScrollView {
                             id: workspaceTabsScroll
                             Layout.fillWidth: true
@@ -771,7 +771,7 @@ ApplicationWindow {
                             }
                             Row {
                                 height: workspaceTabsScroll.availableHeight
-                                spacing: 4
+                                spacing: 0
                                 Repeater {
                                     id: workspaceTabRepeater
                                     model: app.workspaceTabs
@@ -781,7 +781,7 @@ ApplicationWindow {
                                         required property int index
                                         height: 32
                                         width: Math.max(140, Math.min(280, tabTitle.implicitWidth + 76))
-                                        radius: 8
+                                        radius: 1
                                         color: index === app.activeWorkspaceTab
                                                ? DesignTokens.surfaceLowest(root.darkTheme)
                                                : tabHover.hovered ? DesignTokens.surfaceContainer(root.darkTheme) : "transparent"
@@ -810,7 +810,7 @@ ApplicationWindow {
                                         Rectangle {
                                             anchors.fill: parent
                                             anchors.margins: -2
-                                            radius: 8 + 2
+                                            radius: 1 + 2
                                             color: "transparent"
                                             border.width: workspaceTab.activeFocus ? 2 : 0
                                             border.color: DesignTokens.primary(root.darkTheme)
@@ -1107,7 +1107,7 @@ ApplicationWindow {
                     Rectangle {
                         Layout.preferredWidth: 46
                         Layout.preferredHeight: 38
-                        radius: 8
+                        radius: 1
                         color: fontColor.text.length > 0 ? fontColor.text : DesignTokens.surfaceContainer(root.darkTheme)
                         border.width: 1
                         border.color: DesignTokens.outline(root.darkTheme)

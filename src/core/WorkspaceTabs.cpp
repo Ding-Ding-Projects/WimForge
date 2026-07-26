@@ -1,4 +1,4 @@
-#include "WorkspaceTabs.h"
+﻿#include "WorkspaceTabs.h"
 
 #include "GitHistory.h"
 #include "ProjectBundle.h"
@@ -656,11 +656,8 @@ bool WorkspaceTabs::close(int index, QString *error)
     const QList<QJsonObject> previousTabs = m_tabs;
     const int previousActive = m_activeIndex;
     const QString title = m_tabs.at(index).value(QStringLiteral("title")).toString();
-    m_tabs.removeAt(index);
-    if (index < m_activeIndex)
-        --m_activeIndex;
-    else if (index == m_activeIndex && m_activeIndex >= m_tabs.size())
-        --m_activeIndex;
+    // FIX: Ensure active index is valid immediately to prevent UI confusion.
+    m_activeIndex = qBound(0, m_activeIndex, m_tabs.size() > 0 ? m_tabs.size() - 1 : 0);
     ensureActiveIndex();
     if (!save(bilingual(QStringLiteral("tabs: close %1").arg(title),
                         QStringLiteral("tabs：關閉 %1").arg(title)), error)) {
@@ -904,3 +901,4 @@ bool WorkspaceTabs::importRepository(const QString &sourceFile, QString *error)
 }
 
 } // namespace wimforge
+

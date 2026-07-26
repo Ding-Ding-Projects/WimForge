@@ -134,6 +134,11 @@ Release packages include the console-subsystem `WimForgeCli.exe`. The GUI binary
 
 CLI commands never wait for interactive terminal input. Destructive apply and software installation require `--yes`; without it they return the confirmation-required exit code. `--json` emits one deterministic JSON envelope. See [CLI](docs/wiki/CLI.md) and the detailed [CLI reference](docs/cli.md).
 
+## Recent updates
+
+- **Notification Deduplication**: The notification center now suppresses duplicate entries from the same source with similar titles within a 30-second window, keeping the tray cleaner and preventing spam on rapid events.
+- **nLite-Inspired UI Tightening**: Sidebar metrics, row heights, and radii have been tightened for a denser, sharper look while remaining fully compliant with Material Design 3 (M3).
+
 ## Requirements
 
 To run a release:
