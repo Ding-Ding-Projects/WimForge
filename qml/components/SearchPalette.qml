@@ -1,4 +1,4 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
@@ -19,6 +19,9 @@ Popup {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     function openForQuery(query) {
+        app.searchResults = []; // FIX: Clear stale results immediately to prevent confusion
+
+ {
         queryField.text = query
         open()
         queryField.forceActiveFocus()
@@ -32,13 +35,13 @@ Popup {
         close()
     }
 
-    onClosed: app.clearSearch()
+    onClosed: app.clearSearch(); app.searchResults = []
 
     background: Rectangle {
         radius: DesignTokens.radiusCard
         color: DesignTokens.surfaceLow(Material.theme === Material.Dark)
         border.width: 1
-        border.color: DesignTokens.outline(Material.theme === Material.Dark)
+        border.color: DesignTokens.navBorder(Material.theme === Material.Dark)
     }
 
     Timer {
@@ -214,3 +217,4 @@ Popup {
         }
     }
 }
+

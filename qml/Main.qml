@@ -1,4 +1,4 @@
-pragma ComponentBehavior: Bound
+﻿pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
@@ -278,7 +278,7 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 36
                         height: 24
-                        radius: 12
+                        radius: 02
                         gradient: Gradient {
                             GradientStop { position: 0.0; color: DesignTokens.primaryContainer(root.darkTheme) }
                             GradientStop { position: 1.0; color: DesignTokens.secondaryContainer(root.darkTheme) }
@@ -511,7 +511,7 @@ ApplicationWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: shortcutHint.implicitWidth + 14
                                 height: 20
-                                radius: 1 - 2
+                                radius: 0 - 2
                                 visible: !globalSearch.activeFocus && globalSearch.text.length === 0
                                 color: DesignTokens.surfaceHigh(root.darkTheme)
                                 border.width: 1
@@ -565,7 +565,7 @@ ApplicationWindow {
                                 visible: app.notificationUnreadCount > 0
                                 anchors.right: parent.right; anchors.top: parent.top
                                 anchors.rightMargin: 0; anchors.topMargin: 0
-                                width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 1
+                                width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 0
                                 color: root.errorBadgeColor
                                 Label { id: unread; anchors.centerIn: parent; text: app.notificationUnreadCount; color: DesignTokens.onError(root.darkTheme); font.family: DesignTokens.fontBody; font.pixelSize: 9; font.bold: true; Accessible.ignored: true }
                             }
@@ -721,7 +721,7 @@ ApplicationWindow {
                         Rectangle {
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            radius: 12
+                            radius: 02
                             color: DesignTokens.tertiary(root.darkTheme)
                             Label { anchors.centerIn: parent; text: "!"; font.family: DesignTokens.fontBody; font.weight: Font.Bold; color: DesignTokens.onTertiary(root.darkTheme) }
                         }
@@ -781,7 +781,7 @@ ApplicationWindow {
                                         required property int index
                                         height: 32
                                         width: Math.max(140, Math.min(280, tabTitle.implicitWidth + 76))
-                                        radius: 1
+                                        radius: 0
                                         color: index === app.activeWorkspaceTab
                                                ? DesignTokens.surfaceLowest(root.darkTheme)
                                                : tabHover.hovered ? DesignTokens.surfaceContainer(root.darkTheme) : "transparent"
@@ -810,7 +810,7 @@ ApplicationWindow {
                                         Rectangle {
                                             anchors.fill: parent
                                             anchors.margins: -2
-                                            radius: 1 + 2
+                                            radius: 0 + 2
                                             color: "transparent"
                                             border.width: workspaceTab.activeFocus ? 2 : 0
                                             border.color: DesignTokens.primary(root.darkTheme)
@@ -1107,7 +1107,7 @@ ApplicationWindow {
                     Rectangle {
                         Layout.preferredWidth: 46
                         Layout.preferredHeight: 38
-                        radius: 1
+                        radius: 0
                         color: fontColor.text.length > 0 ? fontColor.text : DesignTokens.surfaceContainer(root.darkTheme)
                         border.width: 1
                         border.color: DesignTokens.outline(root.darkTheme)
@@ -1147,7 +1147,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 46
-                radius: 10
+                radius: 00
                 color: DesignTokens.surfaceContainer(root.darkTheme)
                 Label {
                     anchors.centerIn: parent
@@ -1352,7 +1352,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 118
-                radius: 10
+                radius: 00
                 color: DesignTokens.surfaceContainer(root.darkTheme)
                 border.color: DesignTokens.outlineVariant(root.darkTheme)
                 ScrollView {
@@ -1742,3 +1742,4 @@ ApplicationWindow {
         }
     }
 }
+

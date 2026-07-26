@@ -28,14 +28,14 @@ QtObject {
 
     // Refined control metrics taken from the WimForge Material 3 design canvas.
     readonly property int radiusSmall: 10
-    readonly property int radiusControl: 12
-    readonly property int radiusCard: 2
-    readonly property int radiusPill: 6
+    readonly property int radiusControl: 1
+    readonly property int radiusCard: 1
+    readonly property int radiusPill: 2
     readonly property int navWidth: 240
     readonly property int navCompactWidth: 76
     readonly property int topBarHeight: 56
-    readonly property int controlHeight: 34
-    readonly property int fieldHeight: 40
+    readonly property int controlHeight: 28
+    readonly property int fieldHeight: 32
     readonly property int rowHeight: 38
 
     readonly property int spacing4: 4
@@ -122,9 +122,9 @@ QtObject {
 
     function navSurface(dark) { var p = _p(dark); return dark ? p.nav : p.sf1 }
     function navOn(dark) { return _p(dark).on }
-    function shade(navColor(dark), 0.9) { var p = _p(dark); return dark ? p.sf3 : p.sf2 }
+    function navBorder(dark) { var p = _p(dark); return dark ? p.sf3 : p.sf2 }
 
-    function navBorder(dark) { var p = _p(dark); return dark ? "#1c1e24" : p.olv }
+    function navBorder(dark) { var p = _p(dark); return dark ? "#13141a" : p.olv }
 
     function surfaceForLevel(level, dark) {
         if (level === "low") return surfaceLow(dark)
@@ -165,6 +165,8 @@ QtObject {
         return reducedMotion || enabled === false ? 0 : nominal
     }
 }
+
+
 
 
 

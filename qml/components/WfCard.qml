@@ -17,10 +17,10 @@ Pane {
     focusPolicy: Qt.NoFocus
 
     background: Rectangle {
-        radius: root.radius
+        radius: 1
         color: root.fillColor
         border.width: root.outlined ? 1 : 0
-        border.color: root.outlineColor
+        border.color: DesignTokens.navBorder(dark)
 
         Behavior on color {
             ColorAnimation {
@@ -30,4 +30,5 @@ Pane {
         }
     }
 }
+
 
