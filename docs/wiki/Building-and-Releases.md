@@ -2,6 +2,15 @@
 
 WimForge builds on Windows x64 with C++20, Qt 6.8.3, CMake, and MSVC. The repository produces a Material GUI (`WimForge.exe`) and a console CLI (`WimForgeCli.exe`).
 
+## One-click root builds
+
+From a fresh checkout, use `build.bat` for the runnable application or `build-installer.bat` for the unsigned installer and portable archive. Both routes delegate to `scripts/bootstrap-build.ps1`, so dependency discovery, repair, isolated source snapshots, packaging, and artifact verification remain in one implementation. `/s`, `--silent`, and `SILENT=1` select the non-interactive route and skip tests; they do not enable signing.
+
+```bat
+build.bat /s
+build-installer.bat /s
+```
+
 ## Development prerequisites
 
 - Windows x64

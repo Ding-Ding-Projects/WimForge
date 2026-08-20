@@ -169,6 +169,17 @@ On Windows 10/11 x64, the maintained bootstrap can inspect or repair that releas
 .\scripts\bootstrap-build.ps1
 ```
 
+The repository root also exposes the supported one-click entry points. Both call the same maintained bootstrap rather than copying its dependency or packaging logic:
+
+```bat
+build.bat
+build-installer.bat
+build.bat /s
+build-installer.bat /s
+```
+
+`/s`, `--silent`, or `SILENT=1` suppresses the final launch choice and skips the test phase while still building and validating the real unsigned release artifacts. Missing build tools are resolved by the bootstrap's existing allowlisted dependency repair. The installer remains unsigned and can trigger an unknown-publisher warning.
+
 Start the real run from a normal, non-administrator PowerShell session. Per-user Ninja/aqt repair happens under that original identity; the script requests UAC only when a bounded machine package-repair child is needed and passes it the already validated, signed WinGet path. That child exits before Qt archives are installed into the user profile or any repository, build, test, or packaging work begins, including when UAC uses separate administrator credentials. Automatic installation requires Microsoft App Installer/WinGet, network access, vendor availability, and adequate disk space. It refuses dirty source because a commit-only `build-info.json` could not describe such an artifact, builds from a unique local clone pinned to the verified commit so ignored files and stale outputs cannot leak into the release, never resets or cleans source, retains a transcript, and prints SHA-256 for the final installer and portable zip. WinGet package IDs are exact but catalog versions can change over time, so the log and hashes provide traceability rather than identical toolchains across dates. See [Building and Releases](docs/wiki/Building-and-Releases.md) and review the script before elevation.
 
 Using the Visual Studio generator:
