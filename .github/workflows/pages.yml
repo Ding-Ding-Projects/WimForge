@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/pages.yml
+      - scripts/apply-pages-noindex.mjs
       - assets/brand/wimforge-logo.png
       - assets/site/**
       - docs/**
@@ -62,9 +63,15 @@ jobs:
           cp -a website/. _site/
           cp assets/brand/wimforge-logo.png _site/assets/brand/wimforge-logo.png
           cp -a assets/site/. _site/assets/site/
+          # MkDocs copies its Jinja theme override into the built docs tree as
+          # a raw `.html` file; it is a template, not a user-facing page.
+          rm -rf _mkdocs-site/overrides
           cp -a _mkdocs-site/. _site/docs/
           rm -rf _site/tools
           touch _site/.nojekyll
+
+      - name: Exclude published pages from search indexing
+        run: node scripts/apply-pages-noindex.mjs _site
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
