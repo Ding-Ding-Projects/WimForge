@@ -56,6 +56,10 @@ The desktop interface is available in English, Hong Kong Cantonese, or a bilingu
 
 ## The core workflow
 
+Project folder pickers display native Windows paths with backslashes, including drive and UNC paths, while preserving spaces and Unicode names. Internal Qt path normalization is unchanged.
+
+工程資料夾 picker 會用 Windows 原生反斜線顯示路徑，包括磁碟機同 UNC 路徑，並保留空格同中文等 Unicode 名稱。Qt 內部整理路徑嘅做法保持不變。
+
 1. **Choose source** — create, open, or import a project, then choose a legally obtained Windows ISO, media folder, WIM, ESD, or SWM with the matching file/folder picker. Selection starts inspection automatically. A raw ISO is mounted read-only for DISM inventory, dismounted afterwards, and recorded by its stable internal `sources/install.*` path.
 2. **Customize** — review the detected architecture/version/build profile and automatic Update Catalog matches, then configure image changes in Customize, Group Policy Studio, Unattended Studio, Package Studio, and WinForge Bridge.
 3. **Review** — a generated plan is only **ready for review**, not reviewed or approved. Open **Review & Run** and inspect every executable, argument token, dependency, destructive flag, and bilingual description.

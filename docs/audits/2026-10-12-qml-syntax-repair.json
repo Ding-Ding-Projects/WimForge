@@ -1,0 +1,731 @@
+{
+  "baseline_commit": "11ccd2c611cc6017655f96f4c5ff024fb556286a",
+  "sharp_radius_intent_commit": "6d4bf187ba9946f0554ee3e314042e4811ec5ccd",
+  "description_en": "Exact expression-only repairs preserve the committed literal-1 sharp-corner intent. This receipt records source changes, not Windows GUI verification.",
+  "description_zh": "逐個表達式修正，保留已提交嘅 radius 1 銳角設計。呢份紀錄只記原始碼改動，唔代表已驗證 Windows GUI。",
+  "radius_repairs": [
+    {
+      "path": "qml/Main.qml",
+      "line": 281,
+      "source": "radius: 1 02",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 357,
+      "source": "radius: 1 DesignTokens.radiusPill",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 426,
+      "source": "background: Rectangle { radius: 1 DesignTokens.radiusCard; color: DesignTokens.surfaceContainer(root.darkTheme); border.color: DesignTokens.outlineVariant(root.darkTheme) }",
+      "replacement": "background: Rectangle { radius: 1; color: DesignTokens.surfaceContainer(root.darkTheme); border.color: DesignTokens.outlineVariant(root.darkTheme) }"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 476,
+      "source": "radius: 1 DesignTokens.radiusPill",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 514,
+      "source": "radius: 1 0 - 2",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 568,
+      "source": "width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 1 0",
+      "replacement": "width: Math.max(15, unread.implicitWidth + 6); height: 15; radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 656,
+      "source": "radius: 1 DesignTokens.radiusPill",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 668,
+      "source": "radius: 1 4",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 724,
+      "source": "radius: 1 02",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 784,
+      "source": "radius: 1 0",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 813,
+      "source": "radius: 1 0 + 2",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1072,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1110,
+      "source": "radius: 1 0",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1150,
+      "source": "radius: 1 00",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1257,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1355,
+      "source": "radius: 1 00",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1445,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1509,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1591,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1644,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/Main.qml",
+      "line": 1712,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ContextHistoryPanel.qml",
+      "line": 86,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ContextHistoryPanel.qml",
+      "line": 108,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ContextHistoryPanel.qml",
+      "line": 174,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ContextHistoryPanel.qml",
+      "line": 348,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/MetricCard.qml",
+      "line": 19,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/MetricCard.qml",
+      "line": 43,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/NotificationCenter.qml",
+      "line": 35,
+      "source": "radius: 1 DesignTokens.radiusPill",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/NotificationCenter.qml",
+      "line": 153,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/NotificationCenter.qml",
+      "line": 189,
+      "source": "radius: 1 5",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ProjectStartPage.qml",
+      "line": 56,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ProjectStartPage.qml",
+      "line": 180,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ProjectStartPage.qml",
+      "line": 198,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ProjectStartPage.qml",
+      "line": 345,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/ProjectStartPage.qml",
+      "line": 363,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/SearchPalette.qml",
+      "line": 41,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/SearchPalette.qml",
+      "line": 97,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/SearchPalette.qml",
+      "line": 149,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/Snackbar.qml",
+      "line": 39,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/UpdateCatalogSheet.qml",
+      "line": 48,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/UpdateCatalogSheet.qml",
+      "line": 151,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/UpdateCatalogSheet.qml",
+      "line": 174,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfButton.qml",
+      "line": 91,
+      "source": "radius: 1 1: DesignTokens.radius: 1 1Pill",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfButton.qml",
+      "line": 106,
+      "source": "radius: 1 1: DesignTokens.radius: 1 1Pill + 3",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfCard.qml",
+      "line": 11,
+      "source": "property real radius: 1 DesignTokens.radiusCard",
+      "replacement": "property real radius: 1"
+    },
+    {
+      "path": "qml/components/WfCard.qml",
+      "line": 20,
+      "source": "radius: 1 1",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfField.qml",
+      "line": 90,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfIconButton.qml",
+      "line": 55,
+      "source": "radius: 1 width / 2",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfIconButton.qml",
+      "line": 68,
+      "source": "radius: 1 width / 2",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfStatusChip.qml",
+      "line": 31,
+      "source": "radius: 1 3",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfStatusChip.qml",
+      "line": 48,
+      "source": "radius: 1 DesignTokens.radiusPill",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/components/WfTabBar.qml",
+      "line": 54,
+      "source": "radius: 1 DesignTokens.radiusSmall",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 82,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 89,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 253,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 474,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 488,
+      "source": "radius: 1 4",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 659,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 797,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 957,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 1043,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/CustomizePage.qml",
+      "line": 1285,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/DashboardPage.qml",
+      "line": 156,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/DashboardPage.qml",
+      "line": 170,
+      "source": "radius: 1 width / 2",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/DashboardPage.qml",
+      "line": 254,
+      "source": "radius: 1 9",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/DashboardPage.qml",
+      "line": 378,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/DashboardPage.qml",
+      "line": 439,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/GpoStudioPage.qml",
+      "line": 412,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/GpoStudioPage.qml",
+      "line": 455,
+      "source": "radius: 1 8",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/GpoStudioPage.qml",
+      "line": 462,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/GpoStudioPage.qml",
+      "line": 535,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/GpoStudioPage.qml",
+      "line": 586,
+      "source": "radius: 1 14",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/GpoStudioPage.qml",
+      "line": 859,
+      "source": "radius: 1 0",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/GpoStudioPage.qml",
+      "line": 1010,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/GpoStudioPage.qml",
+      "line": 1106,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/HistoryPage.qml",
+      "line": 189,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/HistoryPage.qml",
+      "line": 399,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/HistoryPage.qml",
+      "line": 459,
+      "source": "radius: 1 4",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/HistoryPage.qml",
+      "line": 600,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/HistoryPage.qml",
+      "line": 639,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/HistoryPage.qml",
+      "line": 680,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/HistoryPage.qml",
+      "line": 692,
+      "source": "radius: 1 12",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/HistoryPage.qml",
+      "line": 756,
+      "source": "Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 1 3; color: root.success }",
+      "replacement": "Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 1; color: root.success }"
+    },
+    {
+      "path": "qml/pages/PackageStudioPage.qml",
+      "line": 181,
+      "source": "radius: 1 4",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/PackageStudioPage.qml",
+      "line": 314,
+      "source": "radius: 1 11",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/PlanPage.qml",
+      "line": 212,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/PlanPage.qml",
+      "line": 250,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/SettingsPage.qml",
+      "line": 125,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/SettingsPage.qml",
+      "line": 236,
+      "source": "radius: 1 DesignTokens.radiusPill",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/SettingsPage.qml",
+      "line": 251,
+      "source": "radius: 1 7",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/SourcePage.qml",
+      "line": 101,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/SourcePage.qml",
+      "line": 169,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/TerminalPage.qml",
+      "line": 176,
+      "source": "radius: 1 4",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/TerminalPage.qml",
+      "line": 315,
+      "source": "radius: 1 4",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/TerminalPage.qml",
+      "line": 421,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 550,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 564,
+      "source": "radius: 1 4",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 687,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 722,
+      "source": "radius: 1 5",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 1023,
+      "source": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: root.value(modelData, \"current\", false) ? root.successText : DesignTokens.outline(root.dark) }",
+      "replacement": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1; color: root.value(modelData, \"current\", false) ? root.successText : DesignTokens.outline(root.dark) }"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 1058,
+      "source": "Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4",
+      "replacement": "Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 1666,
+      "source": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: DesignTokens.secondary(root.dark) }",
+      "replacement": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1; color: DesignTokens.secondary(root.dark) }"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 1818,
+      "source": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: DesignTokens.secondary(root.dark) }",
+      "replacement": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1; color: DesignTokens.secondary(root.dark) }"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 1950,
+      "source": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: DesignTokens.secondary(root.dark) }",
+      "replacement": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1; color: DesignTokens.secondary(root.dark) }"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 2107,
+      "source": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4; color: root.value(snapshotDelegate.modelData, \"current\", false) ? root.successText : DesignTokens.outline(root.dark) }",
+      "replacement": "Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1; color: root.value(snapshotDelegate.modelData, \"current\", false) ? root.successText : DesignTokens.outline(root.dark) }"
+    },
+    {
+      "path": "qml/pages/VmLabPage.qml",
+      "line": 2269,
+      "source": "Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1 4",
+      "replacement": "Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 1"
+    },
+    {
+      "path": "qml/pages/WinForgeBridgePage.qml",
+      "line": 235,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/WinForgeBridgePage.qml",
+      "line": 252,
+      "source": "radius: 1 DesignTokens.radiusControl",
+      "replacement": "radius: 1"
+    },
+    {
+      "path": "qml/pages/WinForgeBridgePage.qml",
+      "line": 564,
+      "source": "radius: 1 DesignTokens.radiusCard",
+      "replacement": "radius: 1"
+    }
+  ],
+  "additional_repairs": [
+    {
+      "path": "qml/components/SearchPalette.qml",
+      "original": "app.searchResults = []; plus an extra opening brace",
+      "replacement": "app.clearSearch()",
+      "reason_en": "searchResults is read-only; clearSearch clears query and results and emits searchChanged.",
+      "reason_zh": "searchResults 係唯讀；clearSearch 會清除查詢同結果，並發出 searchChanged。"
+    },
+    {
+      "path": "qml/components/SearchPalette.qml",
+      "original": "onClosed: app.clearSearch(); app.searchResults = []",
+      "replacement": "onClosed: app.clearSearch()",
+      "reason_en": "Keep the existing reset API in a valid single-statement handler.",
+      "reason_zh": "喺有效嘅單句 handler 保留原有 reset API。"
+    },
+    {
+      "path": "qml/components/DesignTokens.qml",
+      "original": "first function navBorder(dark), returning p.sf3/p.sf2",
+      "replacement": "function navHover(dark), unchanged body",
+      "reason_en": "Restore the historical helper required by the current navigation-hover call site; keep the separate border helper unchanged.",
+      "reason_zh": "還原現有導航 hover 呼叫需要嘅舊 helper 名稱；獨立 border helper 保持不變。"
+    }
+  ],
+  "token_assertion_provenance": {
+    "intentional_metric_commits": [
+      "440daa19bec214cb9107893bf818576d581bdc93",
+      "49de1c031c31646c0f2740661f1c02eac0b677ad",
+      "16e277da51a78625342c3ad66df68752046f6b8d"
+    ],
+    "old_to_current": {
+      "radiusControl": [
+        12,
+        1
+      ],
+      "radiusCard": [
+        18,
+        1
+      ],
+      "radiusPill": [
+        22,
+        2
+      ],
+      "navWidth": [
+        260,
+        240
+      ],
+      "topBarHeight": [
+        64,
+        56
+      ],
+      "controlHeight": [
+        40,
+        28
+      ],
+      "fieldHeight": [
+        44,
+        32
+      ],
+      "rowHeight": [
+        44,
+        38
+      ]
+    }
+  },
+  "verification_at_preparation": {
+    "source_contract": "109 bindings in 25 files passed; 50 mutation/deletion cases rejected; restored source passed",
+    "qml_parser": "not run: qmlformat unavailable",
+    "windows_gui_build_and_picker_capture": "not run: no Windows executor"
+  }
+}

@@ -36,7 +36,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: 1 DesignTokens.radiusCard
+        radius: 1
         color: root.toneBackground
         border.color: root.toneBorder
 

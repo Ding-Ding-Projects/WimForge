@@ -1,4 +1,5 @@
 #include "AppController.h"
+#include "core/FileDialogPath.h"
 #include "core/GpoPolicyCompiler.h"
 #include "core/ImageSourceInspector.h"
 #include "core/PayloadCatalog.h"
@@ -6614,9 +6615,7 @@ bool AppController::cancelVmAction()
 
 QString AppController::pathFromUrl(const QUrl &url) const
 {
-    if (url.isLocalFile())
-        return QDir::cleanPath(url.toLocalFile());
-    return QDir::cleanPath(url.toString(QUrl::PreferLocalFile));
+    return pathFromFileDialogUrl(url);
 }
 
 bool AppController::openWorkspacePage(int page, const QString &defaultTitle)

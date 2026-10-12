@@ -400,6 +400,11 @@ int main(int argc, char *argv[])
     test.check(QRegularExpression(QStringLiteral(R"(\bpragma\s+Singleton\b)"))
                    .match(designTokens).hasMatch(),
                QStringLiteral("DesignTokens must remain a QML singleton"));
+    test.check(matchCount(designTokens, QRegularExpression(QStringLiteral(
+                   R"(\bfunction\s+navHover\s*\()"))) == 1
+                   && matchCount(designTokens, QRegularExpression(QStringLiteral(
+                       R"(\bfunction\s+navBorder\s*\()"))) == 1,
+               QStringLiteral("navigation hover and border helpers must have distinct declarations"));
     const QList<QStringList> expectedTokens{
         {QStringLiteral("string"), QStringLiteral("fontDisplay"),
          QStringLiteral("\"Segoe UI Variable Display\"")},
@@ -407,15 +412,17 @@ int main(int argc, char *argv[])
          QStringLiteral("\"Segoe UI Variable Text\"")},
         {QStringLiteral("string"), QStringLiteral("fontMono"),
          QStringLiteral("\"Cascadia Mono\"")},
-        {QStringLiteral("int"), QStringLiteral("radiusControl"), QStringLiteral("12")},
-        {QStringLiteral("int"), QStringLiteral("radiusCard"), QStringLiteral("18")},
-        {QStringLiteral("int"), QStringLiteral("radiusPill"), QStringLiteral("22")},
-        {QStringLiteral("int"), QStringLiteral("navWidth"), QStringLiteral("260")},
+        // Preserve the sharp/dense metrics deliberately committed on July 26
+        // in 440daa19 and 16e277da; syntax repairs do not redesign the tokens.
+        {QStringLiteral("int"), QStringLiteral("radiusControl"), QStringLiteral("1")},
+        {QStringLiteral("int"), QStringLiteral("radiusCard"), QStringLiteral("1")},
+        {QStringLiteral("int"), QStringLiteral("radiusPill"), QStringLiteral("2")},
+        {QStringLiteral("int"), QStringLiteral("navWidth"), QStringLiteral("240")},
         {QStringLiteral("int"), QStringLiteral("navCompactWidth"), QStringLiteral("76")},
-        {QStringLiteral("int"), QStringLiteral("topBarHeight"), QStringLiteral("64")},
-        {QStringLiteral("int"), QStringLiteral("controlHeight"), QStringLiteral("40")},
-        {QStringLiteral("int"), QStringLiteral("fieldHeight"), QStringLiteral("44")},
-        {QStringLiteral("int"), QStringLiteral("rowHeight"), QStringLiteral("44")},
+        {QStringLiteral("int"), QStringLiteral("topBarHeight"), QStringLiteral("56")},
+        {QStringLiteral("int"), QStringLiteral("controlHeight"), QStringLiteral("28")},
+        {QStringLiteral("int"), QStringLiteral("fieldHeight"), QStringLiteral("32")},
+        {QStringLiteral("int"), QStringLiteral("rowHeight"), QStringLiteral("38")},
         {QStringLiteral("int"), QStringLiteral("spacing4"), QStringLiteral("4")},
         {QStringLiteral("int"), QStringLiteral("spacing8"), QStringLiteral("8")},
         {QStringLiteral("int"), QStringLiteral("spacing12"), QStringLiteral("12")},
@@ -604,6 +611,16 @@ int main(int argc, char *argv[])
 
     const QString controllerSource = readText(
         sourceRoot + QStringLiteral("/src/AppController.cpp"), &test);
+    test.check(QRegularExpression(QStringLiteral(
+                   R"re(QString AppController::pathFromUrl\(const QUrl &url\) const\s*\{\s*return pathFromFileDialogUrl\(url\);\s*\})re"))
+                   .match(withoutComments(controllerSource)).hasMatch()
+                   && mainPolicyText.contains(QStringLiteral(
+                       "onAccepted: projectRoot.text = app.pathFromUrl(selectedFolder)"))
+                   && mainPolicyText.contains(QStringLiteral(
+                       "onAccepted: openPath.text = app.pathFromUrl(selectedFolder)"))
+                   && mainPolicyText.contains(QStringLiteral(
+                       "onAccepted: importDestination.text = app.pathFromUrl(selectedFolder)")),
+               QStringLiteral("project folder pickers must use the tested native-path conversion"));
     test.check(controllerHeader.contains(QStringLiteral("Q_PROPERTY(QVariantList recentProjects"))
                    && controllerHeader.contains(QStringLiteral("removeRecentProject"))
                    && controllerHeader.contains(QStringLiteral("clearRecentProjects")),
@@ -880,6 +897,17 @@ int main(int argc, char *argv[])
 
     const QString searchPalette = readText(
         sourceRoot + QStringLiteral("/qml/components/SearchPalette.qml"), &test);
+    const QString searchPaletteCode = withoutComments(searchPalette);
+    test.check(QRegularExpression(QStringLiteral(
+                   R"re(function openForQuery\(query\)\s*\{\s*app\.clearSearch\(\)\s+queryField\.text = query\s+open\(\)\s+queryField\.forceActiveFocus\(\)\s+queryField\.selectAll\(\)\s*\})re"))
+                   .match(searchPaletteCode).hasMatch()
+                   && QRegularExpression(QStringLiteral(
+                       R"(\bonClosed:\s*app\.clearSearch\(\)\s*[\r\n])"))
+                       .match(searchPaletteCode).hasMatch()
+                   && !QRegularExpression(QStringLiteral(
+                       R"(\bapp\.searchResults\s*=)"))
+                       .match(searchPaletteCode).hasMatch(),
+               QStringLiteral("search palette must reset through the existing API in valid handlers"));
     test.check(searchPalette.contains(QStringLiteral("function activateCurrentResult()"))
                    && searchPalette.contains(QStringLiteral("resultList.currentIndex"))
                    && searchPalette.contains(QStringLiteral("root.activateCurrentResult()"))

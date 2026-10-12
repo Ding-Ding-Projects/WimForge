@@ -52,7 +52,7 @@ AbstractButton {
     background: Item {
         Rectangle {
             anchors.fill: parent
-            radius: 1 width / 2
+            radius: 1
             color: root.stateBackground
 
             Behavior on color {
@@ -65,7 +65,7 @@ AbstractButton {
         Rectangle {
             anchors.fill: parent
             anchors.margins: -3
-            radius: 1 width / 2
+            radius: 1
             color: "transparent"
             border.width: 2
             border.color: DesignTokens.primary(root.dark)

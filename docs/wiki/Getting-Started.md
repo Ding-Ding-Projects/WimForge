@@ -42,6 +42,10 @@ This modifies the host's global Node/npm tool set under the elevated desktop tok
 3. WimForge initializes `project.json`, `.wimforge/action-history.jsonl`, the project `.git`, and a dedicated `.wimforge/tabs/.git` repository for browser-style workspace tabs.
 4. The Source page opens.
 
+Project folder pickers display native Windows paths with backslashes, including drive and UNC paths. Spaces and Unicode names are preserved. WimForge still normalizes paths internally for Qt's file APIs.
+
+工程資料夾 picker 會用 Windows 原生反斜線顯示路徑，包括磁碟機同 UNC 路徑。空格同中文等 Unicode 名稱會保留；WimForge 內部仍然會按 Qt 檔案 API 嘅需要整理路徑。
+
 The creation sheet is an in-app, non-modal Material popup. Creating, opening, importing, and exporting projects run in the background, so the shell remains responsive while Git and bundle work completes. The project rail reports the current background step and progress.
 
 工程 sheet 係 app 內非 modal Material popup。建立、開啟、匯入同匯出工程會喺後台做，所以 Git 或 bundle 仲處理緊時，介面仍然可以回應。工程 rail 會顯示而家做緊邊一步同進度。

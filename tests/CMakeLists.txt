@@ -53,6 +53,10 @@ wimforge_add_core_test(process_launch_tests
     SOURCES process_launch_tests.cpp
 )
 
+wimforge_add_core_test(file_dialog_path_tests
+    SOURCES file_dialog_path_tests.cpp
+)
+
 wimforge_add_core_test(structured_logger_tests
     SOURCES structured_logger_tests.cpp
     CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/StructuredLogger.cpp
@@ -225,6 +229,22 @@ wimforge_add_core_test(cli_runner_tests
 )
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+if(NOT WIMFORGE_CLI_ONLY)
+    add_test(
+        NAME qml_syntax_contract_tests
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/qml_syntax_contract_tests.py
+            --repo-root ${PROJECT_SOURCE_DIR}
+            --self-test
+            --require-parser
+    )
+    set_tests_properties(qml_syntax_contract_tests PROPERTIES
+        ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+        LABELS "qml;source"
+        TIMEOUT 120
+    )
+endif()
 if(NOT WIMFORGE_CLI_ONLY)
     add_test(
         NAME repository_publication_contract_tests

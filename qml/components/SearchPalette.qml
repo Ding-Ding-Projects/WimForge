@@ -19,9 +19,7 @@ Popup {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     function openForQuery(query) {
-        app.searchResults = []; // FIX: Clear stale results immediately to prevent confusion
-
- {
+        app.clearSearch()
         queryField.text = query
         open()
         queryField.forceActiveFocus()
@@ -35,10 +33,10 @@ Popup {
         close()
     }
 
-    onClosed: app.clearSearch(); app.searchResults = []
+    onClosed: app.clearSearch()
 
     background: Rectangle {
-        radius: 1 DesignTokens.radiusCard
+        radius: 1
         color: DesignTokens.surfaceLow(Material.theme === Material.Dark)
         border.width: 1
         border.color: DesignTokens.navBorder(Material.theme === Material.Dark)
@@ -94,7 +92,7 @@ Popup {
                     }
                 }
                 background: Rectangle {
-                    radius: 1 DesignTokens.radiusControl
+                    radius: 1
                     color: DesignTokens.surfaceLowest(Material.theme === Material.Dark)
                     border.width: queryField.activeFocus ? 2 : 1
                     border.color: queryField.activeFocus
@@ -146,7 +144,7 @@ Popup {
             }
             highlightMoveDuration: DesignTokens.motionDuration(100, app.motionEnabled)
             highlight: Rectangle {
-                radius: 1 DesignTokens.radiusControl
+                radius: 1
                 color: DesignTokens.primaryContainer(Material.theme === Material.Dark)
             }
 

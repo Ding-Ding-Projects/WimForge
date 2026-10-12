@@ -209,7 +209,7 @@ Item {
                     Rectangle {
                         Layout.preferredWidth: 64
                         Layout.preferredHeight: 34
-                        radius: 1 DesignTokens.radiusControl
+                        radius: 1
                         color: DesignTokens.toneContainer(root.statusTone(operationCard.modelData.status), root.dark)
                         border.width: 1
                         border.color: DesignTokens.toneStrong(root.statusTone(operationCard.modelData.status), root.dark)
@@ -247,7 +247,7 @@ Item {
                         Rectangle {
                             Layout.fillWidth: true
                             implicitHeight: commandLabel.implicitHeight + DesignTokens.spacing12
-                            radius: 1 DesignTokens.radiusControl
+                            radius: 1
                             color: DesignTokens.surfaceDim(root.dark)
                             Label {
                                 id: commandLabel

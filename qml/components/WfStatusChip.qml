@@ -28,7 +28,7 @@ Control {
             visible: root.showDot
             width: 6
             height: 6
-            radius: 1 3
+            radius: 1
             anchors.verticalCenter: parent.verticalCenter
             color: DesignTokens.toneStrong(root.tone, root.dark)
             Accessible.ignored: true
@@ -45,7 +45,7 @@ Control {
     }
 
     background: Rectangle {
-        radius: 1 DesignTokens.radiusPill
+        radius: 1
         color: DesignTokens.toneContainer(root.tone, root.dark)
     }
 }

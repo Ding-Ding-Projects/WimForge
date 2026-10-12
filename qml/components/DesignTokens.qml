@@ -122,7 +122,7 @@ QtObject {
 
     function navSurface(dark) { var p = _p(dark); return dark ? p.nav : p.sf1 }
     function navOn(dark) { return _p(dark).on }
-    function navBorder(dark) { var p = _p(dark); return dark ? p.sf3 : p.sf2 }
+    function navHover(dark) { var p = _p(dark); return dark ? p.sf3 : p.sf2 }
 
     function navBorder(dark) { var p = _p(dark); return dark ? "#13141a" : p.olv }
 
